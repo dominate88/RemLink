@@ -23,7 +23,7 @@ import (
 
 const (
 	upgradeRepoOwner = "wsczx"
-	upgradeRepoName  = "remlink"
+	upgradeRepoName  = "RemLink"
 )
 
 type ReleaseInfo struct {
