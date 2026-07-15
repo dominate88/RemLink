@@ -4,7 +4,7 @@
 ![GitHub downloads](https://img.shields.io/github/downloads/wsczx/remlink/total)
 [![Docker pulls](https://img.shields.io/docker/pulls/wsczx/remlink.svg)](https://hub.docker.com/r/wsczx/remlink)
 
-RemLink 项目在 AnyLink 基础上深度重构，是一个企业级远程办公 SSL VPN 软件，可以支持多人同时在线使用。
+RemLink 项目在 [AnyLink](https://github.com/bjdgyc/anylink) 基础上深度重构，是一个企业级远程办公 SSL VPN 软件，可以支持多人同时在线使用。感谢原作者 [bjdgyc](https://github.com/bjdgyc) 的开源贡献。
 
 使用 RemLink，你可以随时随地安全的访问你的内部网络。
 
