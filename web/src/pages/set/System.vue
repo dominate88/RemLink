@@ -325,6 +325,7 @@ export default {
 
       const self = this;
       fetch(url, {
+        method: 'POST',
         credentials: 'include',
       }).then(response => {
         if (!response.ok) {
