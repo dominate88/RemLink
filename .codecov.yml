@@ -1,7 +1,0 @@
-ignore:
-  - "^doc"
-  - "^home"
-  - "^web"
-  - "^server/conf"
-  - "^server/files"
-

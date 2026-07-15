@@ -8,6 +8,7 @@ remlink.db
 
 dist
 artifact-dist
+version_info
 
 remlink_amd64
 remlink_arm64
