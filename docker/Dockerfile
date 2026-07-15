@@ -47,9 +47,8 @@ WORKDIR /app
 COPY docker/init_release.sh /tmp/
 
 COPY --from=builder_golang /server/remlink  /app/
-COPY docker/docker_entrypoint.sh server/bridge-init.sh ./README.md ./LICENSE version_info /app/
+COPY docker/docker_entrypoint.sh server/bridge-init.sh ./README.md ./LICENSE /app/
 COPY ./deploy /app/deploy
-COPY ./index_template  /app/index_template
 # 通过 .dockerignore 处理
 # COPY ./server/conf  /app/conf
 
