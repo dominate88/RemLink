@@ -503,7 +503,7 @@ export default {
         } else {
           this.$message.error(resp.data.msg)
         }
-      }).catch(() => {
+      }).catch((err) => {
         var msg = ''
         try { msg = err.response && err.response.data && err.response.data.msg } catch (e) { /* empty */ }
         this.$message.error(msg || '请求出错')
@@ -527,7 +527,7 @@ export default {
         } else {
           this.$message.error(resp.data.msg)
         }
-      }).catch(() => {
+      }).catch((err) => {
         var msg = ''
         try { msg = err.response && err.response.data && err.response.data.msg } catch (e) { /* empty */ }
         this.$message.error(msg || '请求出错')
@@ -590,7 +590,7 @@ export default {
         } else {
           this.$message.error(resp.data.msg || '启用加密失败')
         }
-      }).catch(() => {
+      }).catch((err) => {
         var msg = ''
         try { msg = err.response && err.response.data && err.response.data.msg } catch (e) { /* empty */ }
         this.$message.error(msg || '请求出错')
@@ -621,7 +621,7 @@ export default {
         } else {
           this.$message.error(resp.data.msg || '导入密钥失败')
         }
-      }).catch(() => {
+      }).catch((err) => {
         var msg = ''
         try { msg = err.response && err.response.data && err.response.data.msg } catch (e) { /* empty */ }
         this.$message.error(msg || '请求出错')
@@ -656,7 +656,7 @@ export default {
           } else {
             this.$message.error(resp.data.msg || '关闭加密失败')
           }
-        }).catch(() => {
+        }).catch((err) => {
           var msg = ''
           try { msg = err.response && err.response.data && err.response.data.msg } catch (e) { /* empty */ }
           this.$message.error(msg || '请求出错')

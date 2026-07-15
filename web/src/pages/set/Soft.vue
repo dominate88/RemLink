@@ -610,7 +610,7 @@ export default {
         axios.post('/set/restart').then(() => {
           this.$message.success('重启指令已发送，页面将自动刷新')
           this.waitForRestart()
-        }).catch(() => {
+        }).catch((err) => {
           this.restart_loading = false
           this.showApiError(err, '重启失败');
         })
