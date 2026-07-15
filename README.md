@@ -32,12 +32,7 @@ tun/tap
 
 ## 支持与打赏
 
-> 如果您觉得 RemLink 对您有帮助，欢迎打赏支持项目持续开发。
-
-<p>
-    <img src="https://img.wsczx.com/weixinshoukuan.jpg" width="400" />
-    <img src="https://img.wsczx.com/zhifubaoshoukuan.jpg" width="400" />
-</p>
+> 如果您觉得 RemLink 对您有帮助，欢迎打赏支持项目持续开发。请[点击这里](https://github.com/wsczx/RemLink/blob/main/.github/FUNDING.md)查看打赏二维码。
 
 ## Installation
 
