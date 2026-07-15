@@ -104,14 +104,24 @@ func CheckUpdate() (*ReleaseInfo, bool, error) {
 	for i := range gr.Assets {
 		a := &gr.Assets[i]
 		name := strings.ToLower(a.Name)
-		if strings.Contains(name, currentOS) && strings.Contains(name, currentArch) {
-			downloadAsset = a
+		if strings.Contains(name, currentOS) && strings.Contains(name, currentArch) && !strings.HasSuffix(name, ".sha256") {
+			downloadAsset = &gr.Assets[i]
 			break
 		}
 	}
 
 	if downloadAsset == nil {
 		return nil, false, fmt.Errorf("未找到适用于当前平台 %s-%s 的下载资源", currentOS, currentArch)
+	}
+
+	// 查找与下载包同名的 .sha256 校验文件
+	var checksumURL string
+	for i := range gr.Assets {
+		a := &gr.Assets[i]
+		if strings.EqualFold(a.Name, downloadAsset.Name+".sha256") {
+			checksumURL = a.BrowserDownloadURL
+			break
+		}
 	}
 
 	latestVersion := strings.TrimPrefix(gr.TagName, "v")
@@ -124,6 +134,13 @@ func CheckUpdate() (*ReleaseInfo, bool, error) {
 		URL:         downloadAsset.BrowserDownloadURL,
 		Size:        downloadAsset.Size,
 		PublishedAt: gr.PublishedAt,
+	}
+
+	// 下载 SHA256 校验文件
+	if checksumURL != "" {
+		if sum, err := fetchChecksum(checksumURL); err == nil {
+			ri.Checksum = sum
+		}
 	}
 
 	return ri, needUpgrade, nil
@@ -327,6 +344,33 @@ func extractBinary(tarGzPath string) (string, error) {
 	}
 
 	return "", fmt.Errorf("压缩包中未找到 remlink 可执行文件")
+}
+
+// 下载 SHA256 校验文件并返回校验值（sha256sum 输出格式：<hash>  <filename>）
+func fetchChecksum(url string) (string, error) {
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("下载校验文件失败: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("校验文件 HTTP 状态码: %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("读取校验文件失败: %w", err)
+	}
+	// sha256sum 输出格式: "<64位hash>  filename" 或 "<64位hash> filename"
+	sum := strings.TrimSpace(string(body))
+	if idx := strings.IndexByte(sum, ' '); idx > 0 {
+		sum = sum[:idx]
+	}
+	sum = strings.TrimSpace(sum)
+	if len(sum) != 64 {
+		return "", fmt.Errorf("校验文件格式异常: %s", sum)
+	}
+	return sum, nil
 }
 
 // 校验 SHA256
