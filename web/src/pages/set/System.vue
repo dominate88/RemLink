@@ -328,8 +328,13 @@ export default {
         credentials: 'include',
       }).then(response => {
         if (!response.ok) {
-          return response.json().then(data => {
-            throw new Error(data.msg || '升级请求失败');
+          // 401 等错误时响应体可能为空，安全解析
+          return response.text().then(text => {
+            let msg = '升级请求失败';
+            if (text) {
+              try { msg = JSON.parse(text).msg || msg; } catch (e) { /* ignore */ }
+            }
+            throw new Error(msg);
           });
         }
 
