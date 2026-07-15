@@ -6,12 +6,6 @@ remlink-deploy-*
 remlink
 remlink.db
 
-# 旧名残留二进制（改名前误提交，必须忽略）
-anylink
-anylink-deploy
-anylink-deploy-*
-server/anylink
-
 dist
 artifact-dist
 

@@ -57,7 +57,7 @@ tun/tap
 >
 > 群共享文件有相关客户端软件下载，其他版本没有测试过，不保证使用正常
 >
-> 其他问题 [前往查看](doc/question.md)
+> 其他问题 [前往查看](https://github.com/wsczx/RemLink/blob/main/doc/question.md)
 >
 > 默认管理后台访问地址  https://host:8800 或 https://域名:8800
 >
@@ -555,7 +555,7 @@ ipv4_end = "10.1.2.200"
 
 ## 常见问题
 
-请前往 [问题地址](doc/question.md) 查看具体信息
+请前往 [常见问题文档](https://github.com/wsczx/RemLink/blob/main/doc/question.md) 查看具体信息
 
 ## Support Document
 
