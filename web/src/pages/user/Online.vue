@@ -179,7 +179,7 @@ export default {
           axios.post('/user/reline?token=' + row.token).then(resp => {
             if (resp.data.code === 0) { this.$message.success(resp.data.msg); this.getData(); }
             else { this.$message.error(resp.data.msg); }
-          }).catch(() => { this.$message.error('请求出错'); });
+          }).catch((err) => { this.$message.error('请求出错'); });
           break;
         case 'offline':
           this.$confirm('确定要将该用户下线吗？', '下线确认', {
@@ -189,7 +189,7 @@ export default {
             axios.post('/user/offline?token=' + row.token).then(resp => {
               if (resp.data.code === 0) { this.$message.success(resp.data.msg); this.getData(); }
               else { this.$message.error(resp.data.msg); }
-            }).catch(() => { this.$message.error('请求出错'); });
+            }).catch((err) => { this.$message.error('请求出错'); });
           });
           break;
       }
@@ -216,7 +216,7 @@ export default {
       }).then(resp => {
         this.tableData = resp.data.data.datas || [];
         this.loading = false;
-      }).catch(() => { this.$message.error('请求出错'); this.loading = false; });
+      }).catch((err) => { this.$message.error('请求出错'); this.loading = false; });
     },
   },
 }

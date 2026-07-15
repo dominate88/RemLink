@@ -556,7 +556,7 @@ export default {
             this.ipv4_edit[item.name] = item.data
           }
         }.bind(this))
-      }).catch(() => {
+      }).catch((err) => {
         this.showApiError(err, '哦，请求出错');
       });
     },
@@ -564,7 +564,7 @@ export default {
       axios.get('/set/soft/status', {}).then(resp => {
         var data = resp.data.data
         this.system_warnings = data.warnings || []
-      }).catch(() => {
+      }).catch((err) => {
         this.showApiError(err, '状态获取失败');
       });
     },
@@ -579,7 +579,7 @@ export default {
         var data = resp.data.data
         this.profile_content = data.content
         this.profile_hash = data.hash
-      }).catch(() => {
+      }).catch((err) => {
         this.showApiError(err, 'Profile 获取失败');
       });
     },
@@ -594,7 +594,7 @@ export default {
       }).then(resp => {
         this.profile_hash = resp.data.data.hash
         this.$message.success('Profile 已保存')
-      }).catch(() => {
+      }).catch((err) => {
         this.showApiError(err, 'Profile 保存失败');
       }).finally(() => {
         this.profile_saving = false
@@ -614,7 +614,7 @@ export default {
           this.restart_loading = false
           this.showApiError(err, '重启失败');
         })
-      }).catch(() => { /* 用户取消 */ })
+      }).catch((err) => { /* 用户取消 */ })
     },
     saveConfig(row) {
       if (row.sensitive && !row.edit_data) {
@@ -638,7 +638,7 @@ export default {
         }
         this.getSoftInfo()
         this.getSoftStatus()
-      }).catch(() => {
+      }).catch((err) => {
         this.showApiError(err, '保存失败');
       }).finally(() => {
         row.saving = false
@@ -659,7 +659,7 @@ export default {
         }
         this.getSoftInfo()
         this.getSoftStatus()
-      }).catch(() => {
+      }).catch((err) => {
         this.showApiError(err, '保存失败');
       }).finally(() => {
         this.ipv4_saving = false
@@ -669,7 +669,7 @@ export default {
     loadBackups() {
       axios.get('/set/db/backups').then(resp => {
         this.backups = resp.data.data || []
-      }).catch(() => {
+      }).catch((err) => {
         this.showApiError(err, '获取备份列表失败')
       })
     },
@@ -686,7 +686,7 @@ export default {
             checked: t.group === 'business'
           }
         })
-      }).catch(() => {
+      }).catch((err) => {
         this.showApiError(err, '获取表信息失败')
       })
     },
@@ -712,7 +712,7 @@ export default {
         this.$message.success('备份创建成功')
         this.backup_dialog = false
         this.loadBackups()
-      }).catch(() => {
+      }).catch((err) => {
         this.showApiError(err, '备份创建失败')
       }).finally(() => {
         this.backup_saving = false
@@ -760,7 +760,7 @@ export default {
           this.db_switch_test_ok = false
           this.db_switch_test_result = '连接测试失败：' + ((data && data.msg) || '未知错误')
         }
-      }).catch(() => {
+      }).catch((err) => {
         this.db_switch_test_ok = false
         var msg = ''
         try { msg = err.response && err.response.data && err.response.data.msg } catch (e) { /* ignore */ }
@@ -792,7 +792,7 @@ export default {
         } else {
           this.$message.error('数据库切换失败：' + ((data && data.msg) || '未知错误'))
         }
-      }).catch(() => {
+      }).catch((err) => {
         this.showApiError(err, '数据库切换失败')
       }).finally(() => {
         this.db_switch_executing = false
@@ -829,7 +829,7 @@ export default {
         if (list.length > 0) {
           this.restore_prompt_dialog = true
         }
-      }).catch(() => { })
+      }).catch((err) => { })
     },
     goToRestore() {
       this.restore_prompt_dialog = false
@@ -852,10 +852,10 @@ export default {
           this.getSoftInfo()
           this.getSoftStatus()
           this.loadBackups()
-        }).catch(() => {
+        }).catch((err) => {
           this.showApiError(err, '还原失败')
         })
-      }).catch(() => { })  // 取消还原
+      }).catch((err) => { })  // 取消还原
     },
     deleteBackup(row) {
       this.$confirm('确定删除备份文件「' + row.name + '」？', '确认删除', {
@@ -866,10 +866,10 @@ export default {
         axios.post('/set/db/backup/delete', { file: row.name }).then(() => {
           this.$message.success('已删除')
           this.loadBackups()
-        }).catch(() => {
+        }).catch((err) => {
           this.showApiError(err, '删除失败')
         })
-      }).catch(() => { })  // 取消删除
+      }).catch((err) => { })  // 取消删除
     },
     formatNumber(n) {
       if (n === null || n === undefined) return '0'

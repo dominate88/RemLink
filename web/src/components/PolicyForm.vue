@@ -361,7 +361,7 @@ export default {
         this.otherPolicies = datas
           .filter(p => p.id !== this.form.id)
           .map(p => ({ id: p.id, name: p.name }))
-      }).catch(() => {})
+      }).catch((err) => {})
     },
     copyRoutesFrom(policyId) {
       axios.get('/policy/detail', { params: { id: policyId } }).then(resp => {

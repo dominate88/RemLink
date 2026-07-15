@@ -219,7 +219,7 @@ export default {
         this.tableData = data.datas;
         this.count = data.count
         this.currentPage = p;
-      }).catch(() => {
+      }).catch((err) => {
         this.$message.error('哦，请求出错');
       }).finally(() => {
         this.loading = false
@@ -260,7 +260,7 @@ export default {
         this.$message.success("成功导出CSV文件")
         let csvData = 'data:text/csv;charset=utf-8,\uFEFF' + rdata
         this.createDownLoadClick(csvData, `remlink_audit_log_` + Date.parse(new Date()) + `.csv`)
-      }).catch(() => {
+      }).catch((err) => {
         exporting.close();
         this.$message.error('哦，请求出错');
       });

@@ -319,7 +319,7 @@ export default {
           this.brand = Object.assign({ title: "", logo: "", favicon: "" }, resp.data.data)
           applyBrandToDocument(this.brand)
         }
-      }).catch(() => {})
+      }).catch((err) => {})
     },
     async initAuth() {
       this.error = ''

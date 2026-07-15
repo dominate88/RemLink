@@ -419,7 +419,7 @@ export default {
         this.tableData = rdata.datas || [];
         this.count = rdata.count || 0;
         this.loading = false;
-      }).catch(() => {
+      }).catch((err) => {
         this.$message.error('请求出错');
         this.loading = false;
       });
@@ -429,14 +429,14 @@ export default {
         this.allGroups = (resp.data.data.datas || []).map(g => ({
           id: g.id, name: g.name, policy_id: g.policy_id
         }));
-      }).catch(() => {});
+      }).catch((err) => {});
     },
     loadUsers() {
       axios.get('/user/list', { params: { page: 1, page_size: 9999 } }).then(resp => {
         this.allUsers = (resp.data.data.datas || []).map(u => ({
           id: u.id, username: u.username, nickname: u.nickname, policy_id: u.policy_id
         }));
-      }).catch(() => {});
+      }).catch((err) => {});
     },
     pageChange(p) { this.getData(p) },
 
@@ -453,7 +453,7 @@ export default {
             cancelButtonText: '取消',
             type: 'warning',
             confirmButtonClass: 'el-button--danger',
-          }).then(() => this.handleDel(row)).catch(() => { });
+          }).then(() => this.handleDel(row)).catch((err) => { });
           break;
       }
     },
@@ -478,7 +478,7 @@ export default {
         if (d.route_include === null) this.ruleForm.route_include = [{ val: 'all', note: '默认全局代理' }];
         if (d.route_exclude === null) this.ruleForm.route_exclude = [];
         if (d.link_acl === null) this.ruleForm.link_acl = [];
-      }).catch(() => {
+      }).catch((err) => {
         this.$message.error('请求出错');
       });
     },
@@ -494,10 +494,10 @@ export default {
           } else {
             this.$message.error(resp.data.msg);
           }
-        }).catch(() => {
+        }).catch((err) => {
           this.$message.error('请求出错');
         });
-      }).catch(() => { });
+      }).catch((err) => { });
     },
     handleApply(row, cmd) {
       this.applyPolicyId = row.id;
@@ -531,7 +531,7 @@ export default {
         } else {
           this.$message.error(resp.data.msg);
         }
-      }).catch(() => {
+      }).catch((err) => {
         this.applyLoading = false;
         this.$message.error('请求出错');
       });
@@ -554,7 +554,7 @@ export default {
         } else {
           this.$message.error(resp.data.msg);
         }
-      }).catch(() => {
+      }).catch((err) => {
         this.applyLoading = false;
         this.$message.error('请求出错');
       });
@@ -567,7 +567,7 @@ export default {
         } else {
           this.$message.error(resp.data.msg);
         }
-      }).catch(() => {
+      }).catch((err) => {
         this.$message.error('请求出错');
       });
     },
@@ -589,7 +589,7 @@ export default {
           } else {
             this.$message.error(resp.data.msg);
           }
-        }).catch(() => {
+        }).catch((err) => {
           this.$message.error('请求出错');
         });
       });

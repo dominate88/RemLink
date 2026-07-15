@@ -536,14 +536,14 @@ export default {
         if (resp.data.code === 0) {
           this.policyList = resp.data.data.datas || [];
         }
-      }).catch(() => {});
+      }).catch((err) => {});
     },
     loadAllPolicyNames() {
       return axios.get('/policy/all_names').then(resp => {
         if (resp.data.code === 0) {
           this.allPolicyNames = resp.data.data.datas || [];
         }
-      }).catch(() => {});
+      }).catch((err) => {});
     },
     getDefaultPolicyForm() {
       return {
@@ -604,7 +604,7 @@ export default {
           } else {
             this.$message.error(resp.data.msg || '策略创建失败');
           }
-        }).catch(() => {
+        }).catch((err) => {
           this.$message.error('策略创建失败');
         });
       });
@@ -618,7 +618,7 @@ export default {
             cancelButtonText: '取消',
             type: 'warning',
             confirmButtonClass: 'el-button--danger',
-          }).then(() => this.handleDel(row)).catch(() => { });
+          }).then(() => this.handleDel(row)).catch((err) => { });
           break;
       }
     },
@@ -630,7 +630,7 @@ export default {
         } else {
           this.$message.error(resp.data.msg);
         }
-      }).catch(() => {
+      }).catch((err) => {
         this.$message.error('请求出错');
       });
     },
@@ -663,7 +663,7 @@ export default {
         this.enableGroupIP = !!(d.client_cidr && d.client_start && d.client_end && d.client_gateway);
         this.setAuthData(d);
         this.preloadProviders();
-      }).catch(() => {
+      }).catch((err) => {
         this.$message.error('请求出错');
       });
     },
@@ -713,7 +713,7 @@ export default {
         });
         this.count = rdata.count;
         this.loading = false;
-      }).catch(() => {
+      }).catch((err) => {
         this.$message.error('请求出错');
         this.loading = false;
       });
@@ -737,7 +737,7 @@ export default {
           } else {
             this.$message.error(resp.data.msg);
           }
-        }).catch(() => {
+        }).catch((err) => {
           this.$message.error('请求出错');
         }).finally(() => {
           this.isSubmitting = false;
@@ -758,7 +758,7 @@ export default {
           if (resp.data.code === 0) {
             this.$set(this.providerNames, typ, resp.data.data.datas || []);
           }
-        }).catch(() => {});
+        }).catch((err) => {});
       }
     },
     preloadProviders() {
@@ -785,7 +785,7 @@ export default {
         if (resp.data.code === 0 && resp.data.data.cert_count === 0) {
           this.$message.warning(`当前组"${this.ruleForm.name}"尚未签发任何客户端证书，建议先在"系统设置 > 证书设置 > 客户端证书"中生成证书后再启用证书认证`);
         }
-      }).catch(() => { });
+      }).catch((err) => { });
     },
     closeDialog() { this.user_edit_dialog = false; },
   },

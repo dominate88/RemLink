@@ -218,7 +218,7 @@ export default {
         this.statusOps = data.statusOps
         this.osOps = data.osOps
         this.clientOps = data.clientOps
-      }).catch(() => {
+      }).catch((err) => {
         this.$message.error('哦，请求出错');
       });
     },

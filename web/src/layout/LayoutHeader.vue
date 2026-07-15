@@ -104,7 +104,7 @@ export default {
         }).then(() => {
           doLogout()
           this.$router.push("/login");
-        }).catch(() => {})
+        }).catch((err) => {})
       }
     },
   }

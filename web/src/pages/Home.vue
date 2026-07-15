@@ -228,7 +228,7 @@ export default {
       axios.get('/set/home').then(resp => {
         var data = resp.data.data
         this.counts = data.counts
-      }).catch(() => {
+      }).catch((err) => {
         this.$message.error('请求出错');
       });
     },
@@ -378,7 +378,7 @@ export default {
             groupNames[i+1] = {text:data.datas[i].name, value:data.datas[i].id}
         }
         this.groupNames = groupNames
-      }).catch(() => {
+      }).catch((err) => {
         this.$message.error('请求出错');
       });
     },

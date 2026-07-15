@@ -401,7 +401,7 @@ export default {
                 this.$message.error(resp.data.msg);
               }
             }).catch(() => this.$message.error('请求出错'));
-          }).catch(() => {});
+          }).catch((err) => {});
           break;
         case 'delete':
           this.$confirm('确定要删除该用户吗？删除后不可恢复。', '删除确认', {
@@ -409,7 +409,7 @@ export default {
             cancelButtonText: '取消',
             type: 'warning',
             confirmButtonClass: 'el-button--danger',
-          }).then(() => this.handleDel(row)).catch(() => {});
+          }).then(() => this.handleDel(row)).catch((err) => {});
           break;
       }
     },
@@ -444,7 +444,7 @@ export default {
           link.click();
           window.URL.revokeObjectURL(url);
         })
-        .catch(() => {
+        .catch((err) => {
           this.$message.error('下载模版失败');
         });
     },
@@ -454,7 +454,7 @@ export default {
         this.otpImgData.username = row.username;
         this.otpImgData.nickname = row.nickname;
         this.otpImgData.base64Img = 'data:image/png;base64,' + resp.data;
-      }).catch(() => {
+      }).catch((err) => {
         this.$message.error('请求出错');
       });
     },
@@ -466,7 +466,7 @@ export default {
         } else {
           this.$message.error(resp.data.msg);
         }
-      }).catch(() => {
+      }).catch((err) => {
         this.$message.error('请求出错');
       });
     },
@@ -482,7 +482,7 @@ export default {
         data.send_email = false;
         data.limittime = data.limittime ? new Date(data.limittime) : null;
         this.ruleForm = data;
-      }).catch(() => {
+      }).catch((err) => {
         this.$message.error('请求出错');
       });
     },
@@ -546,7 +546,7 @@ export default {
         const data = resp.data.data || {};
         this.tableData = data.datas || [];
         this.count = data.count || 0;
-      }).catch(() => {
+      }).catch((err) => {
         this.$message.error('请求出错');
       }).finally(() => {
         this.loading = false;
@@ -578,7 +578,7 @@ export default {
     getGroups() {
       axios.get('/group/names').then(resp => {
         this.groupNames = resp.data.data.datas || [];
-      }).catch(() => {
+      }).catch((err) => {
         this.$message.error('请求出错');
       });
     },
@@ -595,7 +595,7 @@ export default {
         if (resp.data.code === 0) {
           this.policyList = resp.data.data.datas || [];
         }
-      }).catch(() => {});
+      }).catch((err) => {});
     },
     submitForm(formName) {
       this.$refs[formName].validate((valid) => {
@@ -610,7 +610,7 @@ export default {
           } else {
             this.$message.error(resp.data.msg);
           }
-        }).catch(() => {
+        }).catch((err) => {
           this.$message.error('请求出错');
         }).finally(() => {
           this.isSubmitting = false;

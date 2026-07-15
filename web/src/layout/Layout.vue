@@ -101,8 +101,8 @@ export default {
           if (this.$route.path !== warning.action_path) {
             this.$router.push(warning.action_path)
           }
-        }).catch(() => { })
-      }).catch(() => {
+        }).catch((err) => { })
+      }).catch((err) => {
       }).finally(() => {
         this.system_warning_checking = false
       })
