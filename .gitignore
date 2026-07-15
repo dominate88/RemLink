@@ -1,0 +1,23 @@
+# Binaries for programs and plugins
+.idea/
+remlink-deploy
+remlink-deploy.tar.gz
+remlink-deploy-*
+remlink
+remlink.db
+
+# 旧名残留二进制（改名前误提交，必须忽略）
+anylink
+anylink-deploy
+anylink-deploy-*
+server/anylink
+
+dist
+artifact-dist
+
+remlink_amd64
+remlink_arm64
+
+# lock files: 项目使用 Yarn，禁止提交 npm lock
+web/package-lock.json
+*.upx

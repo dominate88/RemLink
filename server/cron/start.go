@@ -1,0 +1,83 @@
+package cron
+
+import (
+	"time"
+
+	"github.com/wsczx/remlink/base"
+	"github.com/wsczx/remlink/dbdata"
+	"github.com/go-co-op/gocron/v2"
+)
+
+var scheduler gocron.Scheduler
+
+// 初始化并启动所有定时任务。返回错误表示调度器创建失败（任务注册错误只记录日志）。
+func Start() error {
+	s, err := gocron.NewScheduler(gocron.WithLocation(time.Local))
+	if err != nil {
+		return err
+	}
+	scheduler = s
+
+	// 每小时执行: ClearAudit, ClearStatsInfo, ClearUserActLog
+	if _, err := s.NewJob(
+		gocron.CronJob("0 * * * *", false),
+		gocron.NewTask(ClearAudit),
+	); err != nil {
+		base.Error("注册定时任务失败 (ClearAudit):", err)
+	}
+	if _, err := s.NewJob(
+		gocron.CronJob("0 * * * *", false),
+		gocron.NewTask(ClearStatsInfo),
+	); err != nil {
+		base.Error("注册定时任务失败 (ClearStatsInfo):", err)
+	}
+	if _, err := s.NewJob(
+		gocron.CronJob("0 * * * *", false),
+		gocron.NewTask(ClearUserActLog),
+	); err != nil {
+		base.Error("注册定时任务失败 (ClearUserActLog):", err)
+	}
+	if _, err := s.NewJob(
+		gocron.CronJob("0 * * * *", false),
+		gocron.NewTask(ClearAdminOpLog),
+	); err != nil {
+		base.Error("注册定时任务失败 (ClearAdminOpLog):", err)
+	}
+
+	if _, err := s.NewJob(
+		gocron.CronJob("0 0 * * *", false),
+		gocron.NewTask(dbdata.CheckAndRenewCert),
+	); err != nil {
+		base.Error("注册定时任务失败 (CheckAndRenewCert):", err)
+	}
+	if _, err := s.NewJob(
+		gocron.CronJob("0 0 * * *", false),
+		gocron.NewTask(dbdata.SyncLdapUsers),
+	); err != nil {
+		base.Error("注册定时任务失败 (SyncLdapUsers):", err)
+	}
+	if _, err := s.NewJob(
+		gocron.CronJob("0 0 * * *", false),
+		gocron.NewTask(dbdata.SyncWXworkUsers),
+	); err != nil {
+		base.Error("注册定时任务失败 (SyncWXworkUsers):", err)
+	}
+	if _, err := s.NewJob(
+		gocron.CronJob("0 0 * * *", false),
+		gocron.NewTask(dbdata.SyncFeishuUsers),
+	); err != nil {
+		base.Error("注册定时任务失败 (SyncFeishuUsers):", err)
+	}
+
+	s.Start()
+	return nil
+}
+
+// 优雅关闭定时任务调度器
+func Stop() {
+	if scheduler != nil {
+		if err := scheduler.Shutdown(); err != nil {
+			base.Error("关闭定时任务调度器失败:", err)
+		}
+	}
+}

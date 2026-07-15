@@ -1,0 +1,530 @@
+package sessdata
+
+import (
+	"net"
+	"os"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/wsczx/remlink/base"
+	"github.com/stretchr/testify/assert"
+)
+
+func TestMain(m *testing.M) {
+	base.Test()
+	os.Exit(m.Run())
+}
+
+// mockFirewall 用于测试，不实际操作内核防火墙
+type mockFirewall struct {
+	mu           sync.Mutex
+	natRules     map[string]string // fakeIP -> realIP
+	addFail      bool
+	delFail      bool
+	addCallCount int
+	delCallCount int
+}
+
+func newMockFirewall() *mockFirewall {
+	return &mockFirewall{natRules: make(map[string]string)}
+}
+
+func (m *mockFirewall) CreateChains(vpnCIDR, fakeIPRange string) error                   { return nil }
+func (m *mockFirewall) SetupGlobalNAT(vpnCIDR, masterDev string, inContainer bool) error { return nil }
+func (m *mockFirewall) AddGroupNAT(groupCIDR, masterDev string, inContainer bool) error  { return nil }
+func (m *mockFirewall) CleanupFakeIP() error                                             { return nil }
+func (m *mockFirewall) CleanupGlobal() error                                             { return nil }
+
+func (m *mockFirewall) AddNatRule(fakeIP, realIP string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.addCallCount++
+	if m.addFail {
+		return errMockFail
+	}
+	m.natRules[fakeIP] = realIP
+	return nil
+}
+
+func (m *mockFirewall) DelNatRule(fakeIP, realIP string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.delCallCount++
+	if m.delFail {
+		return errMockFail
+	}
+	delete(m.natRules, fakeIP)
+	return nil
+}
+
+var errMockFail = &mockError{"mock firewall error"}
+
+type mockError struct{ msg string }
+
+func (e *mockError) Error() string { return e.msg }
+
+// 创建测试用 FakeDNSManager（不初始化防火墙单例）
+func newTestManager(t *testing.T) *FakeDNSManager {
+	m := &FakeDNSManager{
+		active:     make(map[string]*fakeIPEntry),
+		domainToIP: make(map[string]string),
+		ipToRealIP: make(map[string]string),
+		dnsCache:   make(map[string]*dnsCache),
+		stopChan:   make(chan struct{}),
+		fw:         newMockFirewall(),
+	}
+	_, ipNet, err := net.ParseCIDR("100.64.0.0/10")
+	assert.Nil(t, err)
+	ipLongMin := bigEndianUint32(ipNet.IP)
+	mask := bigEndianUint32(ipNet.Mask)
+	ipLongMax := (ipLongMin & mask) | (^mask)
+	m.pool = &fakeIPPool{
+		IPNet:     ipNet,
+		IpLongMin: ipLongMin + 1,
+		IpLongMax: ipLongMax - 1,
+	}
+	return m
+}
+
+func bigEndianUint32(b []byte) uint32 {
+	if len(b) < 4 {
+		return 0
+	}
+	return uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])
+}
+
+// ========== AcquireFakeIP ==========
+
+func TestAcquireFakeIP_NewDomain(t *testing.T) {
+	m := newTestManager(t)
+	ip := m.AcquireFakeIP("example.com")
+	assert.NotNil(t, ip)
+	assert.True(t, m.IsFakeIP(ip))
+
+	domain := m.GetDomain(ip.String())
+	assert.Equal(t, "example.com", domain)
+}
+
+func TestAcquireFakeIP_SameDomainReturnsSameIP(t *testing.T) {
+	m := newTestManager(t)
+	ip1 := m.AcquireFakeIP("example.com")
+	ip2 := m.AcquireFakeIP("example.com")
+	assert.Equal(t, ip1.String(), ip2.String())
+}
+
+func TestAcquireFakeIP_DifferentDomainsGetDifferentIPs(t *testing.T) {
+	m := newTestManager(t)
+	ip1 := m.AcquireFakeIP("a.example.com")
+	ip2 := m.AcquireFakeIP("b.example.com")
+	assert.NotEqual(t, ip1.String(), ip2.String())
+}
+
+func TestAcquireFakeIP_UpdatesLastAccess(t *testing.T) {
+	m := newTestManager(t)
+	ip := m.AcquireFakeIP("example.com")
+	time.Sleep(10 * time.Millisecond)
+	m.AcquireFakeIP("example.com") // 再次获取应更新 LastAccess
+
+	entry := m.active[ip.String()]
+	assert.NotNil(t, entry)
+	assert.True(t, time.Since(entry.GetLastAccess()) < 100*time.Millisecond)
+}
+
+// ========== IsFakeIP ==========
+
+func TestIsFakeIP_InRange(t *testing.T) {
+	m := newTestManager(t)
+	ip := net.ParseIP("100.64.0.5")
+	assert.True(t, m.IsFakeIP(ip))
+}
+
+func TestIsFakeIP_OutOfRange(t *testing.T) {
+	m := newTestManager(t)
+	ip := net.ParseIP("8.8.8.8")
+	assert.False(t, m.IsFakeIP(ip))
+}
+
+func TestIsFakeIP_NilPool(t *testing.T) {
+	m := &FakeDNSManager{}
+	assert.False(t, m.IsFakeIP(net.ParseIP("100.64.0.5")))
+}
+
+// ========== GetRealIP / GetDomain ==========
+
+func TestGetRealIP_NotExists(t *testing.T) {
+	m := newTestManager(t)
+	assert.Equal(t, "", m.GetRealIP("100.64.0.99"))
+}
+
+func TestGetDomain_NotExists(t *testing.T) {
+	m := newTestManager(t)
+	assert.Equal(t, "", m.GetDomain("100.64.0.99"))
+}
+
+// ========== AddMapping ==========
+
+func TestAddMapping_NewMapping(t *testing.T) {
+	m := newTestManager(t)
+	fakeIP := m.AcquireFakeIP("example.com")
+	err := m.AddMapping(fakeIP.String(), "1.2.3.4", "example.com")
+	assert.Nil(t, err)
+	assert.Equal(t, "1.2.3.4", m.GetRealIP(fakeIP.String()))
+}
+
+func TestAddMapping_SameMappingIdempotent(t *testing.T) {
+	m := newTestManager(t)
+	fakeIP := m.AcquireFakeIP("example.com")
+	m.AddMapping(fakeIP.String(), "1.2.3.4", "example.com")
+	err := m.AddMapping(fakeIP.String(), "1.2.3.4", "example.com")
+	assert.Nil(t, err)
+}
+
+func TestAddMapping_FakeIPCleanedUp(t *testing.T) {
+	m := newTestManager(t)
+	err := m.AddMapping("100.64.0.99", "1.2.3.4", "example.com")
+	assert.NotNil(t, err)
+	assert.Contains(t, err.Error(), "cleaned up")
+}
+
+func TestAddMapping_ReplacedMapping(t *testing.T) {
+	m := newTestManager(t)
+	fakeIP := m.AcquireFakeIP("example.com")
+	m.AddMapping(fakeIP.String(), "1.2.3.4", "example.com")
+	err := m.AddMapping(fakeIP.String(), "5.6.7.8", "example.com")
+	assert.Nil(t, err)
+	assert.Equal(t, "5.6.7.8", m.GetRealIP(fakeIP.String()))
+}
+
+func TestAddMapping_AddNatRuleFailRollback(t *testing.T) {
+	m := newTestManager(t)
+	fw := m.fw.(*mockFirewall)
+	fakeIP := m.AcquireFakeIP("example.com")
+	m.AddMapping(fakeIP.String(), "1.2.3.4", "example.com")
+
+	// 让 AddNatRule 失败
+	fw.addFail = true
+	err := m.AddMapping(fakeIP.String(), "5.6.7.8", "example.com")
+	assert.NotNil(t, err)
+	// 应回滚到旧值
+	assert.Equal(t, "1.2.3.4", m.GetRealIP(fakeIP.String()))
+}
+
+func TestAddMapping_DelNatRuleFailRollback(t *testing.T) {
+	m := newTestManager(t)
+	fw := m.fw.(*mockFirewall)
+	fakeIP := m.AcquireFakeIP("example.com")
+	m.AddMapping(fakeIP.String(), "1.2.3.4", "example.com")
+
+	// 让 DelNatRule 失败（替换映射时先删旧规则）
+	fw.delFail = true
+	err := m.AddMapping(fakeIP.String(), "5.6.7.8", "example.com")
+	assert.NotNil(t, err)
+	// 应回滚到旧值
+	assert.Equal(t, "1.2.3.4", m.GetRealIP(fakeIP.String()))
+}
+
+func TestAddMapping_NewMappingAddFail(t *testing.T) {
+	m := newTestManager(t)
+	fw := m.fw.(*mockFirewall)
+	fw.addFail = true
+	fakeIP := m.AcquireFakeIP("example.com")
+	err := m.AddMapping(fakeIP.String(), "1.2.3.4", "example.com")
+	assert.NotNil(t, err)
+	// 无旧映射，应删除
+	assert.Equal(t, "", m.GetRealIP(fakeIP.String()))
+}
+
+// ========== RemoveMapping ==========
+
+func TestRemoveMapping_Exists(t *testing.T) {
+	m := newTestManager(t)
+	fakeIP := m.AcquireFakeIP("example.com")
+	m.AddMapping(fakeIP.String(), "1.2.3.4", "example.com")
+	err := m.RemoveMapping(fakeIP.String())
+	assert.Nil(t, err)
+	assert.Equal(t, "", m.GetRealIP(fakeIP.String()))
+}
+
+func TestRemoveMapping_NotExists(t *testing.T) {
+	m := newTestManager(t)
+	err := m.RemoveMapping("100.64.0.99")
+	assert.Nil(t, err) // 不存在不算错误
+}
+
+// ========== LookupAndTouch ==========
+
+func TestLookupAndTouch_NoMapping(t *testing.T) {
+	m := newTestManager(t)
+	fakeIP := m.AcquireFakeIP("example.com")
+	realIP, domain, needRefresh := m.LookupAndTouch(fakeIP.String())
+	assert.Equal(t, "", realIP)
+	assert.Equal(t, "example.com", domain)
+	assert.False(t, needRefresh)
+}
+
+func TestLookupAndTouch_WithMapping(t *testing.T) {
+	m := newTestManager(t)
+	fakeIP := m.AcquireFakeIP("example.com")
+	m.AddMapping(fakeIP.String(), "1.2.3.4", "example.com")
+	realIP, domain, needRefresh := m.LookupAndTouch(fakeIP.String())
+	assert.Equal(t, "1.2.3.4", realIP)
+	assert.Equal(t, "example.com", domain)
+	assert.False(t, needRefresh)
+}
+
+func TestLookupAndTouch_NotInActive(t *testing.T) {
+	m := newTestManager(t)
+	realIP, domain, needRefresh := m.LookupAndTouch("100.64.0.99")
+	assert.Equal(t, "", realIP)
+	assert.Equal(t, "", domain)
+	assert.False(t, needRefresh)
+}
+
+func TestLookupAndTouch_RefreshExpired(t *testing.T) {
+	m := newTestManager(t)
+	fakeIP := m.AcquireFakeIP("example.com")
+	m.AddMapping(fakeIP.String(), "1.2.3.4", "example.com")
+	// 手动设置 RefreshAt 为过去
+	m.active[fakeIP.String()].SetRefreshAt(time.Now().Add(-1 * time.Hour))
+
+	_, _, needRefresh := m.LookupAndTouch(fakeIP.String())
+	assert.True(t, needRefresh)
+
+	// 第二次不应再触发（RefreshAt 被顺延）
+	_, _, needRefresh = m.LookupAndTouch(fakeIP.String())
+	assert.False(t, needRefresh)
+}
+
+func TestLookupAndTouch_RefreshNotExpired(t *testing.T) {
+	m := newTestManager(t)
+	fakeIP := m.AcquireFakeIP("example.com")
+	m.AddMapping(fakeIP.String(), "1.2.3.4", "example.com")
+	// 设置 RefreshAt 为未来
+	m.setRefreshAt(fakeIP.String(), 300)
+
+	_, _, needRefresh := m.LookupAndTouch(fakeIP.String())
+	assert.False(t, needRefresh)
+}
+
+// ========== UpdateAccess ==========
+
+func TestUpdateAccess(t *testing.T) {
+	m := newTestManager(t)
+	fakeIP := m.AcquireFakeIP("example.com")
+	old := m.active[fakeIP.String()].GetLastAccess()
+	time.Sleep(10 * time.Millisecond)
+	m.UpdateAccess(fakeIP.String())
+	new := m.active[fakeIP.String()].GetLastAccess()
+	assert.True(t, new.After(old))
+}
+
+func TestUpdateAccess_NotExists(t *testing.T) {
+	m := newTestManager(t)
+	// 不应 panic
+	m.UpdateAccess("100.64.0.99")
+}
+
+// ========== DNS Cache ==========
+
+func TestUpdateDNSCache(t *testing.T) {
+	m := newTestManager(t)
+	m.updateDNSCache("example.com|8.8.8.8:53", "1.2.3.4", 60)
+	m.dnsCacheMu.RLock()
+	entry, exists := m.dnsCache["example.com|8.8.8.8:53"]
+	m.dnsCacheMu.RUnlock()
+	assert.True(t, exists)
+	assert.Equal(t, "1.2.3.4", entry.RealIP)
+	assert.Equal(t, uint32(60), entry.TTL)
+	assert.True(t, entry.ExpireAt.After(time.Now()))
+}
+
+func TestDNSCache_MinTTL(t *testing.T) {
+	m := newTestManager(t)
+	// TTL=5 应被提升到 minRefreshInterval(60s)
+	m.updateDNSCache("test.com|8.8.8.8:53", "1.2.3.4", 5)
+	m.dnsCacheMu.RLock()
+	entry := m.dnsCache["test.com|8.8.8.8:53"]
+	m.dnsCacheMu.RUnlock()
+	assert.True(t, time.Until(entry.ExpireAt) >= 55*time.Second)
+}
+
+func TestCleanupExpiredDNSCache(t *testing.T) {
+	m := newTestManager(t)
+	// 写入一个已过期的缓存
+	m.dnsCacheMu.Lock()
+	m.dnsCache["expired.com|8.8.8.8:53"] = &dnsCache{
+		RealIP:   "1.2.3.4",
+		TTL:      60,
+		ExpireAt: time.Now().Add(-1 * time.Hour),
+	}
+	m.dnsCache["valid.com|8.8.8.8:53"] = &dnsCache{
+		RealIP:   "5.6.7.8",
+		TTL:      60,
+		ExpireAt: time.Now().Add(1 * time.Hour),
+	}
+	m.dnsCacheMu.Unlock()
+
+	m.cleanupExpiredDNSCache()
+
+	m.dnsCacheMu.RLock()
+	_, expiredExists := m.dnsCache["expired.com|8.8.8.8:53"]
+	_, validExists := m.dnsCache["valid.com|8.8.8.8:53"]
+	m.dnsCacheMu.RUnlock()
+
+	assert.False(t, expiredExists)
+	assert.True(t, validExists)
+}
+
+// ========== cleanupExpiredFakeIPs ==========
+
+func TestCleanupExpiredFakeIPs(t *testing.T) {
+	m := newTestManager(t)
+	// 活跃的（不应被清理）
+	ip1 := m.AcquireFakeIP("active.com")
+	m.AddMapping(ip1.String(), "1.2.3.4", "active.com")
+
+	// 过期的（应被清理）
+	ip2 := m.AcquireFakeIP("expired.com")
+	m.AddMapping(ip2.String(), "5.6.7.8", "expired.com")
+	// 手动设置 LastAccess 为 3 小时前
+	m.active[ip2.String()].SetLastAccess(time.Now().Add(-3 * time.Hour))
+
+	m.cleanupExpiredFakeIPs()
+
+	// active.com 应还在
+	assert.Equal(t, "active.com", m.GetDomain(ip1.String()))
+	assert.Equal(t, "1.2.3.4", m.GetRealIP(ip1.String()))
+
+	// expired.com 应被清理
+	assert.Equal(t, "", m.GetDomain(ip2.String()))
+	assert.Equal(t, "", m.GetRealIP(ip2.String()))
+}
+
+// ========== setRefreshAt ==========
+
+func TestSetRefreshAt(t *testing.T) {
+	m := newTestManager(t)
+	fakeIP := m.AcquireFakeIP("example.com")
+
+	// 未调用 setRefreshAt 前, GetRefreshAt 应返回 zero time (IsZero()=true)
+	entry := m.active[fakeIP.String()]
+	assert.True(t, entry.GetRefreshAt().IsZero(), "未设置时 GetRefreshAt 应返回 zero time")
+
+	// ttl=300 → refreshAt = now + 300s
+	m.setRefreshAt(fakeIP.String(), 300)
+	refreshAt := entry.GetRefreshAt()
+	assert.False(t, refreshAt.IsZero(), "设置后 GetRefreshAt 不应为 zero time")
+	assert.True(t, refreshAt.After(time.Now().Add(290*time.Second)))
+	assert.True(t, refreshAt.Before(time.Now().Add(310*time.Second)))
+}
+
+func TestSetRefreshAt_MinInterval(t *testing.T) {
+	m := newTestManager(t)
+	fakeIP := m.AcquireFakeIP("example.com")
+
+	// ttl=5 → 应被 max() 提升到 minRefreshInterval(60s)
+	m.setRefreshAt(fakeIP.String(), 5)
+	entry := m.active[fakeIP.String()]
+	refreshAt := entry.GetRefreshAt()
+	assert.True(t, refreshAt.After(time.Now().Add(55*time.Second)))
+}
+
+func TestSetRefreshAt_NotInActive(t *testing.T) {
+	m := newTestManager(t)
+	// 不应 panic
+	m.setRefreshAt("100.64.0.99", 60)
+}
+
+// ========== Stop ==========
+
+func TestStop_CleansUpFirewall(t *testing.T) {
+	m := newTestManager(t)
+	m.Start()
+	// 添加一些映射
+	ip := m.AcquireFakeIP("example.com")
+	m.AddMapping(ip.String(), "1.2.3.4", "example.com")
+
+	fw := m.fw.(*mockFirewall)
+	assert.Equal(t, 1, len(fw.natRules))
+
+	m.Stop()
+
+	// CleanupFakeIP 应被调用（mock 里是空操作，但 fw 不应为 nil）
+	// Stop 后 stopped 应为 true
+	assert.True(t, m.stopped.Load())
+}
+
+func TestStop_Idempotent(t *testing.T) {
+	m := newTestManager(t)
+	m.Start()
+	m.Stop()
+	// 再次 Stop 不应 panic
+	m.Stop()
+}
+
+// ========== ResolveAndMapping（不依赖真实 DNS） ==========
+
+func TestResolveAndMapping_AlreadyMapped(t *testing.T) {
+	m := newTestManager(t)
+	fakeIP := m.AcquireFakeIP("example.com")
+	m.AddMapping(fakeIP.String(), "1.2.3.4", "example.com")
+
+	// 已有映射，应直接返回不触发解析
+	m.ResolveAndMapping(fakeIP.String(), "example.com", "8.8.8.8:53")
+	// resolving 中不应有 example.com
+	_, loaded := m.resolving.Load("example.com")
+	assert.False(t, loaded)
+}
+
+func TestResolveAndMapping_Stopped(t *testing.T) {
+	m := newTestManager(t)
+	m.Start()
+	m.Stop()
+
+	fakeIP := m.AcquireFakeIP("example.com")
+	m.ResolveAndMapping(fakeIP.String(), "example.com", "8.8.8.8:53")
+	// stopped 后不应触发解析
+	_, loaded := m.resolving.Load("example.com")
+	assert.False(t, loaded)
+}
+
+// ========== 并发测试 ==========
+
+func TestAcquireFakeIP_Concurrent(t *testing.T) {
+	m := newTestManager(t)
+	var wg sync.WaitGroup
+	ips := make([]string, 100)
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			ip := m.AcquireFakeIP("example.com")
+			ips[idx] = ip.String()
+		}(i)
+	}
+	wg.Wait()
+
+	// 所有并发请求应拿到同一个 IP
+	first := ips[0]
+	for i := 1; i < 100; i++ {
+		assert.Equal(t, first, ips[i], "concurrent AcquireFakeIP should return same IP")
+	}
+}
+
+func TestAddMapping_ConcurrentSameFakeIP(t *testing.T) {
+	m := newTestManager(t)
+	fakeIP := m.AcquireFakeIP("example.com")
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			m.AddMapping(fakeIP.String(), "1.2.3.4", "example.com")
+		}()
+	}
+	wg.Wait()
+
+	assert.Equal(t, "1.2.3.4", m.GetRealIP(fakeIP.String()))
+}

@@ -1,0 +1,208 @@
+package handler
+
+import (
+	"crypto/sha1"
+	"crypto/tls"
+	"encoding/hex"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httputil"
+	"strings"
+	"time"
+
+	"github.com/wsczx/remlink/admin"
+	"github.com/wsczx/remlink/base"
+	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/utils"
+	"github.com/gorilla/mux"
+	"github.com/pires/go-proxyproto"
+)
+
+func startTls() {
+
+	var (
+		err error
+
+		addr = base.GetCfg().ServerAddr
+		ln   net.Listener
+	)
+
+	// 判断证书文件
+	// _, err = os.Stat(certFile)
+	// if errors.Is(err, os.ErrNotExist) {
+	//	// 自动生成证书
+	//	certs[0], err = selfsign.GenerateSelfSignedWithDNS("vpn.remlink")
+	// } else {
+	//	// 使用自定义证书
+	//	certs[0], err = tls.LoadX509KeyPair(certFile, keyFile)
+	// }
+
+	tlscert, _, err := dbdata.ParseCert()
+	if err != nil {
+		base.Fatal("证书加载失败", err)
+	}
+	dbdata.LoadCertificate(tlscert)
+
+	// 计算证书hash值
+	s1 := sha1.New()
+	s1.Write(tlscert.Certificate[0])
+	h2s := hex.EncodeToString(s1.Sum(nil))
+	certHash.Store(strings.ToUpper(h2s))
+	base.Debug("certHash", certHash.Load())
+
+	// 仅启用安全的 TLS 密码套件
+	cipherSuites := tls.CipherSuites()
+	selectedCipherSuites := make([]uint16, 0, len(cipherSuites))
+	for _, s := range cipherSuites {
+		selectedCipherSuites = append(selectedCipherSuites, s.ID)
+	}
+
+	// 设置tls信息
+	tlsConfig := &tls.Config{
+		NextProtos:   []string{"http/1.1"},
+		MinVersion:   tls.VersionTLS12,
+		CipherSuites: selectedCipherSuites,
+		GetCertificate: func(chi *tls.ClientHelloInfo) (*tls.Certificate, error) {
+			// base.Trace("GetCertificate ServerName", chi.ServerName)
+			return dbdata.GetCertificateBySNI(chi.ServerName)
+		},
+	}
+	// 请求客户端证书（TLS 层不验证，由认证管道处理）
+	tlsConfig.ClientAuth = tls.RequestClientCert
+	tlsConfig.ClientCAs = dbdata.LoadClientCAPool()
+	srv := &http.Server{
+		Addr:         addr,
+		Handler:      initRoute(),
+		TLSConfig:    tlsConfig,
+		ErrorLog:     base.GetServerLog(),
+		ReadTimeout:  100 * time.Second,
+		WriteTimeout: 100 * time.Second,
+	}
+
+	ln, err = net.Listen("tcp", addr)
+	if err != nil {
+		base.Error("VPN 服务监听失败，请到管理后台「软件配置→服务监听→VPN 服务地址」修改端口后重启:", err)
+		return
+	}
+	defer ln.Close()
+
+	if base.GetCfg().ProxyProtocol {
+		ln = &proxyproto.Listener{
+			Listener:          ln,
+			ReadHeaderTimeout: 30 * time.Second,
+		}
+	}
+
+	base.Info("listen server", addr)
+	err = srv.ServeTLS(ln, "", "")
+	if err != nil {
+		base.Error("VPN 服务运行异常:", err)
+		return
+	}
+}
+
+func initRoute() http.Handler {
+	r := mux.NewRouter()
+	// 所有路由添加安全头
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			utils.SetSecureHeader(w)
+			next.ServeHTTP(w, req)
+		})
+	})
+
+	r.HandleFunc("/", LinkHome).Methods(http.MethodGet)
+	r.HandleFunc("/", LinkAuth).Methods(http.MethodPost)
+	r.HandleFunc("/portal", PortalHome).Methods(http.MethodGet)
+	r.HandleFunc("/portal/", PortalHome).Methods(http.MethodGet)
+	r.HandleFunc("/portal/api/login", PortalLogin).Methods(http.MethodPost)
+	r.HandleFunc("/portal/api/verify", PortalVerify).Methods(http.MethodPost)
+	r.HandleFunc("/portal/api/sms/send", PortalSmsSend).Methods(http.MethodPost)
+	r.HandleFunc("/portal/api/sms/verify", PortalSmsVerify).Methods(http.MethodPost)
+	r.HandleFunc("/portal/api/sso", PortalSSO).Methods(http.MethodGet)
+	r.HandleFunc("/portal/api/me", PortalMe).Methods(http.MethodGet)
+	r.HandleFunc("/portal/api/my_groups", PortalMyGroups).Methods(http.MethodGet)
+	r.HandleFunc("/portal/api/change_password", PortalChangePassword).Methods(http.MethodPost)
+	r.HandleFunc("/portal/api/logout", PortalLogout).Methods(http.MethodPost)
+	r.HandleFunc("/portal/api/login-config", PortalLoginConfig).Methods(http.MethodGet)
+	r.HandleFunc("/portal/api/otp/status", PortalOTPStatus).Methods(http.MethodGet)
+	r.HandleFunc("/portal/api/otp/regenerate", PortalOTPRegenerate).Methods(http.MethodPost)
+	r.HandleFunc("/portal/api/forgot_password", PortalForgotPassword).Methods(http.MethodPost)
+	r.HandleFunc("/portal/api/reset_password/verify", PortalResetPasswordVerify).Methods(http.MethodGet)
+	r.HandleFunc("/portal/api/reset_password", PortalResetPassword).Methods(http.MethodPost)
+	r.HandleFunc("/portal/api/certs", PortalCertList).Methods(http.MethodGet)
+	r.HandleFunc("/portal/api/certs/download", PortalCertDownload).Methods(http.MethodPost)
+	r.HandleFunc("/portal/api/devices", PortalDevices).Methods(http.MethodGet)
+	r.HandleFunc("/portal/api/devices/offline", PortalDeviceOffline).Methods(http.MethodPost)
+	// WebAuth 端点
+	r.HandleFunc("/web-auth/start", WebAuthStart).Methods(http.MethodGet)
+	r.HandleFunc("/web-auth/groups", WebAuthSelectGroup).Methods(http.MethodPost)
+	r.HandleFunc("/web-auth/step", WebAuthStep).Methods(http.MethodPost)
+	r.HandleFunc("/web-auth/sms/resend", WebAuthSmsResend).Methods(http.MethodPost)
+	r.HandleFunc("/web-auth/continue", WebAuthContinue).Methods(http.MethodPost)
+	r.HandleFunc("/web-auth/sso-callback", WebAuthSSOCallback).Methods(http.MethodGet)
+	r.HandleFunc("/web-auth/complete", WebAuthComplete).Methods(http.MethodGet)
+	r.HandleFunc("/+CSCOE+/web-auth/sp/login", WebAuthSPLogin).Methods(http.MethodGet)
+	r.PathPrefix("/ui/").Handler(admin.ServeUI())
+	r.HandleFunc("/CSCOSSLC/tunnel", LinkTunnel).Methods(http.MethodConnect)
+	r.HandleFunc("/otp_qr", LinkOtpQr).Methods(http.MethodGet)
+	r.HandleFunc("/otp-verification", LinkAuth_otp).Methods(http.MethodPost)
+	// 添加Cisco AnyConnect兼容的SAML端点
+	r.HandleFunc("/+CSCOE+/saml/sp/login", SAMLSPLogin).Methods(http.MethodGet)
+	r.HandleFunc("/+CSCOE+/saml_ac_login.html", SAMLACLogin).Methods(http.MethodGet)
+	r.HandleFunc("/+CSCOE+/saml/sp/done", SAMLDone)
+	// 添加企业微信回调路由
+	r.HandleFunc("/WXAuth/callback", WXAuthCallback).Methods(http.MethodGet)
+	// 添加飞书回调路由
+	r.HandleFunc("/FeishuAuth/callback", FeishuAuthCallback).Methods(http.MethodGet)
+	// 企业微信验证路由（运行时动态匹配文件名）
+	r.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
+		fn := base.GetCfg().WexinWorkVerifyFileName
+		return fn != "" && r.URL.Path == "/"+fn
+	}).HandlerFunc(SAMLTest).Methods(http.MethodGet)
+
+	// Profile 路由（运行时动态匹配文件名）
+	r.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
+		return r.URL.Path == "/"+base.GetCfg().ProfileName+".xml"
+	}).HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, err := dbdata.GetProfileXML()
+		if err != nil {
+			base.Error(err)
+			http.Error(w, "profile err", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+		w.Write(b)
+	}).Methods(http.MethodGet)
+	// 静态文件服务（运行时动态读取 FilesPath）
+	r.PathPrefix("/files/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.StripPrefix("/files/",
+			http.FileServer(http.Dir(base.GetCfg().FilesPath)),
+		).ServeHTTP(w, r)
+	})
+	// 健康检测
+	r.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "ok")
+	}).Methods(http.MethodGet)
+	r.PathPrefix("/portal/").HandlerFunc(PortalHome)
+	r.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			admin.ServeIndex(w, r)
+			return
+		}
+		notFound(w, r)
+	})
+	return r
+}
+
+func notFound(w http.ResponseWriter, r *http.Request) {
+	if base.GetLogLevel() == base.LogLevelTrace {
+		hd, _ := httputil.DumpRequest(r, true)
+		base.Trace("NotFound: ", r.RemoteAddr, string(hd))
+	}
+
+	w.WriteHeader(http.StatusNotFound)
+	fmt.Fprintln(w, "404 page not found")
+}

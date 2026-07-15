@@ -1,0 +1,275 @@
+package auth
+
+import (
+	"crypto/tls"
+	"encoding/json"
+	"strings"
+	"time"
+)
+
+type StepResult int
+
+const (
+	StepPass    StepResult = iota // 认证通过，继续下一步
+	StepPending                   // 需要客户端额外输入（如 OTP 码、SSO 重定向）
+	StepFail                      // 认证失败，终止管道
+)
+
+func (s StepResult) String() string {
+	switch s {
+	case StepPass:
+		return "Pass"
+	case StepPending:
+		return "Pending"
+	case StepFail:
+		return "Fail"
+	default:
+		return "Unknown"
+	}
+}
+
+// 客户端连接信息（ClientRequest）。
+type ConnInfo struct {
+	Username    string
+	Password    string
+	GroupName   string
+	RemoteAddr  string
+	UserAgent   string
+	MacAddr     string
+	DeviceID    string
+	DeviceType  string
+	PlatformVer string
+	TLS         *tls.ConnectionState
+}
+
+// 用户信息（dbdata.Users）
+type UserInfo struct {
+	Username   string
+	Type       string
+	Groups     []string
+	OtpSecret  string
+	DisableOtp bool
+	LimitTime  *time.Time
+	Phone      string
+}
+
+// otp 步骤私有状态。
+type OTPState struct {
+	Code string // OTP动态码
+	Sent bool   // 是否已发送过 OTP（防重复发送）
+}
+
+// sms 步骤私有状态。
+type SMSState struct {
+	Phone string
+	Code  string
+	Sent  bool
+}
+
+// radius 步骤私有状态。
+type RADIUSState struct {
+	State         []byte // Access-Challenge 服务端下发的 State，Resume 时须带回
+	ChallengeCode string // 二次验证码
+	ChallengeMsg  string // 服务端下发的挑战提示
+}
+
+// SSO 认证器（wxwork/feishu）共享状态。
+type SSOState struct {
+	Type             string // "wxwork"|"feishu"
+	From             string // 来源标记："portal"|"web_auth" 等
+	Authenticated    bool   // SSO 回调已完成，身份+部门在回调阶段校验
+	UserID           string // SSO 返回的用户 ID
+	Code             string // OAuth code（管道内 SSO 流程）
+	WebAuthCompleted bool   // WebAuth 流程已完成
+	WebAuthUsername  string
+	WebAuthGroup     string
+}
+
+// 挑战类型
+type ChallengeType string
+
+const (
+	ChallengeOTP    ChallengeType = "otp"    // OTP 动态码输入
+	ChallengeSSO    ChallengeType = "sso"    // SSO 重定向
+	ChallengeRADIUS ChallengeType = "radius" // RADIUS Access-Challenge（二次验证提示）
+	ChallengeSMS    ChallengeType = "sms"    // 短信验证码输入
+)
+
+// 挑战信息（认证器向 handler 层返回的挑战内容）。
+type ChallengeInfo struct {
+	Type     ChallengeType  // 挑战类型
+	Template string         // XML/HTML 模板名称（handler 层使用）
+	Data     map[string]any // 模板数据
+}
+
+// 认证器接口，每个认证步骤实现。
+type Authenticator interface {
+	Name() string
+	Authenticate(ctx *Context) (StepResult, error)
+}
+
+// 支持挑战的认证器（如 OTP/SSO/RADIUS/SMS）。
+type Challenger interface {
+	Authenticator
+	Challenge() *ChallengeInfo
+}
+
+// 不发起挑战的认证器默认实现。
+type NopChallenger struct{}
+
+func (NopChallenger) Challenge() *ChallengeInfo { return nil }
+
+// 认证上下文
+type Context struct {
+	Conn     ConnInfo
+	UserInfo *UserInfo
+	Identity string // 身份断言（证书 CN 等），供管道末尾一致性检查
+
+	OTP    *OTPState
+	SMS    *SMSState
+	RADIUS *RADIUSState
+	SSO    *SSOState
+
+	PortalLogin     bool // Portal 登录流程
+	PortalOTPDirect bool // Portal OTP 直连模式
+
+	info        string
+	passedSteps []string
+	stepIdx     int // 管道暂停步号（Resume 断点），由 handler 在 StepPending 时从 result.State.StepIdx 保存
+}
+
+func (c *Context) SetInfo(s string) {
+	c.info = s
+}
+
+func (c *Context) AddPassedStep(name string) {
+	c.passedSteps = append(c.passedSteps, name)
+}
+
+func (c *Context) LogInfo() string {
+	// 组合认证（多步）：优先展示完整认证流程
+	if len(c.passedSteps) > 1 {
+		return buildInfoFromSteps(c.passedSteps)
+	}
+	if c.info != "" {
+		return c.info
+	}
+	return buildInfoFromSteps(c.passedSteps)
+}
+
+// 认证步骤名 → 中文展示名
+var stepNameMap = map[string]string{
+	"local":  "本地密码",
+	"ldap":   "LDAP",
+	"radius": "RADIUS",
+	"cert":   "证书",
+	"otp":    "OTP",
+	"sms":    "短信验证",
+	"wxwork": "企业微信",
+	"feishu": "飞书",
+	"admin":  "管理员认证",
+}
+
+func buildInfoFromSteps(steps []string) string {
+	if len(steps) == 0 {
+		return "认证成功"
+	}
+	names := make([]string, 0, len(steps))
+	for _, s := range steps {
+		if n, ok := stepNameMap[s]; ok {
+			names = append(names, n)
+		} else {
+			names = append(names, s)
+		}
+	}
+	return strings.Join(names, "+") + "认证通过"
+}
+
+func (c *Context) Username() string          { return c.Conn.Username }
+func (c *Context) Password() string          { return c.Conn.Password }
+func (c *Context) GroupName() string         { return c.Conn.GroupName }
+func (c *Context) RemoteAddr() string        { return c.Conn.RemoteAddr }
+func (c *Context) MacAddr() string           { return c.Conn.MacAddr }
+func (c *Context) SetUserInfo(u *UserInfo)   { c.UserInfo = u }
+func (c *Context) UserInfoLoaded() *UserInfo { return c.UserInfo }
+
+func (c *Context) GetOTP() *OTPState {
+	if c.OTP == nil {
+		c.OTP = &OTPState{}
+	}
+	return c.OTP
+}
+
+func (c *Context) GetSMS() *SMSState {
+	if c.SMS == nil {
+		c.SMS = &SMSState{}
+	}
+	return c.SMS
+}
+
+func (c *Context) GetRADIUS() *RADIUSState {
+	if c.RADIUS == nil {
+		c.RADIUS = &RADIUSState{}
+	}
+	return c.RADIUS
+}
+
+func (c *Context) GetSSO() *SSOState {
+	if c.SSO == nil {
+		c.SSO = &SSOState{}
+	}
+	return c.SSO
+}
+
+// 回填已通过的步骤列表，供 Resume 从断点恢复。
+func (c *Context) SetPassedSteps(steps []string) {
+	c.passedSteps = steps
+}
+
+func (c *Context) PassedSteps() []string {
+	return c.passedSteps
+}
+
+func (c *Context) SetStepIdx(idx int) {
+	c.stepIdx = idx
+}
+
+func (c *Context) StepIdx() int {
+	return c.stepIdx
+}
+
+// 管道暂停状态
+type PipelineState struct {
+	StepIdx     int
+	PassedSteps []string
+}
+
+// 管道执行结果。
+type PipelineResult struct {
+	Result    StepResult
+	Err       error
+	Username  string
+	GroupName string
+	Info      string
+
+	LimitTime *time.Time // 用户过期时间，由认证器加载到 ctx.UserInfo 后填入
+
+	Challenge   *ChallengeInfo
+	State       PipelineState
+	PrevStepIdx int // 执行前的管道步号，首次认证为 -1。用于判断挑战是否原地踏步。
+}
+
+// IsChallengeRetry 判断管道是否在挑战步骤原地踏步（即挑战码错误，未推进到下一步）。
+// PrevStepIdx < 0 表示首次认证
+func (r *PipelineResult) IsChallengeRetry() bool {
+	if r.PrevStepIdx < 0 {
+		return false
+	}
+	return r.Result == StepPending && r.State.StepIdx == r.PrevStepIdx
+}
+
+// 认证服务需要的组基本信息。
+type GroupInfo struct {
+	Name        string
+	AuthProfile json.RawMessage
+}
