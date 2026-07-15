@@ -122,7 +122,7 @@ export default {
           this.brand = Object.assign({ title: "", logo: "", favicon: "" }, resp.data.data)
           applyBrandToDocument(this.brand)
         }
-      }).catch((err) => {})
+      }).catch(() => {})
     },
     async handleLoginSuccess(rdata) {
       this.$message.success('登录成功');
@@ -175,7 +175,7 @@ export default {
           } else {
             this.$message.error(rdata.msg);
           }
-        }).catch((err) => {
+        }).catch(() => {
           this.$message.error('请求出错，请检查网络连接');
         }).finally(() => {
           this.isLoading = false
@@ -200,7 +200,7 @@ export default {
         } else {
           this.$message.error(rdata.msg);
         }
-      }).catch((err) => {
+      }).catch(() => {
         this.$message.error('请求出错，请检查网络连接');
       }).finally(() => {
         this.otpLoading = false

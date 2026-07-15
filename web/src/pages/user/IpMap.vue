@@ -175,7 +175,7 @@ export default {
           this.$confirm('确定要删除该IP映射吗？', '删除确认', {
             confirmButtonText: '确定删除', cancelButtonText: '取消',
             type: 'warning', confirmButtonClass: 'el-button--danger',
-          }).then(() => this.handleDel(row)).catch((err) => {});
+          }).then(() => this.handleDel(row)).catch(() => {});
           break;
       }
     },
@@ -192,7 +192,7 @@ export default {
         const data = resp.data.data || {};
         this.tableData = data.datas || [];
         this.count = data.count || 0;
-      }).catch((err) => {
+      }).catch(() => {
         this.$message.error('请求出错');
       }).finally(() => {
         this.loading = false;
@@ -208,7 +208,7 @@ export default {
       }
       axios.get('/user/ip_map/detail', { params: { id: row.id } }).then(resp => {
         this.ruleForm = resp.data.data;
-      }).catch((err) => {
+      }).catch(() => {
         this.$message.error('请求出错');
       });
     },
@@ -218,7 +218,7 @@ export default {
           this.$message.success(resp.data.msg);
           this.getData(1);
         } else { this.$message.error(resp.data.msg); }
-      }).catch((err) => {
+      }).catch(() => {
         this.$message.error('请求出错');
       });
     },
@@ -231,7 +231,7 @@ export default {
             this.getData(1);
             this.user_edit_dialog = false;
           } else { this.$message.error(resp.data.msg); }
-        }).catch((err) => {
+        }).catch(() => {
           this.$message.error('请求出错');
         });
       });

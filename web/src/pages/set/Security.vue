@@ -374,7 +374,7 @@ export default {
       axios.get('/set/soft/status').then(resp => {
         const data = resp.data.data || {}
         this.systemWarnings = data.warnings || []
-      }).catch((err) => {
+      }).catch(() => {
         this.systemWarnings = []
       })
     },
@@ -425,7 +425,7 @@ export default {
         } else {
           this.otpEnabled = false
         }
-      }).catch((err) => {
+      }).catch(() => {
         this.otpEnabled = false
       })
     },
@@ -443,7 +443,7 @@ export default {
         } else {
           this.$message.error(resp.data.msg || '生成密钥失败')
         }
-      }).catch((err) => {
+      }).catch(() => {
         this.$message.error('请求出错')
       })
     },
@@ -540,7 +540,7 @@ export default {
       if (!this.otpSecret) return
       navigator.clipboard.writeText(this.otpSecret).then(() => {
         this.$message.success('密钥已复制到剪贴板')
-      }).catch((err) => {
+      }).catch(() => {
         // fallback
         var ta = document.createElement('textarea')
         ta.value = this.otpSecret
@@ -563,7 +563,7 @@ export default {
           this.cryptoEnabled = resp.data.data.enabled
           this.cryptoKeyPath = resp.data.data.key_path || ''
         }
-      }).catch((err) => {
+      }).catch(() => {
         this.cryptoEnabled = false
       }).finally(() => {
         this.cryptoLoading = false
@@ -661,7 +661,7 @@ export default {
           try { msg = err.response && err.response.data && err.response.data.msg } catch (e) { /* empty */ }
           this.$message.error(msg || '请求出错')
         }).finally(() => { loading.close() })
-      }).catch((err) => { /* 取消 */ })
+      }).catch(() => { /* 取消 */ })
     },
   },
 

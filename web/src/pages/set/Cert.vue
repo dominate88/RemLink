@@ -420,7 +420,7 @@ export default {
             this.caInitialized = true;
           } else this.$message.error(resp.data.msg);
         });
-      }).catch((err) => { });
+      }).catch(() => { });
     },
     generateClientCert() {
       this.generateCertDialog = true;
@@ -450,7 +450,7 @@ export default {
         if (resp.data.code === 0 && !resp.data.data.has_cert_auth) {
           this.$message.warning(`当前组"${groupName}"尚未配置证书认证，建议先在"用户组管理 > 编辑组 > 认证方式"中添加 TLS 证书认证步骤`);
         }
-      }).catch((err) => { });
+      }).catch(() => { });
     },
     confirmGenerateCert() {
       if (!this.generateForm.username) { this.$message.error('请选择或输入用户名'); return; }
@@ -478,7 +478,7 @@ export default {
       this.$prompt('请输入证书密码，留空则不使用密码:', {
         confirmButtonText: '下载', cancelButtonText: '取消',
         inputType: 'password', inputPlaceholder: '留空则不使用密码',
-      }).then(({ value }) => this.doDownloadCert(row, value)).catch((err) => { });
+      }).then(({ value }) => this.doDownloadCert(row, value)).catch(() => { });
     },
     doDownloadCert(row, password) {
       const params = new URLSearchParams();
@@ -625,7 +625,7 @@ export default {
         } else {
           this.$message.error(resp.data.msg);
         }
-      }).catch((err) => {
+      }).catch(() => {
         this.$message.error('请求失败');
       }).finally(() => {
         this.sendMailLoading = false;
@@ -647,7 +647,7 @@ export default {
             this.loadClientCertList();
           } else this.$message.error(resp.data.msg);
         });
-      }).catch((err) => { });
+      }).catch(() => { });
     },
     // ===== 批量下载 =====
     batchDownloadCerts() {
@@ -671,7 +671,7 @@ export default {
             this.$message.success('证书下载成功');
             this.$refs.certTable && this.$refs.certTable.clearSelection();
           }).catch(() => this.$message.error('下载失败'));
-      }).catch((err) => { });
+      }).catch(() => { });
     },
     resetForm(formName) {
       this.$refs[formName] && this.$refs[formName].resetFields();

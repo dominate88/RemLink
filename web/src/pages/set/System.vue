@@ -281,7 +281,7 @@ export default {
     getData() {
       axios.get('/set/system', {}).then(resp => {
         this.system = resp.data.data;
-      }).catch((err) => {
+      }).catch(() => {
         this.$message.error('请求出错');
       });
     },
@@ -368,7 +368,7 @@ export default {
               }
             }
             processChunk();
-          }).catch((err) => {
+          }).catch(() => {
           });
         }
         processChunk();
@@ -390,7 +390,7 @@ export default {
             self.upgradeDialog.visible = false;
             self.$message.success('升级完成，服务已重启');
             setTimeout(() => location.reload(), 1000);
-          }).catch((err) => {
+          }).catch(() => {
             if (attempts < maxAttempts) {
               tryReconnect();
             } else {

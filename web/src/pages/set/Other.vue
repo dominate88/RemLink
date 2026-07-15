@@ -702,7 +702,7 @@ export default {
           }
           this.dataSmtp = rdata.data;
         })
-        .catch((err) => {
+        .catch(() => {
           this.$message.error("哦，请求出错");
         });
     },
@@ -717,7 +717,7 @@ export default {
           }
           this.dataSms = rdata.data || {};
         })
-        .catch((err) => {
+        .catch(() => {
           this.$message.error("哦，请求出错");
         });
     },
@@ -734,7 +734,7 @@ export default {
         } else {
           this.$message.error(rdata.msg);
         }
-      }).catch((err) => {
+      }).catch(() => {
         this.$message.error("请求失败");
       }).finally(() => {
         this.smsTestLoading = false;
@@ -751,7 +751,7 @@ export default {
           }
           this.dataAuditLog = rdata.data;
         })
-        .catch((err) => {
+        .catch(() => {
           this.$message.error("哦，请求出错");
         });
     },
@@ -766,7 +766,7 @@ export default {
           }
           this.dataOther = rdata.data;
         })
-        .catch((err) => {
+        .catch(() => {
           this.$message.error("哦，请求出错");
         });
     },
@@ -782,7 +782,7 @@ export default {
           this.dataBrand = rdata.data || {};
           this.brandFeatures = this.parseBrandFeatures(this.dataBrand.features);
         })
-        .catch((err) => {
+        .catch(() => {
           this.$message.error("哦，请求出错");
         });
     },
@@ -818,7 +818,7 @@ export default {
           this.dashClientGuide = this.parseClientGuide(this.dataDashboard.client_guide);
           this.dashCardsVisible = this.parseCardsVisible(this.dataDashboard.cards_visible);
         })
-        .catch((err) => {
+        .catch(() => {
           this.$message.error("哦，请求出错");
         });
     },
@@ -920,7 +920,7 @@ export default {
       ta.style.opacity = '0';
       document.body.appendChild(ta);
       ta.select();
-      try { document.execCommand('copy'); done(); } catch (e) { console.warn('execCommand copy failed', e) }
+      try { document.execCommand('copy'); done(); } catch (e) { /* execCommand deprecated */ }
       document.body.removeChild(ta);
     },
     onSmsProviderChange(val) {
@@ -1031,7 +1031,7 @@ export default {
         } else {
           this.$message.error(resp.data.msg);
         }
-      }).catch((err) => {
+      }).catch(() => {
         this.$message.error('加载失败');
       }).finally(() => {
         this.certMailTemplateLoading = false;

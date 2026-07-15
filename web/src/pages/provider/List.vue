@@ -442,7 +442,7 @@ export default {
           this.$confirm('确定要删除该认证源吗？', '删除确认', {
             confirmButtonText: '确定删除', cancelButtonText: '取消',
             type: 'warning', confirmButtonClass: 'el-button--danger',
-          }).then(() => this.handleDel(row)).catch((err) => {});
+          }).then(() => this.handleDel(row)).catch(() => {});
           break;
       }
     },
@@ -454,7 +454,7 @@ export default {
         this.tableData = rdata.datas || [];
         this.count = rdata.count || 0;
         this.loading = false;
-      }).catch((err) => { this.loading = false; });
+      }).catch(() => { this.loading = false; });
     },
     pageChange(p) { this.getData(p); },
     onTypeChange() {
@@ -479,7 +479,7 @@ export default {
         try { cfg = typeof data.config === 'string' ? JSON.parse(data.config) : (data.config || {}); }
         catch (e) { cfg = {}; }
         this.configForm = Object.assign({}, configDefaults[this.ruleForm.type] || {}, cfg);
-      }).catch((err) => {
+      }).catch(() => {
         this.$message.error('获取详情失败');
       });
     },
@@ -531,7 +531,7 @@ export default {
         if (resp.data.code === 0 && resp.data.data && resp.data.data.datas) {
           this.groupNames = resp.data.data.datas;
         }
-      }).catch((err) => {});
+      }).catch(() => {});
     },
     syncProviderUsers() {
       this.$refs['syncForm'].validate(valid => {

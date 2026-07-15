@@ -107,7 +107,7 @@ export default {
           this.brand = Object.assign({ title: "", logo: "" }, resp.data.data)
           applyBrandToDocument(this.brand)
         }
-      }).catch((err) => {})
+      }).catch(() => {})
     },
     // 打开诊断工具：未启用时在当前页报错，而不是跳转新页面显示 403
     openDebugTool(url) {
@@ -119,7 +119,7 @@ export default {
             this.$message.error('诊断工具未启用，请在服务端配置中开启 pprof 后重启服务')
           }
         })
-        .catch((err) => {
+        .catch(() => {
           this.$message.error('无法访问诊断工具，请确认服务状态')
         })
     },

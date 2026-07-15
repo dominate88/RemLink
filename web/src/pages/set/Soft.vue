@@ -614,7 +614,7 @@ export default {
           this.restart_loading = false
           this.showApiError(err, '重启失败');
         })
-      }).catch((err) => { /* 用户取消 */ })
+      }).catch(() => { /* 用户取消 */ })
     },
     saveConfig(row) {
       if (row.sensitive && !row.edit_data) {
@@ -829,7 +829,7 @@ export default {
         if (list.length > 0) {
           this.restore_prompt_dialog = true
         }
-      }).catch((err) => { })
+      }).catch(() => { })
     },
     goToRestore() {
       this.restore_prompt_dialog = false
@@ -855,7 +855,7 @@ export default {
         }).catch((err) => {
           this.showApiError(err, '还原失败')
         })
-      }).catch((err) => { })  // 取消还原
+      }).catch(() => { })  // 取消还原
     },
     deleteBackup(row) {
       this.$confirm('确定删除备份文件「' + row.name + '」？', '确认删除', {
@@ -869,7 +869,7 @@ export default {
         }).catch((err) => {
           this.showApiError(err, '删除失败')
         })
-      }).catch((err) => { })  // 取消删除
+      }).catch(() => { })  // 取消删除
     },
     formatNumber(n) {
       if (n === null || n === undefined) return '0'

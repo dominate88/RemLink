@@ -123,7 +123,7 @@ export default {
         this.tableData = data.datas;
         this.count = data.count
         this.opTypes = data.opTypes || []
-      }).catch((err) => {
+      }).catch(() => {
         this.$message.error('请求出错');
       });
     },

@@ -123,7 +123,7 @@ export default {
       axios.get('/locksinfo/list').then(resp => {
         this.locksInfo = resp.data.data || [];
         this.loading = false;
-      }).catch((err) => {
+      }).catch(() => {
         this.$message.error('无法获取锁定信息');
         this.loading = false;
       });
@@ -140,10 +140,10 @@ export default {
         }).then(() => {
           this.$message.success('解锁成功');
           this.getLocks();
-        }).catch((err) => {
+        }).catch(() => {
           this.$message.error('解锁失败');
         });
-      }).catch((err) => {});
+      }).catch(() => {});
     },
     formatDate(dateString) {
       if (!dateString) return '-';

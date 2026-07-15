@@ -912,7 +912,7 @@ export default {
           )
           applyBrandToDocument(this.brand)
         }
-      }).catch((err) => { })
+      }).catch(() => { })
     },
     loadMe() {
       this.portalApi("get", "/portal/api/me").then(resp => {
@@ -925,7 +925,7 @@ export default {
           this.loadDevices()
           this.startDevicesPoll()
         }
-      }).catch((err) => {
+      }).catch(() => {
         this.loggedIn = false
       })
     },
@@ -944,7 +944,7 @@ export default {
         this.loginLoading = true
         this.portalApi("post", "/portal/api/login", this.loginForm).then(resp => {
           this.handleAuthResponse(resp.data)
-        }).catch((err) => {
+        }).catch(() => {
           this.$message.error("网络请求失败，请稍后重试")
         }).finally(() => {
           this.loginLoading = false
@@ -991,7 +991,7 @@ export default {
         } else {
           this.$message.error(resp.data.msg)
         }
-      }).catch((err) => {
+      }).catch(() => {
         this.$message.error("发送失败，请稍后重试")
       }).finally(() => {
         this.smsSending = false
@@ -1017,7 +1017,7 @@ export default {
         } else {
           this.$message.error(resp.data.msg)
         }
-      }).catch((err) => {
+      }).catch(() => {
         this.$message.error("验证失败，请重试")
       }).finally(() => {
         this.smsVerifying = false
@@ -1034,7 +1034,7 @@ export default {
         code: this.challengeCode,
       }).then(resp => {
         this.handleAuthResponse(resp.data)
-      }).catch((err) => {
+      }).catch(() => {
         this.$message.error("验证失败，请重试")
       }).finally(() => {
         this.challengeLoading = false
@@ -1106,7 +1106,7 @@ export default {
         } else {
           this.$message.error(resp.data.msg)
         }
-      }).catch((err) => {
+      }).catch(() => {
         this.$message.error("请求失败，请稍后重试")
       }).finally(() => {
         this.passwordLoading = false
@@ -1125,7 +1125,7 @@ export default {
         } else {
           this.$message.error("重置链接无效或已过期")
         }
-      }).catch((err) => {
+      }).catch(() => {
         this.$message.error("验证重置链接失败")
       })
     },
@@ -1157,7 +1157,7 @@ export default {
           this.$message.success((resp.data.data && resp.data.data.message) || resp.data.msg || "如果账号匹配，重置邮件已发送")
           this.forgotSent = true
         }
-      }).catch((err) => {
+      }).catch(() => {
         this.$message.error("请求失败，请稍后重试")
       }).finally(() => {
         this.forgotLoading = false
@@ -1188,7 +1188,7 @@ export default {
         } else {
           this.$message.error(resp.data.msg)
         }
-      }).catch((err) => {
+      }).catch(() => {
         this.$message.error("请求失败，请稍后重试")
       }).finally(() => {
         this.resetLoading = false
@@ -1265,7 +1265,7 @@ export default {
         } else {
           this.$message.error(resp.data.msg)
         }
-      }).catch((err) => {
+      }).catch(() => {
         this.$message.error("请求失败")
       }).finally(() => {
         this.otpRegenLoading = false
@@ -1283,7 +1283,7 @@ export default {
         if (resp.data.code === 0) {
           this.certs = resp.data.data || []
         }
-      }).catch((err) => { }).finally(() => {
+      }).catch(() => { }).finally(() => {
         this.certsLoading = false
       })
     },
@@ -1333,7 +1333,7 @@ export default {
         if (resp.data.code === 0) {
           this.devices = (resp.data.data || []).map(d => ({ ...d, _kicking: false }))
         }
-      }).catch((err) => { }).finally(() => {
+      }).catch(() => { }).finally(() => {
         this.devicesLoading = false
       })
     },
@@ -1347,7 +1347,7 @@ export default {
           this.$message.error(resp.data.msg)
           device._kicking = false
         }
-      }).catch((err) => {
+      }).catch(() => {
         this.$message.error("操作失败")
         device._kicking = false
       })
