@@ -37,9 +37,6 @@ function archive() {
 
   tar zcf ${deploy}.tar.gz remlink-deploy
   mv ${deploy}.tar.gz artifact-dist/
-
-  # 生成 SHA256 校验文件
-  sha256sum artifact-dist/${deploy}.tar.gz > artifact-dist/${deploy}.tar.gz.sha256
 }
 
 echo "copy二进制文件"

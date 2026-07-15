@@ -1,11 +1,9 @@
-// 在线升级：通过 GitHub Releases 检查更新、下载、校验、替换、重启
+// 在线升级：通过 GitHub Releases 检查更新、下载、替换、重启
 package base
 
 import (
 	"archive/tar"
 	"compress/gzip"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -31,7 +29,6 @@ type ReleaseInfo struct {
 	Body        string `json:"body"`
 	URL         string `json:"url"`
 	Size        int64  `json:"size"`
-	Checksum    string `json:"checksum"`
 	PublishedAt string `json:"published_at"`
 }
 
@@ -114,16 +111,6 @@ func CheckUpdate() (*ReleaseInfo, bool, error) {
 		return nil, false, fmt.Errorf("未找到适用于当前平台 %s-%s 的下载资源", currentOS, currentArch)
 	}
 
-	// 查找与下载包同名的 .sha256 校验文件
-	var checksumURL string
-	for i := range gr.Assets {
-		a := &gr.Assets[i]
-		if strings.EqualFold(a.Name, downloadAsset.Name+".sha256") {
-			checksumURL = a.BrowserDownloadURL
-			break
-		}
-	}
-
 	latestVersion := strings.TrimPrefix(gr.TagName, "v")
 	currentVersion := APP_VER
 	needUpgrade := compareVersion(latestVersion, currentVersion) > 0
@@ -134,13 +121,6 @@ func CheckUpdate() (*ReleaseInfo, bool, error) {
 		URL:         downloadAsset.BrowserDownloadURL,
 		Size:        downloadAsset.Size,
 		PublishedAt: gr.PublishedAt,
-	}
-
-	// 下载 SHA256 校验文件
-	if checksumURL != "" {
-		if sum, err := fetchChecksum(checksumURL); err == nil {
-			ri.Checksum = sum
-		}
 	}
 
 	return ri, needUpgrade, nil
@@ -175,18 +155,7 @@ func DoUpgrade(info *ReleaseInfo, progressCh chan<- UpgradeProgress) {
 	}
 	defer os.Remove(binFile)
 
-	// 阶段3：校验（强制）
-	if info.Checksum == "" {
-		sendError(progressCh, "升级信息缺少校验和，拒绝执行")
-		return
-	}
-	sendProgress(progressCh, "verifying", 95, info.Size, info.Size)
-	if err := verifyChecksum(binFile, info.Checksum); err != nil {
-		sendError(progressCh, "文件校验失败: "+err.Error())
-		return
-	}
-
-	// 阶段4：替换
+	// 阶段3：替换
 	sendProgress(progressCh, "replacing", 98, info.Size, info.Size)
 	exePath, err := replaceBinary(binFile)
 	if err != nil {
@@ -344,54 +313,6 @@ func extractBinary(tarGzPath string) (string, error) {
 	}
 
 	return "", fmt.Errorf("压缩包中未找到 remlink 可执行文件")
-}
-
-// 下载 SHA256 校验文件并返回校验值（sha256sum 输出格式：<hash>  <filename>）
-func fetchChecksum(url string) (string, error) {
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Get(url)
-	if err != nil {
-		return "", fmt.Errorf("下载校验文件失败: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("校验文件 HTTP 状态码: %d", resp.StatusCode)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("读取校验文件失败: %w", err)
-	}
-	// sha256sum 输出格式: "<64位hash>  filename" 或 "<64位hash> filename"
-	sum := strings.TrimSpace(string(body))
-	if idx := strings.IndexByte(sum, ' '); idx > 0 {
-		sum = sum[:idx]
-	}
-	sum = strings.TrimSpace(sum)
-	if len(sum) != 64 {
-		return "", fmt.Errorf("校验文件格式异常: %s", sum)
-	}
-	return sum, nil
-}
-
-// 校验 SHA256
-func verifyChecksum(filePath, expectedChecksum string) error {
-	f, err := os.Open(filePath)
-	if err != nil {
-		return fmt.Errorf("打开文件失败: %w", err)
-	}
-	defer f.Close()
-
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return fmt.Errorf("计算校验和失败: %w", err)
-	}
-
-	actualChecksum := hex.EncodeToString(h.Sum(nil))
-	if !strings.EqualFold(actualChecksum, expectedChecksum) {
-		return fmt.Errorf("SHA256 校验不匹配:\n  期望: %s\n  实际: %s", expectedChecksum, actualChecksum)
-	}
-	Info("在线升级: SHA256 校验通过")
-	return nil
 }
 
 // 复制到同名临时文件 → rename 替换 → 备份旧文件
