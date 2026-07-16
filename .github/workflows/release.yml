@@ -124,18 +124,6 @@ jobs:
           allowUpdates: true
           body: ${{ steps.changelog.outputs.body }}
 
-      - name: Remove auto-generated source code assets from public repo
-        shell: bash
-        run: |
-          # 删除 GitHub 自动生成的 Source code (zip) 和 Source code (tar.gz)
-          release_data=$(curl -s -H "Authorization: token ${{ secrets.CUSTOM_GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/wsczx/RemLink/releases/tags/v${{ env.APP_VER }}")
-          for asset_id in $(echo "$release_data" | jq '.assets[] | select(.name | test("Source code")) | .id'); do
-            echo "Deleting source code asset id: $asset_id"
-            curl -s -X DELETE -H "Authorization: token ${{ secrets.CUSTOM_GITHUB_TOKEN }}" \
-              "https://api.github.com/repos/wsczx/RemLink/releases/assets/$asset_id"
-          done
-
       - name: Pack source code
         shell: bash
         run: |
