@@ -162,39 +162,5 @@ jobs:
           removeArtifacts: true
           body: ${{ steps.changelog.outputs.body }}
 
-      - name: Remove auto-generated Source code assets
-        env:
-          GH_TOKEN: ${{ secrets.CUSTOM_GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          tag="v${{ env.APP_VER }}"
-
-          for i in {1..10}; do
-            release_id=$(curl -s -H "Authorization: token $GH_TOKEN" \
-              "https://api.github.com/repos/wsczx/RemLink/releases/tags/$tag" | jq -r '.id // empty')
-            if [ -n "$release_id" ]; then
-              break
-            fi
-            echo "Release not ready, retry $i..."
-            sleep 5
-          done
-
-          if [ -z "$release_id" ]; then
-            echo "Release still not found after retries, skip"
-            exit 0
-          fi
-
-          curl -s -H "Authorization: token $GH_TOKEN" \
-            "https://api.github.com/repos/wsczx/RemLink/releases/$release_id/assets" \
-            | jq -c '.[]?' | while read asset; do
-                name=$(echo "$asset" | jq -r .name)
-                id=$(echo "$asset" | jq -r .id)
-                if [[ "$name" == "Source code (zip)" || "$name" == "Source code (tar.gz)" ]]; then
-                  echo "Deleting: $name"
-                  curl -s -X DELETE -H "Authorization: token $GH_TOKEN" \
-                    "https://api.github.com/repos/wsczx/RemLink/releases/assets/$id"
-                fi
-              done
-
 #  Docker:
 #    name: build-docker
