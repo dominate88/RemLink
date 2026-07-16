@@ -4,7 +4,7 @@
 ![GitHub downloads](https://img.shields.io/github/downloads/wsczx/remlink/total)
 [![Docker pulls](https://img.shields.io/docker/pulls/wsczx/remlink.svg)](https://hub.docker.com/r/wsczx/remlink)
 
-RemLink 项目在 [AnyLink](https://github.com/bjdgyc/anylink) 基础上深度重构，是一个企业级远程办公 SSL VPN 软件，可以支持多人同时在线使用。感谢原作者 [bjdgyc](https://github.com/bjdgyc) 的开源贡献。
+RemLink 项目在 [AnyLink](https://github.com/bjdgyc/anylink) 基础上深度重构，是一个企业级远程办公系统，可以支持多人同时在线使用。感谢原作者 [bjdgyc](https://github.com/bjdgyc) 的开源贡献。
 
 使用 RemLink，你可以随时随地安全的访问你的内部网络。
 
@@ -62,48 +62,29 @@ tun/tap
 
 ### 自行编译安装
 
-#### 方式一：Docker 编译（推荐）
-
-> 需要提前安装好 docker
+> 需要提前安装好 docker 和 make
 
 ```shell
 git clone https://github.com/wsczx/remlink.git
-
-# 参考软件版本(不需要手动安装)
-# go 1.24
-# node v16.20.2
-# yarn 1.22.19
-
 cd remlink
 
-# 编译前端（仅首次执行，或前端代码变更后执行）
-bash build_web.sh
-# 编译 remlink-deploy 发布文件
-bash build.sh
+make help          # 查看所有命令
+make build         # 编译前端 + Docker 镜像 + 发布包
 
-# 注意使用root权限运行
 cd remlink-deploy
 sudo ./remlink
 
-# 默认管理后台访问地址
-# https://host:8800
-# 管理用户名和密码在首次启动日志中查看（可在后台管理界面修改，或通过命令行参数设置）
+# 默认管理后台访问地址 https://host:8800
+# 管理员密码在首次启动日志中查看
 ```
 
-#### 方式二：本地编译
+#### 本地编译（不依赖 Docker）
 
 > 需要 Go 1.24+、Node.js 16+、yarn
 
 ```bash
-# 1. 编译前端
-cd web
-yarn install
-yarn run build
-cd ..
-
-# 2. 编译后端（musl 静态链接 + UPX 压缩）
-bash build_local.sh
-
+make web    # 编译前端
+make local  # 编译二进制（musl 静态链接 + UPX 压缩）
 # 产物在 server/remlink
 ```
 
@@ -540,12 +521,9 @@ ipv4_end = "10.1.2.200"
 
 9. 构建镜像 (非必需)
    ```bash
-   #获取仓库源码
    git clone https://github.com/wsczx/remlink.git
-   # 构建镜像
-   sh build_docker.sh
-   或
-   docker build -t remlink -f docker/Dockerfile .
+   cd remlink
+   make docker   # 或 docker build -t remlink -f docker/Dockerfile .
    ```
 
 ## 常见问题

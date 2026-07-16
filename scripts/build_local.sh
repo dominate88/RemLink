@@ -3,14 +3,14 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR/server"
+cd "$SCRIPT_DIR/../server"
 
 echo "=============================="
 
-ver=$(cat "$SCRIPT_DIR/version")
+ver=$(cat "$SCRIPT_DIR/../version")
 echo "  版本:   $ver"
 
-commitId=$(git -C "$SCRIPT_DIR" rev-parse HEAD)
+commitId=$(git -C "$SCRIPT_DIR/.." rev-parse HEAD)
 echo "  Commit: ${commitId:0:8}"
 
 buildDate=$(date -Iseconds)
@@ -69,4 +69,4 @@ ls -lh remlink
 echo "=============================="
 ./remlink -v
 echo "=============================="
-echo "完成: $SCRIPT_DIR/server/remlink"
+echo "完成: $SCRIPT_DIR/../server/remlink"

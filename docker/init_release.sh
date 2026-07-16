@@ -1,39 +1,18 @@
 #!/bin/sh
-
 set -x
 
-#TODO 本地打包时使用镜像
-if [[ $CN == "yes" ]]; then
-  #sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories
+if [ "$CN" = "yes" ]; then
   sed -i 's/dl-cdn.alpinelinux.org/mirrors.ustc.edu.cn/g' /etc/apk/repositories
   export GOPROXY=https://goproxy.cn
 fi
 
+apk add --no-cache ca-certificates bash tzdata inetutils-telnet iptables
 
-# docker 启动使用 4.19 以上内核
-apk add --no-cache ca-certificates bash tzdata inetutils-telnet 
-
-# alpine:3.19 兼容老版本 iptables
-apk add --no-cache iptables 
 which iptables
 iptables -V
 
-# <= alpine:3.20
-#rm /sbin/iptables
-#ln -s /sbin/iptables-legacy /sbin/iptables
-
-# >= alpine:3.21
-#/usr/sbin/iptables
-#/usr/sbin/iptables-legacy
-
-
 chmod +x /app/docker_entrypoint.sh
-mkdir /app/log
-
-#备份配置文件
-# cp -r /app/conf /home/conf-bak
-
-tree /app
+mkdir -p /app/log
 
 uname -a
 date -Iseconds
