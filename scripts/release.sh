@@ -25,4 +25,7 @@ function archive() {
 archive "linux/amd64"
 archive "linux/arm64"
 
+test -d artifact-dist || { echo "ERROR: artifact-dist not found"; exit 1; }
+test "$(ls artifact-dist)" || { echo "ERROR: artifact-dist is empty"; exit 1; }
+
 ls -lh artifact-dist
