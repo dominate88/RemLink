@@ -1,4 +1,4 @@
-.PHONY: all web build docker local run test clean
+.PHONY: all web build docker local local-noupx run test clean
 
 VERSION := $(shell cat version)
 
@@ -22,9 +22,13 @@ docker-cn:
 local:
 	bash scripts/build_local.sh
 
+## 本地编译二进制（不压缩）
+local-noupx:
+	bash scripts/build_local.sh noupx
+
 ## 编译并运行（需先 make web）
-run:
-	cd server && sudo go run main.go; exit 0
+run: local-noupx
+	cd server && sudo ./remlink
 
 ## 运行测试
 test:
@@ -47,6 +51,7 @@ help:
 	@echo "  make docker     构建 Docker 镜像"
 	@echo "  make docker-cn  推送阿里云镜像仓库"
 	@echo "  make local      本地编译二进制（musl + UPX）"
+	@echo "  make local-noupx 本地编译二进制（不压缩）"
 	@echo "  make go         快速编译 Go 后端（需先 make web）"
 	@echo "  make run        编译并运行"
 	@echo "  make test       运行测试"

@@ -53,14 +53,19 @@ ldflags="-s -w \
 
 go build -v -o remlink -trimpath -ldflags "$ldflags"
 
-# UPX 压缩
-if command -v upx &>/dev/null; then
-    echo ""
-    echo "UPX 压缩..."
-    upx --best remlink
+# UPX 压缩（传 noupx 参数跳过）
+if [ "$1" != "noupx" ]; then
+  if command -v upx &>/dev/null; then
+      echo ""
+      echo "UPX 压缩..."
+      upx --best remlink
+  else
+      echo ""
+      echo "⚠ 未安装 upx: apt install upx-ucl"
+  fi
 else
-    echo ""
-    echo "⚠ 未安装 upx: apt install upx-ucl"
+  echo ""
+  echo "跳过 UPX 压缩"
 fi
 
 echo ""
