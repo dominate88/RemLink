@@ -29,8 +29,7 @@ ENV REMLINK_IN_CONTAINER="on"
 WORKDIR /app
 COPY docker/init_release.sh /tmp/
 COPY --from=builder /server/remlink /app/
-COPY docker/docker_entrypoint.sh server/bridge-init.sh ./README.md ./LICENSE /app/
-COPY ./deploy /app/deploy
+COPY docker/docker_entrypoint.sh server/bridge-init.sh /app/
 
 RUN sh /tmp/init_release.sh
 

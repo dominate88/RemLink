@@ -265,8 +265,6 @@ export default {
     stageText() {
       const map = {
         downloading: '正在下载...',
-        extracting: '正在解压...',
-        verifying: '正在校验文件...',
         replacing: '正在替换文件...',
         restarting: '正在重启服务...',
         done: '升级完成',

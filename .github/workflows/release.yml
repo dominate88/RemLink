@@ -124,5 +124,27 @@ jobs:
           allowUpdates: true
           body: ${{ steps.changelog.outputs.body }}
 
+      - name: Pack source code
+        shell: bash
+        run: |
+          mkdir -p artifact-src
+          tar --exclude='.git' \
+              --exclude='web/node_modules' \
+              --exclude='server/ui' \
+              --exclude='server/conf' \
+              --exclude='artifact-dist' \
+              --exclude='artifact-src' \
+              -czf artifact-src/RemLink-src-v${{ env.APP_VER }}.tar.gz .
+
+      - name: Release source to private repo (wsczx/RemLink-private)
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: v${{ env.APP_VER }}
+          name: RemLink-src v${{ env.APP_VER }}
+          artifacts: artifact-src/*
+          allowUpdates: true
+          body: ${{ steps.changelog.outputs.body }}
+
 #  Docker:
 #    name: build-docker

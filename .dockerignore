@@ -3,7 +3,7 @@
 .gitignore
 
 # 数据库文件（包含敏感数据）
-server/conf/remlink.db
+server/conf/
 *.db
 
 # 日志文件

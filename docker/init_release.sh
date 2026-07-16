@@ -12,7 +12,6 @@ which iptables
 iptables -V
 
 chmod +x /app/docker_entrypoint.sh
-mkdir -p /app/log
 
 uname -a
 date -Iseconds

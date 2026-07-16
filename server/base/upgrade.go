@@ -2,8 +2,6 @@
 package base
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -93,7 +91,7 @@ func CheckUpdate() (*ReleaseInfo, bool, error) {
 		return nil, false, fmt.Errorf("解析 GitHub 返回数据失败: %w", err)
 	}
 
-	// asset 格式: remlink-{version}-{os}-{arch}.tar.gz
+	// asset 格式: remlink-linux-{arch}
 	currentOS := runtime.GOOS
 	currentArch := runtime.GOARCH
 
@@ -126,7 +124,7 @@ func CheckUpdate() (*ReleaseInfo, bool, error) {
 	return ri, needUpgrade, nil
 }
 
-// 执行升级：下载 → 解压 → 校验 → 替换 → 重启
+// 执行升级：下载 → 替换 → 重启
 func DoUpgrade(info *ReleaseInfo, progressCh chan<- UpgradeProgress) {
 	defer close(progressCh)
 
@@ -139,23 +137,14 @@ func DoUpgrade(info *ReleaseInfo, progressCh chan<- UpgradeProgress) {
 
 	// 阶段1：下载
 	sendProgress(progressCh, "downloading", 0, 0, info.Size)
-	archiveFile, err := downloadBinary(info.URL, info.Size, progressCh)
+	binFile, err := downloadBinary(info.URL, info.Size, progressCh)
 	if err != nil {
 		sendError(progressCh, "下载失败: "+err.Error())
 		return
 	}
-	defer os.Remove(archiveFile)
-
-	// 阶段2：解压
-	sendProgress(progressCh, "extracting", 90, info.Size, info.Size)
-	binFile, err := extractBinary(archiveFile)
-	if err != nil {
-		sendError(progressCh, "解压失败: "+err.Error())
-		return
-	}
 	defer os.Remove(binFile)
 
-	// 阶段3：替换
+	// 阶段2：替换
 	sendProgress(progressCh, "replacing", 98, info.Size, info.Size)
 	exePath, err := replaceBinary(binFile)
 	if err != nil {
@@ -163,7 +152,7 @@ func DoUpgrade(info *ReleaseInfo, progressCh chan<- UpgradeProgress) {
 		return
 	}
 
-	// 阶段5：重启
+	// 阶段3：重启
 	sendProgress(progressCh, "restarting", 100, info.Size, info.Size)
 	sendProgress(progressCh, "done", 100, info.Size, info.Size)
 
@@ -254,65 +243,6 @@ func downloadBinary(url string, totalSize int64, progressCh chan<- UpgradeProgre
 	sendProgress(progressCh, "downloading", 100, downloaded, total)
 	Info("在线升级: 下载完成 ", tmpFile, " 大小:", humanSize(downloaded))
 	return tmpFile, nil
-}
-
-// 从 .tar.gz 中提取 remlink 可执行文件，返回临时文件路径
-func extractBinary(tarGzPath string) (string, error) {
-	f, err := os.Open(tarGzPath)
-	if err != nil {
-		return "", fmt.Errorf("打开压缩包失败: %w", err)
-	}
-	defer f.Close()
-
-	gzReader, err := gzip.NewReader(f)
-	if err != nil {
-		return "", fmt.Errorf("创建 gzip reader 失败: %w", err)
-	}
-	defer gzReader.Close()
-
-	tarReader := tar.NewReader(gzReader)
-
-	tmpDir := os.TempDir()
-	outFile := filepath.Join(tmpDir, fmt.Sprintf("remlink_bin_%d", time.Now().Unix()))
-
-	for {
-		header, err := tarReader.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return "", fmt.Errorf("读取 tar 条目失败: %w", err)
-		}
-
-		// 找到 remlink 可执行文件
-		name := filepath.Base(header.Name)
-		if name != "remlink" {
-			continue
-		}
-
-		if header.Typeflag == tar.TypeDir {
-			continue
-		}
-
-		out, err := os.Create(outFile)
-		if err != nil {
-			return "", fmt.Errorf("创建解压文件失败: %w", err)
-		}
-		defer out.Close()
-
-		if _, err := io.Copy(out, tarReader); err != nil {
-			return "", fmt.Errorf("解压写入失败: %w", err)
-		}
-
-		if err := os.Chmod(outFile, 0755); err != nil {
-			return "", fmt.Errorf("设置执行权限失败: %w", err)
-		}
-
-		Info("在线升级: 解压完成 ", outFile)
-		return outFile, nil
-	}
-
-	return "", fmt.Errorf("压缩包中未找到 remlink 可执行文件")
 }
 
 // 复制到同名临时文件 → rename 替换 → 备份旧文件
