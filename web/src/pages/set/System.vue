@@ -294,8 +294,8 @@ export default {
       this.checkingUpdate = true;
       axios.get('/set/upgrade/check').then(resp => {
         const data = resp.data.data;
-        this.upgradeInfo = data;
         if (data.need_upgrade) {
+          this.upgradeInfo = data;
           // 有更新，弹出升级对话框
           this.upgradeDialog.visible = true;
           this.upgradeDialog.step = 'info';
@@ -304,6 +304,7 @@ export default {
           this.upgradeDialog.progress = 0;
           this.upgradeDialog.error = '';
         } else {
+          this.upgradeInfo = null;
           this.$message.success('当前已是最新版本');
         }
       }).catch((error) => {

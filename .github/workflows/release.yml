@@ -94,9 +94,25 @@ jobs:
         shell: bash
         run: bash scripts/release.sh
 
+      - name: Extract changelog for current version
+        id: changelog
+        shell: bash
+        run: |
+          ver="${{ env.APP_VER }}"
+          section=$(awk -v ver="$ver" '
+            /^## / { found=0 }
+            $0 == "## " ver { found=1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md)
+          if [ -z "$section" ]; then
+            section="RemLink v${ver} 发布"
+          fi
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          echo "$section" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Release to public repo (wsczx/RemLink)
-        # 二进制发到公开仓库 wsczx/RemLink；源码仍在私有仓库 RemLink-private
-        # CUSTOM_GITHUB_TOKEN 需为具备 wsczx/RemLink 写权限的 PAT
         uses: ncipollo/release-action@v1
         with:
           token: ${{ secrets.CUSTOM_GITHUB_TOKEN }}
@@ -106,8 +122,7 @@ jobs:
           name: RemLink v${{ env.APP_VER }}
           artifacts: artifact-dist/*
           allowUpdates: true
-          body: |
-            RemLink v${{ env.APP_VER }} 二进制发布包（由 RemLink-private 自动构建）
+          body: ${{ steps.changelog.outputs.body }}
 
 #  Docker:
 #    name: build-docker
