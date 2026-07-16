@@ -18,7 +18,7 @@ function archive() {
   docker container create --platform $arch --name $container wsczx/remlink:$ver
 
   # 只提取二进制文件（在线升级直接下载裸二进制）
-  docker cp $container:/app/remlink artifact-dist/remlink-linux-$arch_name
+  docker cp $container:/app/remlink artifact-dist/remlink-$arch_name
   docker container rm $container 2>/dev/null
 }
 
