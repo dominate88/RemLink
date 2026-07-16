@@ -1,5 +1,5 @@
 #!/bin/sh
-set -x
+set -ex
 
 if [ "$CN" = "yes" ]; then
   sed -i 's/dl-cdn.alpinelinux.org/mirrors.ustc.edu.cn/g' /etc/apk/repositories
@@ -16,7 +16,7 @@ ldflags="-s -w -X main.appVer=$appVer -X main.commitId=$commitId -X main.buildDa
 export CGO_ENABLED=1
 go build -v -o remlink -trimpath -ldflags "$ldflags"
 
-upx -9 -k remlink
+upx --best remlink
 
 ls -lh /server/
 /server/remlink -v
