@@ -52,9 +52,22 @@ func setOtherEdit(data interface{}, w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	case *dbdata.SettingSms:
-		if v.AliAccessKeySecret.IsPlaceholder() || v.TencentSecretKey.IsPlaceholder() {
-			old := &dbdata.SettingSms{}
-			if err := dbdata.SettingGet(old); err == nil {
+		old := &dbdata.SettingSms{}
+		if err := dbdata.SettingGet(old); err == nil {
+			if v.Provider == "" {
+				// 关闭短信：仅置空 provider，保留其余已配置字段，避免清空已填配置
+				v.AliAccessKeyId = old.AliAccessKeyId
+				v.AliAccessKeySecret = old.AliAccessKeySecret
+				v.AliSignName = old.AliSignName
+				v.AliTemplateCode = old.AliTemplateCode
+				v.TencentSecretId = old.TencentSecretId
+				v.TencentSecretKey = old.TencentSecretKey
+				v.TencentSdkAppId = old.TencentSdkAppId
+				v.TencentSignName = old.TencentSignName
+				v.TencentTemplateId = old.TencentTemplateId
+				v.TencentRegion = old.TencentRegion
+			} else {
+				// 启用/编辑：仅当密钥为占位符时沿用旧值，空串视为用户主动清空
 				if v.AliAccessKeySecret.IsPlaceholder() {
 					v.AliAccessKeySecret = old.AliAccessKeySecret
 				}
