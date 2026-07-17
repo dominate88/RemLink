@@ -20,7 +20,7 @@
           <img v-else :src="baseUrl + (isDark ? 'logo-dark' : 'logo') + '.svg'" class="brand-logo-img" alt="logo" />
         </div>
         <h1 class="brand-name">{{ brand.title || 'RemLink' }}</h1>
-        <p class="brand-desc">{{ brand.desc || '企业级远程办公系统身份认证' }}</p>
+        <p class="brand-desc">{{ brand.desc || '企业级安全远程接入网关注证认证' }}</p>
       </div>
 
       <!-- 步骤0：组选择 -->

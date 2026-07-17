@@ -4,7 +4,7 @@
 ![GitHub downloads](https://img.shields.io/github/downloads/wsczx/remlink/total)
 [![Docker pulls](https://img.shields.io/docker/pulls/wsczx/remlink.svg)](https://hub.docker.com/r/wsczx/remlink)
 
-RemLink 项目在 [AnyLink](https://github.com/bjdgyc/anylink) 基础上深度重构，是一个企业级远程办公系统，可以支持多人同时在线使用。感谢原作者 [bjdgyc](https://github.com/bjdgyc) 的开源贡献。
+RemLink 项目在 [AnyLink](https://github.com/bjdgyc/anylink) 基础上深度重构，是一个企业级安全远程接入网关，可以支持多人同时在线使用。感谢原作者 [bjdgyc](https://github.com/bjdgyc) 的开源贡献。
 
 使用 RemLink，你可以随时随地安全的访问你的内部网络。
 
@@ -428,15 +428,14 @@ ipv4_end = "10.1.2.200"
 
 ### remlink 镜像地址
 
-对于国内用户，为提高镜像拉取体验，可以考虑拉取存放于阿里云镜像仓库的镜像，镜像名称及标签如下表所示(
-具体版本号可以查看 `version` 文件):
+镜像发布在 DockerHub（具体版本号可以查看 `version` 文件）：
 
-|    支持设备/平台    |       DockerHub       |                             阿里云镜像仓库                             |
-|:-------------:|:---------------------:|:---------------------------------------------------------------:|
-| x86_64/amd64  | wsczx/remlink:latest |     registry.cn-hangzhou.aliyuncs.com/wsczx/remlink:latest     |
-| x86_64/amd64  | wsczx/remlink:0.15.1 |     registry.cn-hangzhou.aliyuncs.com/wsczx/remlink:0.15.1     | 
-| armv8/aarch64 | wsczx/remlink:latest | registry.cn-hangzhou.aliyuncs.com/wsczx/remlink:arm64v8-latest | 
-| armv8/aarch64 | wsczx/remlink:0.15.1 | registry.cn-hangzhou.aliyuncs.com/wsczx/remlink:arm64v8-0.15.1 | 
+|    支持设备/平台    |       DockerHub       |
+|:-------------:|:---------------------:|
+| x86_64/amd64  | wsczx/remlink:latest |
+| x86_64/amd64  | wsczx/remlink:0.15.1 |
+| armv8/aarch64 | wsczx/remlink:latest |
+| armv8/aarch64 | wsczx/remlink:0.15.1 |
 
 ### docker 镜像源地址
 
@@ -452,7 +451,6 @@ ipv4_end = "10.1.2.200"
    # 具体tag可以从docker hub获取
    # https://hub.docker.com/r/wsczx/remlink/tags
    docker pull wsczx/remlink:latest
-   docker pull registry.cn-hangzhou.aliyuncs.com/wsczx/remlink:latest
    ```
 
 2. 查看命令信息

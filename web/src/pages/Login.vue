@@ -19,7 +19,7 @@
         <img v-if="brand.logo" :src="brand.logo" class="login-logo-img" alt="logo" />
         <img v-else :src="baseUrl + (isDark ? 'logo-dark' : 'logo') + '.svg'" class="login-logo-img" alt="logo" />
         <h1 class="login-title">{{ brand.title || 'RemLink' }}</h1>
-        <p class="login-subtitle">{{ brand.desc || '企业级远程办公系统管理后台' }}</p>
+        <p class="login-subtitle">{{ brand.desc || '企业级安全远程接入网关管理后台' }}</p>
       </div>
 
       <!-- 密码输入步骤 -->

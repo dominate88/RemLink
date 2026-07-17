@@ -19,7 +19,7 @@
             <img v-else :src="baseUrl + (isDark ? 'logo-dark' : 'logo') + '.svg'" class="brand-logo-img" alt="logo" />
           </div>
           <h1 class="brand-name">{{ brand.title || 'RemLink' }}</h1>
-          <p class="brand-desc">{{ brand.desc || '企业级远程办公系统用户门户' }}</p>
+          <p class="brand-desc">{{ brand.desc || '企业级安全远程接入网关用户门户' }}</p>
         </div>
 
         <div class="portal-features" v-if="showFeatures">
@@ -579,7 +579,7 @@
             <span>{{ brand.footer }}</span>
           </template>
           <template v-else>
-            <span>RemLink VPN · {{ user.issuer || '企业级远程办公系统' }}</span>
+            <span>RemLink VPN · {{ user.issuer || '企业级安全远程接入网关' }}</span>
             <span class="footer-divider">|</span>
             <span>Powered by RemLink</span>
           </template>

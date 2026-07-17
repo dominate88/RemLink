@@ -14,10 +14,6 @@ build: web
 docker:
 	bash scripts/build_docker.sh
 
-## 推送阿里云镜像仓库
-docker-cn:
-	bash scripts/build_docker.sh cn
-
 ## 本地编译二进制（musl 静态链接 + UPX）
 local:
 	bash scripts/build_local.sh
@@ -59,7 +55,6 @@ help:
 	@echo "  make web        构建前端"
 	@echo "  make build      构建前端 + Docker 镜像 + 发布包"
 	@echo "  make docker     构建 Docker 镜像"
-	@echo "  make docker-cn  推送阿里云镜像仓库"
 	@echo "  make local      本地编译二进制（musl + UPX）"
 	@echo "  make local-noupx 本地编译二进制（不压缩）"
 	@echo "  make go         快速编译 Go 后端（需先 make web）"

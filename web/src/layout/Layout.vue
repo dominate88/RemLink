@@ -22,7 +22,7 @@
 
       <!-- 底部 -->
       <el-footer class="layout-footer">
-        <span class="footer-text">RemLink 企业级远程办公系统</span>
+        <span class="footer-text">RemLink 企业级安全远程接入网关</span>
         <span class="footer-divider">|</span>
         <a href="https://github.com/wsczx/RemLink" target="_blank" class="footer-link">RemLink</a>
         <span class="footer-divider">|</span>
