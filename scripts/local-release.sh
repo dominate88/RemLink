@@ -35,9 +35,6 @@ gh auth status >/dev/null 2>&1 || { echo "错误：gh 未登录，请先 'gh aut
 command -v docker >/dev/null 2>&1 || { echo "错误：未安装 docker"; exit 1; }
 if [ -n "${DOCKERHUB_TOKEN:-}" ]; then
   echo "$DOCKERHUB_TOKEN" | docker login -u wsczx --password-stdin
-elif ! docker info >/dev/null 2>&1 || ! grep -q wsczx ~/.docker/config.json 2>/dev/null; then
-  echo "警告：未检测到 docker 已登录 wsczx，推送镜像会失败，请先 'docker login -u wsczx'"
-  exit 1
 fi
 
 # 前端构建
