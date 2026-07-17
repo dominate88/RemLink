@@ -20,7 +20,7 @@ on:
 jobs:
   Build:
     name: build-binary
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     env:
       TZ: Asia/Shanghai
     steps:
@@ -70,7 +70,7 @@ jobs:
       - name: Pack source code
         shell: bash
         run: |
-          mkdir -p artifact-src && rm -f artifact-src/*
+          mkdir -p artifact-src
           tar --exclude='.git' \
               --exclude='.env*' \
               --exclude='server/.env*' \

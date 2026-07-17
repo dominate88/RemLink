@@ -1,4 +1,4 @@
-.PHONY: all web build docker local local-noupx run test clean
+.PHONY: all web build docker local local-noupx run test clean release release-l
 
 VERSION := $(shell cat version)
 
@@ -42,6 +42,16 @@ go:
 clean:
 	rm -rf server/ui web/ui server/remlink remlink-deploy remlink-deploy-* artifact-dist
 
+## 本地发布（绕过 GitHub Actions，需 gh 登录 + docker 登录）
+##   ARCH=linux/amd64 make release        仅 amd64
+##   make release-l                       同时打 latest 镜像标签
+release:
+	bash scripts/local-release.sh $(ARGS)
+
+## 本地发布并打 latest 镜像标签
+release-l:
+	bash scripts/local-release.sh -l
+
 ## 查看帮助
 help:
 	@echo "RemLink 构建命令:"
@@ -56,6 +66,8 @@ help:
 	@echo "  make run        编译并运行"
 	@echo "  make test       运行测试"
 	@echo "  make clean      清理构建产物"
+	@echo "  make release    本地发布（需 gh + docker 登录，ARCH/ARGS 可传参）"
+	@echo "  make release-l  本地发布并打 latest 镜像标签"
 	@echo "  make help       显示帮助"
 	@echo ""
 	@echo "当前版本: $(VERSION)"

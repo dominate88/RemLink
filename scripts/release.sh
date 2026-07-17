@@ -22,8 +22,10 @@ function archive() {
   docker container rm $container 2>/dev/null
 }
 
-archive "linux/amd64"
-archive "linux/arm64"
+# 默认构建 amd64+arm64；本地测试可设 RELEASE_ARCHES="linux/amd64" 只出 amd64
+for arch in ${RELEASE_ARCHES:-linux/amd64 linux/arm64}; do
+  archive "$arch"
+done
 
 test -d artifact-dist || { echo "ERROR: artifact-dist not found"; exit 1; }
 test "$(ls artifact-dist)" || { echo "ERROR: artifact-dist is empty"; exit 1; }
