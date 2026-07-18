@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/skip2/go-qrcode"
 	"github.com/wsczx/remlink/admin"
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/auth/authsrv"
@@ -19,7 +20,6 @@ import (
 	"github.com/wsczx/remlink/pkg/notify"
 	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/wsczx/remlink/sessdata"
-	"github.com/skip2/go-qrcode"
 	"github.com/xlzd/gotp"
 )
 
@@ -241,6 +241,96 @@ func PortalChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	portalOK(w, map[string]string{"message": "密码修改成功"})
+}
+
+// 处理门户首次登录强制改密提交（POST /portal/api/force_change_password）。
+// 校验改密会话令牌与密码强度，更新密码并清除 ForcePwd；若用户启用 OTP 则继续 OTP 二次认证，
+// 否则直接签发门户登录令牌。无需旧密码（用户刚通过登录校验）。
+func PortalForceChangePassword(w http.ResponseWriter, r *http.Request) {
+	if !base.GetCfg().EnableUserPortal {
+		http.NotFound(w, r)
+		return
+	}
+	var req struct {
+		Token       string `json:"token"`
+		NewPassword string `json:"new_password"`
+		Confirm     string `json:"new_password_confirm"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		portalError(w, "参数错误")
+		return
+	}
+	if req.Token == "" || req.NewPassword == "" {
+		portalError(w, "参数不能为空")
+		return
+	}
+	if req.NewPassword != req.Confirm {
+		portalError(w, "两次输入的密码不一致")
+		return
+	}
+	if err := utils.CheckPasswordPolicy(req.NewPassword); err != nil {
+		portalError(w, err.Error())
+		return
+	}
+
+	data, err := admin.GetJwtData(req.Token)
+	if err != nil {
+		portalError(w, "改密会话已过期，请重新登录")
+		return
+	}
+	purpose, _ := data["purpose"].(string)
+	if purpose != "portal_force_change_password" {
+		portalError(w, "无效的改密会话")
+		return
+	}
+	userId, _ := data["user_id"].(float64)
+	user := &dbdata.User{}
+	if err := dbdata.One("Id", int(userId), user); err != nil || user.Status != 1 {
+		portalError(w, "用户不存在或已停用")
+		return
+	}
+	if user.Type != "" && user.Type != "local" {
+		portalError(w, "外部认证用户请到对应身份源修改密码")
+		return
+	}
+
+	hashed, err := utils.PasswordHash(req.NewPassword)
+	if err != nil {
+		base.Error("用户门户强制改密哈希失败:", err)
+		portalError(w, "修改密码失败")
+		return
+	}
+	if err := dbdata.Update("Id", user.Id, &dbdata.User{PinCode: hashed, ForcePwd: false}); err != nil {
+		base.Error("用户门户强制改密失败:", err)
+		portalError(w, "修改密码失败")
+		return
+	}
+
+	// 改密后若启用 OTP，继续 OTP 二次认证（与 VPN 管道顺序一致：改密 → OTP）。
+	if user.OtpSecret != "" && !user.DisableOtp {
+		sessionID := portalSaveOTPChallenge(user.Username)
+		if base.GetCfg().SendOtp {
+			go func() {
+				if err := SendOtpToUser(user.ToAuthInfo()); err != nil {
+					base.Error("用户门户强制改密后发送OTP失败:", user.Username, err)
+				}
+			}()
+		}
+		portalOK(w, map[string]interface{}{
+			"status":     "otp",
+			"session_id": sessionID,
+			"message":    "密码修改成功，请输入动态验证码",
+		})
+		return
+	}
+
+	resp := portalIssueLoginResponse(w, r, user, "首次登录修改密码成功")
+	if resp.Code != 0 {
+		portalError(w, resp.Msg)
+		return
+	}
+	portalOK(w, resp.Data)
 }
 
 func PortalLogout(w http.ResponseWriter, r *http.Request) {
@@ -599,11 +689,15 @@ func portalStartAuth(w http.ResponseWriter, username, password string, r *http.R
 			lockManager.Fail(username, r.RemoteAddr)
 			return portalAuthError("用户名或密码错误")
 		}
+		// 强制改密优先于 OTP：local 用户且 ForcePwd 为真时直接拦截改密。
+		if user.ForcePwd {
+			return portalForceChangeResponse(user)
+		}
 		if user.OtpSecret != "" && !user.DisableOtp {
 			sessionID := portalSaveOTPChallenge(username)
 			if base.GetCfg().SendOtp {
 				go func() {
-					if err := SendOtpToUser(username); err != nil {
+					if err := SendOtpToUser(user.ToAuthInfo()); err != nil {
 						base.Error("用户门户发送OTP失败:", username, err)
 					}
 				}()
@@ -831,6 +925,23 @@ func portalIssueLoginResponse(w http.ResponseWriter, r *http.Request, user *dbda
 
 func portalAuthError(msg string) portalAuthResponse {
 	return portalAuthResponse{Code: 1, Msg: msg}
+}
+
+// 用户首次登录且需改密时返回内联改密挑战。
+func portalForceChangeResponse(user *dbdata.User) portalAuthResponse {
+	token, err := admin.SetJwtData(map[string]interface{}{
+		"purpose": "portal_force_change_password",
+		"user_id": user.Id,
+	}, time.Now().Unix()+900)
+	if err != nil {
+		return portalAuthError("登录失败")
+	}
+	return portalAuthResponse{Data: map[string]interface{}{
+		"status":   "change_pwd",
+		"username": user.Username,
+		"token":    token,
+		"message":  "首次登录需修改密码后才能继续使用",
+	}}
 }
 
 func portalLoadUser(username string) (*dbdata.User, bool, error) {

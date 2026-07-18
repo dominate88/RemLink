@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"text/template"
+
+	"github.com/wsczx/remlink/auth/authsrv"
 )
 
 const (
@@ -17,6 +19,7 @@ const (
 	tpl_otp
 	tpl_request_saml
 	tpl_accept_challenge
+	tpl_request_force_pwd
 )
 
 // RequestData 模板渲染数据
@@ -38,6 +41,9 @@ type RequestData struct {
 	ServerAddr  string
 	BrowserMode string
 	SsoType     string // "wxwork" 或 "feishu"
+
+	// 强制改密
+	State string // 强制改密会话 state
 }
 
 // 根据模板类型渲染认证页面模板到 ResponseWriter
@@ -62,6 +68,9 @@ func tplRequest(typ int, w io.Writer, data RequestData) {
 		_ = t.Execute(w, data)
 	case tpl_accept_challenge:
 		t, _ := template.New("accept_challenge").Parse(accept_challenge)
+		_ = t.Execute(w, data)
+	case tpl_request_force_pwd:
+		t, _ := template.New("auth_request_force_pwd").Parse(auth_request_force_pwd)
 		_ = t.Execute(w, data)
 	}
 }
@@ -287,6 +296,14 @@ func isMobileDevice(r *http.Request) bool {
 		}
 	}
 	return false
+}
+
+// 手机端强制使用内置浏览器（外部浏览器的 localhost:29786 回调在手机上不可用）
+func samlBrowserMode(r *http.Request, ssoType, groupName string) string {
+	if isMobileDevice(r) {
+		return "internal"
+	}
+	return authsrv.GetSSOBrowserMode(ssoType, groupName)
 }
 
 // 判断是否是 AnyConnect 内置浏览器

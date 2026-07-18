@@ -102,7 +102,7 @@ func (a *OTPAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 		if base.GetCfg().SendOtp && !sent {
 			base.Info("OTP首次请求，发送验证码到:", ctx.Conn.Username)
 			ctx.GetOTP().Sent = true
-			go sendOtpToUser(ctx.Conn.Username)
+			go sendOtpToUser(ub)
 		}
 		return auth.StepPending, nil
 	}
@@ -127,16 +127,16 @@ func (a *OTPAuth) Challenge() *auth.ChallengeInfo {
 }
 
 // SendOtpFunc 由 handler 层注入，避免 auth 与 handler 循环依赖。
-var SendOtpFunc func(username string) error
+var SendOtpFunc func(info *auth.UserInfo) error
 
-func sendOtpToUser(username string) {
+func sendOtpToUser(info *auth.UserInfo) {
 	if SendOtpFunc == nil {
 		base.Warn("SendOtpFunc 未注入，无法发送 OTP")
 		return
 	}
-	if err := SendOtpFunc(username); err != nil {
+	if err := SendOtpFunc(info); err != nil {
 		base.Error("发送 OTP 失败:", err)
 		return
 	}
-	base.Info(username, "OTP 验证码已发送")
+	base.Info(info.Username, "OTP 验证码已发送")
 }

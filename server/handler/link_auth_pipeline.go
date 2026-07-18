@@ -179,7 +179,7 @@ func handleChallengeResult(w http.ResponseWriter, r *http.Request,
 			return
 		}
 		ssoType, _ := challenge.Data["sso_type"].(string)
-		browserMode := authsrv.GetSSOBrowserMode(ssoType, result.GroupName)
+		browserMode := samlBrowserMode(r, ssoType, result.GroupName)
 		data := RequestData{
 			Group:       url.QueryEscape(result.GroupName),
 			Groups:      dbdata.GetGroupNamesNormal(),
@@ -189,6 +189,17 @@ func handleChallengeResult(w http.ResponseWriter, r *http.Request,
 		}
 		w.WriteHeader(http.StatusOK)
 		tplRequest(tpl_request_saml, w, data)
+
+	case auth.ChallengeForcePwd:
+		data := RequestData{
+			Group:      url.QueryEscape(result.GroupName),
+			Groups:     dbdata.GetGroupNamesNormal(),
+			ServerAddr: getServerAddr(r),
+			State:      sessionData.SessionID,
+		}
+		sessionData.ForcePwd = true
+		w.WriteHeader(http.StatusOK)
+		tplRequest(tpl_request_force_pwd, w, data)
 
 	default:
 		w.WriteHeader(http.StatusOK)

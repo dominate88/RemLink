@@ -111,5 +111,7 @@ func (u *User) ToAuthInfo() *auth.UserInfo {
 		DisableOtp: u.DisableOtp,
 		LimitTime:  u.LimitTime,
 		Phone:      u.Phone,
+		Email:      u.Email,
+		ForcePwd:   u.ForcePwd,
 	}
 }

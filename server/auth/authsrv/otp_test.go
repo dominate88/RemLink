@@ -291,14 +291,14 @@ func TestSendOtpToUser_PhoneCallsFunc(t *testing.T) {
 
 	oldFunc := SendOtpFunc
 	var called bool
-	SendOtpFunc = func(username string) error {
+	SendOtpFunc = func(info *auth.UserInfo) error {
 		called = true
-		ast.Equal("u", username)
+		ast.Equal("u", info.Username)
 		return nil
 	}
 	defer func() { SendOtpFunc = oldFunc }()
 
-	sendOtpToUser("u")
+	sendOtpToUser(&auth.UserInfo{Username: "u"})
 	ast.True(called, "phone 类型应调用 SendOtpFunc 发送验证码（修复前 default 分支直接 return）")
 }
 
@@ -312,13 +312,13 @@ func TestSendOtpToUser_MailCallsFunc(t *testing.T) {
 
 	oldFunc := SendOtpFunc
 	var called bool
-	SendOtpFunc = func(username string) error {
+	SendOtpFunc = func(info *auth.UserInfo) error {
 		called = true
 		return nil
 	}
 	defer func() { SendOtpFunc = oldFunc }()
 
-	sendOtpToUser("u")
+	sendOtpToUser(&auth.UserInfo{Username: "u"})
 	ast.True(called, "mail 类型应调用 SendOtpFunc")
 }
 
@@ -334,5 +334,5 @@ func TestSendOtpToUser_NilFuncNoPanic(t *testing.T) {
 	SendOtpFunc = nil
 	defer func() { SendOtpFunc = oldFunc }()
 
-	ast.NotPanics(func() { sendOtpToUser("u") }, "SendOtpFunc 未注入时不应 panic")
+	ast.NotPanics(func() { sendOtpToUser(&auth.UserInfo{Username: "u"}) }, "SendOtpFunc 未注入时不应 panic")
 }

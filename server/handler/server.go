@@ -12,12 +12,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gorilla/mux"
+	"github.com/pires/go-proxyproto"
 	"github.com/wsczx/remlink/admin"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
 	"github.com/wsczx/remlink/pkg/utils"
-	"github.com/gorilla/mux"
-	"github.com/pires/go-proxyproto"
 )
 
 func startTls() {
@@ -125,6 +125,7 @@ func initRoute() http.Handler {
 	r.HandleFunc("/portal/api/me", PortalMe).Methods(http.MethodGet)
 	r.HandleFunc("/portal/api/my_groups", PortalMyGroups).Methods(http.MethodGet)
 	r.HandleFunc("/portal/api/change_password", PortalChangePassword).Methods(http.MethodPost)
+	r.HandleFunc("/portal/api/force_change_password", PortalForceChangePassword).Methods(http.MethodPost)
 	r.HandleFunc("/portal/api/logout", PortalLogout).Methods(http.MethodPost)
 	r.HandleFunc("/portal/api/login-config", PortalLoginConfig).Methods(http.MethodGet)
 	r.HandleFunc("/portal/api/otp/status", PortalOTPStatus).Methods(http.MethodGet)
@@ -144,6 +145,7 @@ func initRoute() http.Handler {
 	r.HandleFunc("/web-auth/continue", WebAuthContinue).Methods(http.MethodPost)
 	r.HandleFunc("/web-auth/sso-callback", WebAuthSSOCallback).Methods(http.MethodGet)
 	r.HandleFunc("/web-auth/complete", WebAuthComplete).Methods(http.MethodGet)
+	r.HandleFunc("/web-auth/change_password", WebAuthChangePassword).Methods(http.MethodPost)
 	r.HandleFunc("/+CSCOE+/web-auth/sp/login", WebAuthSPLogin).Methods(http.MethodGet)
 	r.PathPrefix("/ui/").Handler(admin.ServeUI())
 	r.HandleFunc("/CSCOSSLC/tunnel", LinkTunnel).Methods(http.MethodConnect)
@@ -153,6 +155,8 @@ func initRoute() http.Handler {
 	r.HandleFunc("/+CSCOE+/saml/sp/login", SAMLSPLogin).Methods(http.MethodGet)
 	r.HandleFunc("/+CSCOE+/saml_ac_login.html", SAMLACLogin).Methods(http.MethodGet)
 	r.HandleFunc("/+CSCOE+/saml/sp/done", SAMLDone)
+	r.HandleFunc("/+CSCOE+/force-pwd", ForcePwdPage).Methods(http.MethodGet)
+	r.HandleFunc("/+CSCOE+/force-pwd/submit", ForcePwdSubmit).Methods(http.MethodPost)
 	// 添加企业微信回调路由
 	r.HandleFunc("/WXAuth/callback", WXAuthCallback).Methods(http.MethodGet)
 	// 添加飞书回调路由

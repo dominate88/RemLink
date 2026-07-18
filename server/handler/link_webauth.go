@@ -26,6 +26,7 @@ import (
 	"github.com/wsczx/remlink/auth/authsrv"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/utils"
 )
 
 // AnyConnect 弹出系统浏览器打开认证页面 sso-v2-login URL 指向 WebAuth 认证地址
@@ -44,6 +45,7 @@ func handlerWebAuth(w http.ResponseWriter, r *http.Request, cr *ClientRequest, u
 	pending := &AuthSession{
 		UserActLog: ua,
 		Ctx: &auth.Context{
+			WebAuth: true,
 			Conn: auth.ConnInfo{
 				GroupName:   cr.GroupSelect,
 				RemoteAddr:  r.RemoteAddr,
@@ -441,6 +443,16 @@ func webAuthHandleResult(w http.ResponseWriter, r *http.Request,
 				"challenge_msg": msg,
 			})
 
+		case auth.ChallengeForcePwd:
+			// 首次挑战：前序凭据已通过，重置计数器（同 OTP）
+			if !result.IsChallengeRetry() && result.Username != "" {
+				lockManager.Success(result.Username, r.RemoteAddr)
+			}
+			webAuthJSON(w, http.StatusOK, map[string]interface{}{
+				"status":   "change_pwd",
+				"username": ctx.Conn.Username,
+			})
+
 		case auth.ChallengeSSO:
 			// 手机端内置浏览器无法完成企微/飞书扫码
 			if isMobileDevice(r) {
@@ -805,4 +817,57 @@ func webAuthRunOrResume(ctx *auth.Context, sess *AuthSession, hasChallengeRespon
 	}
 	authsrv.LoadUserInfo(ctx)
 	return authsrv.Authenticate(ctx)
+}
+
+// 处理 WebAuth 强制改密提交（POST /web-auth/change_password）。
+// 校验强度并更新密码、清除 ForcePwd 后续跑管道（forcepwd 步直接通过，继续后续 otp 等步骤）。
+func WebAuthChangePassword(w http.ResponseWriter, r *http.Request) {
+	state := r.URL.Query().Get("state")
+	if state == "" {
+		webAuthError(w, "缺少认证参数")
+		return
+	}
+	pending, err := GetAuthSession(state)
+	if err != nil {
+		webAuthError(w, "认证会话已过期")
+		return
+	}
+
+	var req struct {
+		NewPassword string `json:"new_password"`
+		Confirm     string `json:"new_password_confirm"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		webAuthError(w, "参数错误")
+		return
+	}
+	if req.NewPassword == "" || req.NewPassword != req.Confirm {
+		webAuthError(w, "两次输入的密码不一致")
+		return
+	}
+	if err := utils.CheckPasswordPolicy(req.NewPassword); err != nil {
+		webAuthError(w, err.Error())
+		return
+	}
+
+	username := pending.Ctx.Conn.Username
+	hashed, err := utils.PasswordHash(req.NewPassword)
+	if err != nil {
+		webAuthError(w, "修改密码失败")
+		return
+	}
+	// 按用户名直接更新，避免先查全量用户仅取 Id 的重复查库。
+	if _, err := dbdata.GetXdb().Where("username = ?", username).Cols("pin_code", "change_pwd").
+		Update(&dbdata.User{PinCode: hashed, ForcePwd: false}); err != nil {
+		webAuthError(w, "修改密码失败")
+		return
+	}
+
+	// 续跑管道：forcepwd 步见 ForcePwd=false 直接通过，继续后续步骤（如 otp）
+	result := webAuthRunOrResume(pending.Ctx, pending, true)
+	if result.IsChallengeRetry() && username != "" {
+		lockManager.Fail(username, r.RemoteAddr)
+	}
+	webAuthHandleResult(w, r, state, pending, result, username)
 }

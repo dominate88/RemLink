@@ -221,6 +221,47 @@
         </div>
       </div>
 
+      <!-- 步骤2.6：强制改密（首次登录） -->
+      <div v-show="step === 'change_pwd'" class="step-body">
+        <div class="otp-header">
+          <i class="el-icon-warning-outline otp-icon"></i>
+          <p class="otp-title">{{ hint || '首次登录需修改密码' }}</p>
+          <p class="otp-desc">为保障账号安全，请设置新密码后再继续</p>
+        </div>
+        <el-form :model="changePwdForm" class="auth-form" @submit.native.prevent>
+          <el-form-item>
+            <el-input
+              v-model="changePwdForm.new_password"
+              type="password"
+              placeholder="新密码（至少8位，含字母和数字）"
+              prefix-icon="el-icon-lock"
+              show-password
+              @keydown.enter.native.prevent="submitChangePwd"
+            />
+          </el-form-item>
+          <el-form-item>
+            <el-input
+              v-model="changePwdForm.confirm_password"
+              type="password"
+              placeholder="确认新密码"
+              prefix-icon="el-icon-lock"
+              show-password
+              @keydown.enter.native.prevent="submitChangePwd"
+            />
+          </el-form-item>
+        </el-form>
+        <div class="step-actions">
+          <el-button
+            type="primary"
+            :loading="loading"
+            :disabled="!changePwdForm.new_password || !changePwdForm.confirm_password"
+            @click="submitChangePwd"
+            class="btn-full"
+            native-type="button"
+          >修改并继续</el-button>
+        </div>
+      </div>
+
       <!-- 完成 -->
       <div v-show="step === 'done'" class="step-body done-box">
         <i class="el-icon-circle-check done-icon"></i>
@@ -271,6 +312,7 @@ export default {
       error: '',
       portalUrl: '',
       credForm: { username: '', password: '' },
+      changePwdForm: { new_password: '', confirm_password: '' },
       phoneForm: { phone: '' },
       otpForm: { code: '' },
       smsForm: { code: '' },
@@ -353,6 +395,9 @@ export default {
           case 'sms':
             this.enterSms(data)
             return
+          case 'change_pwd':
+            this.enterChangePwd(data)
+            return
           case 'done':
             this.onDone(data)
             return
@@ -402,6 +447,29 @@ export default {
       this.step = 'radius'
       this.challengeMsg = data.challenge_msg || ''
       this.credForm.password = ''
+    },
+    enterChangePwd(data) {
+      this.step = 'change_pwd'
+      this.hint = data.hint || ''
+      this.changePwdForm.new_password = ''
+      this.changePwdForm.confirm_password = ''
+    },
+    async submitChangePwd() {
+      if (this.loading) return
+      if (!this.changePwdForm.new_password || !this.changePwdForm.confirm_password) return
+      this.loading = true
+      this.error = ''
+      try {
+        const { data } = await axios.post(this.apiPath('change_password'), {
+          new_password: this.changePwdForm.new_password,
+          new_password_confirm: this.changePwdForm.confirm_password,
+        }, { withCredentials: false })
+        this.handleStepResponse(data)
+      } catch (e) {
+        this.error = '修改失败，请重试'
+      } finally {
+        this.loading = false
+      }
     },
     onDone(data) {
       // 重定向到服务端完成端点：设置 acSamlv2Token Cookie 供客户端读取
@@ -529,6 +597,9 @@ export default {
           break
         case 'radius':
           this.enterRadius(data)
+          break
+        case 'change_pwd':
+          this.enterChangePwd(data)
           break
         case 'sso':
           window.location.href = data.redirect_url

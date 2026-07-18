@@ -104,6 +104,12 @@
               <span v-else class="text-muted">-</span>
             </template>
           </el-table-column>
+          <el-table-column prop="change_pwd" label="改密" width="75" align="center">
+            <template slot-scope="scope">
+              <el-tag v-if="scope.row.change_pwd" type="warning" size="mini">需改密</el-tag>
+              <span v-else class="text-muted">-</span>
+            </template>
+          </el-table-column>
           <el-table-column prop="groups" label="用户组" width="140">
             <template slot-scope="scope">
               <div v-if="scope.row.groups && scope.row.groups.length" class="group-tags">
@@ -216,6 +222,19 @@
               </el-tooltip>
             </div>
           </el-form-item>
+          <!-- 下次登录强制修改密码（仅本地用户生效） -->
+          <el-form-item label="强制改密" class="form-item-compact form-item-full">
+            <div class="otp-row">
+              <el-switch v-model="ruleForm.change_pwd"
+                :disabled="isExternalUser"
+                active-color="#e6a23c" inactive-color="#909399" />
+              <el-tooltip content="开启后该用户下次登录 VPN 时必须先修改密码才能继续建隧道（仅本地用户生效）" placement="top">
+                <i class="el-icon-question help-icon"></i>
+              </el-tooltip>
+              <span v-if="ruleForm.change_pwd" class="force-pwd-tip">下次登录强制修改密码</span>
+              <span v-else-if="isExternalUser" class="text-muted">外部用户无需本地密码</span>
+            </div>
+          </el-form-item>
           <!-- 过期时间 + 发送邮件 一行 -->
           <div class="edit-adv-row">
             <el-form-item label="过期时间" prop="limittime" class="form-item-compact">
@@ -322,6 +341,7 @@ export default {
         limittime: null,
         disable_otp: false,
         otp_secret: '',
+        change_pwd: true,
         send_email: true,
         status: 1,
         mtu: 0,
@@ -568,6 +588,7 @@ export default {
         limittime: null,
         disable_otp: false,
         otp_secret: '',
+        change_pwd: true,
         send_email: true,
         status: 1,
         mtu: 0,
@@ -847,6 +868,7 @@ export default {
 }
 .otp-row { display: flex; align-items: center; gap: 10px; height: 40px; }
 .otp-secret-input { flex: 1; }
+.force-pwd-tip { font-size: 12px; color: var(--color-warning); font-weight: 500; }
 .otp-row ::v-deep .el-switch { line-height: 1; }
 .form-item-otp ::v-deep .el-form-item__label { line-height: 40px; padding-top: 0; }
 .form-tip-info {

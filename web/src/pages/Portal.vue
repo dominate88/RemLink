@@ -121,6 +121,35 @@
           </el-form>
         </div>
 
+        <!-- 首次登录强制改密（内联，不进独立页面） -->
+        <div v-if="loginMode === 'change_pwd'" class="force-pwd-section">
+          <div class="force-pwd-header">
+            <i class="el-icon-warning-outline force-pwd-icon"></i>
+            <p class="force-pwd-title">首次登录需修改密码</p>
+            <p class="force-pwd-desc">为保障账号安全，请设置新密码后再继续使用</p>
+          </div>
+          <el-form :model="forcePwdForm" class="force-pwd-form" @submit.native.prevent>
+            <el-form-item>
+              <el-input v-model="forcePwdForm.new_password" type="password" prefix-icon="el-icon-lock"
+                placeholder="新密码（至少8位，含字母和数字）" autocomplete="new-password"
+                @input="calcForcePwdStrength" @keydown.enter.native.prevent="submitForceChange" />
+            </el-form-item>
+            <el-form-item>
+              <el-input v-model="forcePwdForm.confirm_password" type="password" prefix-icon="el-icon-lock"
+                placeholder="确认新密码" autocomplete="new-password"
+                @keydown.enter.native.prevent="submitForceChange" />
+            </el-form-item>
+            <div class="pwd-strength" v-if="forcePwdForm.new_password.length">
+              <div class="strength-bar">
+                <div class="strength-fill" :class="'level-' + forcePwdLevel"></div>
+              </div>
+              <span class="strength-text" :class="'text-level-' + forcePwdLevel">{{ forcePwdLevelText }}</span>
+            </div>
+            <el-button type="primary" class="login-submit-btn" :loading="forcePwdLoading" @click="submitForceChange"
+              native-type="button">修 改 并 登 录</el-button>
+          </el-form>
+        </div>
+
         <div v-if="loginMode === 'forgot'" class="forgot-form">
           <div class="form-title">找回密码</div>
           <el-form :model="forgotForm" ref="forgotForm" @submit.native.prevent>
@@ -663,6 +692,10 @@ export default {
       resetUsername: "",
       resetPwdLevel: 0,
       passwordLoading: false,
+      forcePwdLoading: false,
+      forcePwdToken: "",
+      forcePwdForm: { new_password: "", confirm_password: "" },
+      forcePwdLevel: 0,
       otpRegenLoading: false,
       challengeLoading: false,
       challengeType: "",
@@ -754,6 +787,9 @@ export default {
     },
     pwdLevelText() {
       return ["", "弱", "中", "强", "很强"][this.pwdLevel] || ""
+    },
+    forcePwdLevelText() {
+      return ["", "弱", "中", "强", "很强"][this.forcePwdLevel] || ""
     },
     hasSso() {
       const t = this.brand.sso_types || []
@@ -1058,6 +1094,18 @@ export default {
         this.$message.success("登录成功")
         return
       }
+      if (data.status === "change_pwd") {
+        this.forcePwdToken = data.token || ""
+        this.forcePwdForm = { new_password: "", confirm_password: "" }
+        this.forcePwdLevel = 0
+        this.loginForm.password = ""
+        this.loginMode = "change_pwd"
+        this.$nextTick(() => {
+          const input = document.querySelector(".force-pwd-form input")
+          if (input) input.focus()
+        })
+        return
+      }
       if (data.status === "otp" || data.status === "radius" || data.status === "sms" || data.status === "verify") {
         this.challengeType = data.status
         this.challengeMessage = data.message || "请输入验证码"
@@ -1111,6 +1159,50 @@ export default {
       }).finally(() => {
         this.passwordLoading = false
       })
+    },
+    // 首次登录强制改密提交（内联，无需旧密码）
+    submitForceChange() {
+      if (!this.forcePwdForm.new_password) {
+        this.$message.warning("请输入新密码")
+        return
+      }
+      const pwdErr = this.validatePassword(this.forcePwdForm.new_password)
+      if (pwdErr) {
+        this.$message.warning(pwdErr)
+        return
+      }
+      if (this.forcePwdForm.new_password !== this.forcePwdForm.confirm_password) {
+        this.$message.warning("两次输入的新密码不一致")
+        return
+      }
+      this.forcePwdLoading = true
+      this.portalApi("post", "/portal/api/force_change_password", {
+        token: this.forcePwdToken,
+        new_password: this.forcePwdForm.new_password,
+        new_password_confirm: this.forcePwdForm.confirm_password,
+      }).then(resp => {
+        if (resp.data.code !== 0) {
+          this.$message.error(resp.data.msg)
+          return
+        }
+        // 改密后可能直接登录，或继续 OTP 二次认证
+        this.handleAuthResponse(resp.data)
+      }).catch(() => {
+        this.$message.error("请求失败，请稍后重试")
+      }).finally(() => {
+        this.forcePwdLoading = false
+      })
+    },
+    calcForcePwdStrength() {
+      const pwd = this.forcePwdForm.new_password
+      if (!pwd) { this.forcePwdLevel = 0; return }
+      let score = 0
+      if (pwd.length >= 8) score++
+      if (pwd.length >= 12) score++
+      if (/[a-z]/.test(pwd) && /[A-Z]/.test(pwd)) score++
+      if (/\d/.test(pwd)) score++
+      if (/[^a-zA-Z0-9]/.test(pwd)) score++
+      this.forcePwdLevel = Math.min(4, score)
     },
     // 密码重置
     checkResetToken() {
@@ -2505,6 +2597,38 @@ export default {
   font-size: 13px;
   color: var(--text-secondary);
   margin: 0;
+}
+
+.force-pwd-section {
+  text-align: center;
+}
+
+.force-pwd-header {
+  margin-bottom: 24px;
+}
+
+.force-pwd-icon {
+  font-size: 44px;
+  color: var(--color-warning);
+  margin-bottom: 12px;
+}
+
+.force-pwd-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 8px 0;
+}
+
+.force-pwd-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.force-pwd-form {
+  margin-top: 8px;
+  text-align: left;
 }
 
 .otp-form {

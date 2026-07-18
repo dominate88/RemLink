@@ -18,6 +18,7 @@ func Authenticate(ctx *auth.Context) *auth.PipelineResult {
 	if err != nil {
 		return &auth.PipelineResult{Result: auth.StepFail, Err: err}
 	}
+	insertForcePwd(pipeline)
 
 	// 管道含 otp 且首步非 local 时，提前加载用户信息供后续步骤共享。
 	if profile.HasStep("otp") && profile.Step[0].Type != "local" {
@@ -41,6 +42,7 @@ func Resume(ctx *auth.Context, state auth.PipelineState) *auth.PipelineResult {
 	if err != nil {
 		return &auth.PipelineResult{Result: auth.StepFail, Err: err}
 	}
+	insertForcePwd(pipeline)
 
 	ctx.SetPassedSteps(state.PassedSteps)
 	result, err := pipeline.Resume(ctx, state.StepIdx)

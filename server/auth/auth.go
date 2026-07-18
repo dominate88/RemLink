@@ -51,6 +51,8 @@ type UserInfo struct {
 	DisableOtp bool
 	LimitTime  *time.Time
 	Phone      string
+	Email      string
+	ForcePwd   bool // 强制改密
 }
 
 // otp 步骤私有状态。
@@ -89,10 +91,11 @@ type SSOState struct {
 type ChallengeType string
 
 const (
-	ChallengeOTP    ChallengeType = "otp"    // OTP 动态码输入
-	ChallengeSSO    ChallengeType = "sso"    // SSO 重定向
-	ChallengeRADIUS ChallengeType = "radius" // RADIUS Access-Challenge（二次验证提示）
-	ChallengeSMS    ChallengeType = "sms"    // 短信验证码输入
+	ChallengeOTP      ChallengeType = "otp"       // OTP 动态码输入
+	ChallengeSSO      ChallengeType = "sso"       // SSO 重定向
+	ChallengeRADIUS   ChallengeType = "radius"    // RADIUS Access-Challenge（二次验证提示）
+	ChallengeSMS      ChallengeType = "sms"       // 短信验证码输入
+	ChallengeForcePwd ChallengeType = "force_pwd" // 强制改密：原生客户端弹极简改密页 / WebAuth 内联表单
 )
 
 // 挑战信息（认证器向 handler 层返回的挑战内容）。
@@ -132,6 +135,7 @@ type Context struct {
 
 	PortalLogin     bool // Portal 登录流程
 	PortalOTPDirect bool // Portal OTP 直连模式
+	WebAuth         bool // WebAuth 浏览器认证流程
 
 	info        string
 	passedSteps []string

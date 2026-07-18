@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wsczx/remlink/dbdata"
-	"github.com/wsczx/remlink/pkg/utils"
 	mapset "github.com/deckarep/golang-set"
 	"github.com/spf13/cast"
+	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/xuri/excelize/v2"
 )
 
@@ -54,7 +54,7 @@ func UserUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	os.Remove(fileName)
-		dbdata.AdminLog("用户管理", header.Filename, "批量导入了用户", r.RemoteAddr)
+	dbdata.AdminLog("用户管理", header.Filename, "批量导入了用户", r.RemoteAddr)
 	RespSucess(w, "批量添加成功")
 }
 
@@ -72,10 +72,10 @@ func UploadUser(file string) error {
 	if err != nil {
 		return err
 	}
-	if len(rows) == 0 || len(rows[0]) < 11 {
+	if len(rows) == 0 || len(rows[0]) < 12 {
 		return fmt.Errorf("批量添加失败，表格为空或列数不足")
 	}
-	if rows[0][0] != "id" || rows[0][1] != "username" || rows[0][2] != "nickname" || rows[0][3] != "email" || rows[0][4] != "pin_code" || rows[0][5] != "limittime" || rows[0][6] != "otp_secret" || rows[0][7] != "disable_otp" || rows[0][8] != "groups" || rows[0][9] != "status" || rows[0][10] != "send_email" {
+	if rows[0][0] != "id" || rows[0][1] != "username" || rows[0][2] != "nickname" || rows[0][3] != "email" || rows[0][4] != "pin_code" || rows[0][5] != "limittime" || rows[0][6] != "otp_secret" || rows[0][7] != "disable_otp" || rows[0][8] != "groups" || rows[0][9] != "status" || rows[0][10] != "send_email" || rows[0][11] != "change_pwd" {
 		return fmt.Errorf("批量添加失败，表格格式不正确")
 	}
 	var k []interface{}
@@ -105,8 +105,9 @@ func UploadUser(file string) error {
 		}
 		status := cast.ToInt8(row[9])
 		sendmail, _ := strconv.ParseBool(row[10])
-		// createdAt, _ := time.ParseInLocation("2006-01-02 15:04:05", row[11], time.Local)
-		// updatedAt, _ := time.ParseInLocation("2006-01-02 15:04:05", row[12], time.Local)
+		changePwd, _ := strconv.ParseBool(row[11])
+		// createdAt, _ := time.ParseInLocation("2006-01-02 15:04:05", row[12], time.Local)
+		// updatedAt, _ := time.ParseInLocation("2006-01-02 15:04:05", row[13], time.Local)
 		user := &dbdata.User{
 			Id:         id,
 			Type:       "local",
@@ -120,6 +121,7 @@ func UploadUser(file string) error {
 			Groups:     group,
 			Status:     status,
 			SendEmail:  sendmail,
+			ForcePwd:   changePwd,
 			// CreatedAt:  createdAt,
 			// UpdatedAt:  updatedAt,
 		}
@@ -142,14 +144,14 @@ func UserUploadTemplate(w http.ResponseWriter, r *http.Request) {
 	defer f.Close()
 
 	// 表头与 UploadUser() 校验字段严格一致
-	headers := []string{"id", "username", "nickname", "email", "pin_code", "limittime", "otp_secret", "disable_otp", "groups", "status", "send_email"}
+	headers := []string{"id", "username", "nickname", "email", "pin_code", "limittime", "otp_secret", "disable_otp", "groups", "status", "send_email", "change_pwd"}
 	for i, h := range headers {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
 		f.SetCellValue("Sheet1", cell, h)
 	}
 
 	// 示例行
-	example := []string{"0", "zhangsan", "张三", "zhangsan@example.com", "123456", "2030-12-31 23:59:59", "", "false", "默认组", "1", "true"}
+	example := []string{"0", "zhangsan", "张三", "zhangsan@example.com", "123456", "2030-12-31 23:59:59", "", "false", "默认组", "1", "true", "true"}
 	for i, v := range example {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 2)
 		f.SetCellValue("Sheet1", cell, v)

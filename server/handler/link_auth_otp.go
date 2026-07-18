@@ -8,9 +8,9 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/auth/authsrv"
 	"github.com/wsczx/remlink/base"
-	"github.com/wsczx/remlink/dbdata"
 	"github.com/wsczx/remlink/pkg/notify"
 	"github.com/xlzd/gotp"
 )
@@ -75,37 +75,37 @@ func init() {
 	authsrv.SendOtpFunc = SendOtpToUser
 }
 
-// 生成 OTP 验证码并发送给用户（邮件/短信）
-func SendOtpToUser(username string) error {
-	user := &dbdata.User{}
-	if err := dbdata.One("Username", username, user); err != nil {
-		return fmt.Errorf("用户不存在: %v", err)
+// 生成 OTP 验证码并发送给用户（邮件/短信）。
+func SendOtpToUser(info *auth.UserInfo) error {
+	if info == nil {
+		return fmt.Errorf("用户信息为空")
 	}
+	otpSecret, phone, email := info.OtpSecret, info.Phone, info.Email
 
-	if user.OtpSecret == "" {
+	if otpSecret == "" {
 		return fmt.Errorf("用户未启用 OTP")
 	}
 
 	// 生成当前 TOTP 动态码
-	otp := gotp.NewDefaultTOTP(user.OtpSecret).Now()
+	otp := gotp.NewDefaultTOTP(otpSecret).Now()
 
 	n := notify.GetNotify()
 	switch base.GetCfg().SendOtpType {
 	case "mail":
-		if user.Email == "" {
+		if email == "" {
 			return fmt.Errorf("用户邮箱为空")
 		}
 		return n.SendEmail(notify.Message{
 			Subject: base.GetCfg().Issuer,
-			To:      user.Email,
+			To:      email,
 			Body:    fmt.Sprintf("您的 OTP 验证码是: %s，有效期60秒", otp),
 		})
 	case "phone":
-		if user.Phone == "" {
+		if phone == "" {
 			return fmt.Errorf("用户手机号为空")
 		}
 		return n.SendSms(notify.Message{
-			To:     user.Phone,
+			To:     phone,
 			Params: map[string]string{"1": otp, "2": "1"},
 		})
 	default:

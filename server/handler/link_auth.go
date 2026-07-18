@@ -226,7 +226,7 @@ func handleInit(w http.ResponseWriter, r *http.Request, cr *ClientRequest) {
 
 	// SSO 组：返回 SAML 模板让客户端弹扫码窗口
 	if ssoType := authsrv.GetSSOType(cr.GroupSelect); ssoType != "" {
-		browserMode := authsrv.GetSSOBrowserMode(ssoType, cr.GroupSelect)
+		browserMode := samlBrowserMode(r, ssoType, cr.GroupSelect)
 		data := RequestData{
 			Group:       cr.GroupSelect,
 			Groups:      dbdata.GetGroupNamesNormal(),
@@ -270,6 +270,12 @@ func handleSsoToken(w http.ResponseWriter, r *http.Request, cr *ClientRequest, s
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
+	}
+
+	// 强制改密会话
+	if samlSession.ForcePwd {
+		resumeAuthSession(w, r, samlSession)
+		return
 	}
 
 	// WebAuth完成直接创建会话

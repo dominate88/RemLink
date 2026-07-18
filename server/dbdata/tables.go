@@ -43,6 +43,7 @@ type User struct {
 	TrafficUsed    int64      `json:"traffic_used" xorm:"BigInt default 0"`                        // 本周期已用流量(字节)
 	TrafficResetAt *time.Time `json:"traffic_reset_at,omitempty" xorm:"DateTime traffic_reset_at"` // 下次重置时间
 	Status         int8       `json:"status" xorm:"Int"`                                           // 1正常
+	ForcePwd       bool       `json:"change_pwd" xorm:"'change_pwd' Bool"`                         // 首次登录需改密
 	SendEmail      bool       `json:"send_email" xorm:"Bool"`
 	CreatedAt      time.Time  `json:"created_at" xorm:"DateTime created"`
 	UpdatedAt      time.Time  `json:"updated_at" xorm:"DateTime updated"`

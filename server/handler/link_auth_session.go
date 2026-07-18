@@ -115,6 +115,7 @@ type AuthSession struct {
 	SessionID  string             // 认证会话ID
 	Ctx        *auth.Context      // 认证上下文
 	UserActLog *dbdata.UserActLog // 审计日志
+	ForcePwd   bool               // 强制改密会话
 	CreatedAt  time.Time
 }
 
