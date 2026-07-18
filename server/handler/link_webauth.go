@@ -863,6 +863,7 @@ func WebAuthChangePassword(w http.ResponseWriter, r *http.Request) {
 		webAuthError(w, "修改密码失败")
 		return
 	}
+	lockManager.Success(username, r.RemoteAddr)
 
 	// 续跑管道：forcepwd 步见 ForcePwd=false 直接通过，继续后续步骤（如 otp）
 	result := webAuthRunOrResume(pending.Ctx, pending, true)

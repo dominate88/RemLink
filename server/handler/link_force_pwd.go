@@ -120,7 +120,15 @@ func ForcePwdSubmit(w http.ResponseWriter, r *http.Request) {
 		forcePwdMessage(w, "认证会话已过期，请重新连接 VPN", "", false)
 		return
 	}
+	if !sess.ForcePwd {
+		forcePwdMessage(w, "会话状态异常", "", false)
+		return
+	}
 	username := sess.Ctx.Conn.Username
+	if !lockManager.Check(username, r.RemoteAddr) {
+		forcePwdMessage(w, "账户已被锁定，请联系管理员", "", false)
+		return
+	}
 	hashed, err := utils.PasswordHash(newPwd)
 	if err != nil {
 		base.Error("强制改密密码哈希失败:", err)
@@ -134,6 +142,7 @@ func ForcePwdSubmit(w http.ResponseWriter, r *http.Request) {
 		forcePwdMessage(w, "修改密码失败", state, false)
 		return
 	}
+	lockManager.Success(username, r.RemoteAddr)
 	// 强制改密只走 Cisco AnyConnect 内置浏览器
 	encodeState := base64.StdEncoding.EncodeToString([]byte(state))
 	SetCookie(w, "acSamlv2Token", encodeState, 0)

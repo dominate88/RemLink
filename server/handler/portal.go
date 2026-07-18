@@ -295,6 +295,10 @@ func PortalForceChangePassword(w http.ResponseWriter, r *http.Request) {
 		portalError(w, "外部认证用户请到对应身份源修改密码")
 		return
 	}
+	if !user.ForcePwd {
+		portalError(w, "无需修改密码或会话已失效")
+		return
+	}
 
 	hashed, err := utils.PasswordHash(req.NewPassword)
 	if err != nil {
