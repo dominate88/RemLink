@@ -235,7 +235,8 @@ func PortalChangePassword(w http.ResponseWriter, r *http.Request) {
 		portalError(w, "修改密码失败")
 		return
 	}
-	if err := dbdata.Update("Id", user.Id, &dbdata.User{PinCode: hashed}); err != nil {
+	if _, err := dbdata.GetXdb().Where("username = ?", user.Username).Cols("pin_code", "change_pwd").
+		Update(&dbdata.User{PinCode: hashed, ForcePwd: false}); err != nil {
 		base.Error("用户门户修改密码失败:", err)
 		portalError(w, "修改密码失败")
 		return
@@ -301,7 +302,8 @@ func PortalForceChangePassword(w http.ResponseWriter, r *http.Request) {
 		portalError(w, "修改密码失败")
 		return
 	}
-	if err := dbdata.Update("Id", user.Id, &dbdata.User{PinCode: hashed, ForcePwd: false}); err != nil {
+	if _, err := dbdata.GetXdb().Where("username = ?", user.Username).Cols("pin_code", "change_pwd").
+		Update(&dbdata.User{PinCode: hashed, ForcePwd: false}); err != nil {
 		base.Error("用户门户强制改密失败:", err)
 		portalError(w, "修改密码失败")
 		return
@@ -650,7 +652,9 @@ func PortalResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := dbdata.Update("Id", user.Id, &dbdata.User{PinCode: hashed}); err != nil {
+	// 重置密码清除强制改密标记
+	if _, err := dbdata.GetXdb().Where("username = ?", user.Username).Cols("pin_code", "change_pwd").
+		Update(&dbdata.User{PinCode: hashed, ForcePwd: false}); err != nil {
 		base.Error("用户门户重置密码失败:", err)
 		portalError(w, "重置密码失败")
 		return

@@ -39,6 +39,8 @@ func resumeAuthSession(w http.ResponseWriter, r *http.Request,
 	// TLS 需从当前请求重新注入
 	ctx.Conn.TLS = r.TLS
 	ctx.Conn.RemoteAddr = r.RemoteAddr
+	// 重新加载用户信息，用户在断点期间可能已改密或清除强制改密标记
+	authsrv.ReloadUserInfo(ctx)
 
 	state := auth.PipelineState{
 		StepIdx:     sess.Ctx.StepIdx(),
@@ -131,6 +133,8 @@ func handleChallengeResult(w http.ResponseWriter, r *http.Request,
 		SaveAuthSession(sid, sessionData)
 		SetCookie(w, "auth-session-id", sid, 0)
 	}
+	// 清除强制改密标记
+	sessionData.ForcePwd = false
 
 	// 按挑战类型返回模板
 	switch challenge.Type {
@@ -170,7 +174,7 @@ func handleChallengeResult(w http.ResponseWriter, r *http.Request,
 			}
 		}
 		w.WriteHeader(http.StatusOK)
-		tplRequest(tpl_accept_challenge, w, RequestData{Error: msg})
+		tplRequest(tpl_accept_challenge, w, RequestData{Error: msg, Group: url.QueryEscape(result.GroupName)})
 
 	case auth.ChallengeSSO:
 		// 手机端无法完成企微/飞书扫码

@@ -97,6 +97,17 @@ func LoadUserInfo(ctx *auth.Context) {
 	}
 }
 
+// 强制从数据库重新加载用户信息到 ctx.UserInfo
+// 用于 resume 场景：用户在断点期间可能已改密或清除强制改密标记，必须以数据库为准
+func ReloadUserInfo(ctx *auth.Context) {
+	if ctx.Conn.Username == "" {
+		return
+	}
+	if u, err := loadUser(ctx.Conn.Username); err == nil {
+		ctx.SetUserInfo(u)
+	}
+}
+
 // 返回组的 SSO 类型；仅当所有步骤都是 SSO 认证器时才有值。
 func GetSSOType(groupName string) string {
 	profile, err := loadAndParseProfile(groupName)

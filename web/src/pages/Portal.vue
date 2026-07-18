@@ -131,13 +131,12 @@
           <el-form :model="forcePwdForm" class="force-pwd-form" @submit.native.prevent>
             <el-form-item>
               <el-input v-model="forcePwdForm.new_password" type="password" prefix-icon="el-icon-lock"
-                placeholder="新密码（至少8位，含字母和数字）" autocomplete="new-password"
-                @input="calcForcePwdStrength" @keydown.enter.native.prevent="submitForceChange" />
+                placeholder="新密码（至少8位，含字母和数字）" autocomplete="new-password" @input="calcForcePwdStrength"
+                @keydown.enter.native.prevent="submitForceChange" />
             </el-form-item>
             <el-form-item>
               <el-input v-model="forcePwdForm.confirm_password" type="password" prefix-icon="el-icon-lock"
-                placeholder="确认新密码" autocomplete="new-password"
-                @keydown.enter.native.prevent="submitForceChange" />
+                placeholder="确认新密码" autocomplete="new-password" @keydown.enter.native.prevent="submitForceChange" />
             </el-form-item>
             <div class="pwd-strength" v-if="forcePwdForm.new_password.length">
               <div class="strength-bar">
@@ -240,8 +239,8 @@
       </header>
 
       <main class="portal-dash-main">
-        <el-alert v-if="showAnnouncement" class="portal-announcement" :type="announcementType"
-          :closable="false" show-icon>
+        <el-alert v-if="showAnnouncement" class="portal-announcement" :type="announcementType" :closable="false"
+          show-icon>
           <div class="announcement-content" v-html="dashboard.announcement"></div>
         </el-alert>
 
@@ -282,7 +281,8 @@
         </el-card>
 
         <!-- 在线设备：与统计卡片同级，醒目展示 -->
-        <el-card shadow="never" class="devices-card" v-if="(devices.length > 0 || devicesLoading) && cardVisible('devices')">
+        <el-card shadow="never" class="devices-card"
+          v-if="(devices.length > 0 || devicesLoading) && cardVisible('devices')">
           <div slot="header" class="card-header">
             <span class="card-title"><i class="el-icon-monitor"></i> 我的在线设备</span>
             <span class="devices-summary">
@@ -376,7 +376,8 @@
               <div class="stat-value server-addr">{{ user.server_addr || '-' }}</div>
               <div class="stat-label-row">
                 <span class="stat-label">VPN 服务器地址</span>
-                <el-button v-if="user.server_addr" type="text" class="stat-copy-btn" @click="copyText(user.server_addr)">
+                <el-button v-if="user.server_addr" type="text" class="stat-copy-btn"
+                  @click="copyText(user.server_addr)">
                   <i class="el-icon-document-copy"></i> 复制
                 </el-button>
               </div>
@@ -658,7 +659,8 @@
 
     <el-dialog title="客户端下载" :visible.sync="downloadDialogVisible" width="560px" :close-on-click-modal="true"
       custom-class="download-dialog">
-      <div class="download-dialog-body" v-if="dashboard.client_download_html" v-html="dashboard.client_download_html"></div>
+      <div class="download-dialog-body" v-if="dashboard.client_download_html" v-html="dashboard.client_download_html">
+      </div>
     </el-dialog>
   </div>
 </template>
@@ -1043,12 +1045,9 @@ export default {
         if (resp.data.code === 0) {
           this.challengeCode = ""
           this.challengeSession = ""
-          this.user = resp.data.data.user || {}
           this.loggedIn = true
           this.smsCodeSent = false
-          this.loadCerts()
-          this.loadDevices()
-          this.startDevicesPoll()
+          this.loadMe()
           this.$message.success("登录成功")
         } else {
           this.$message.error(resp.data.msg)
@@ -1086,11 +1085,8 @@ export default {
         this.challengeCode = ""
         this.challengeSession = ""
         this.loginForm.password = ""
-        this.user = data.user || {}
         this.loggedIn = true
-        this.loadCerts()
-        this.loadDevices()
-        this.startDevicesPoll()
+        this.loadMe()
         this.$message.success("登录成功")
         return
       }
