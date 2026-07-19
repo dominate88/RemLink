@@ -521,9 +521,9 @@ func PortalForgotPassword(w http.ResponseWriter, r *http.Request) {
 
 	resetURL := getServerAddr(r) + "/ui/#/portal?reset_token=" + url.QueryEscape(token)
 	htmlBody := fmt.Sprintf(`<html><body>
-<h2>RemLink VPN 密码重置</h2>
+<h2>RemLink 密码重置</h2>
 <p>您好 %s，</p>
-<p>请点击下方链接重置您的 VPN 密码（15 分钟内有效）：</p>
+<p>请点击下方链接重置您的密码（15 分钟内有效）：</p>
 <p><a href="%s">%s</a></p>
 	<p>如果您未发起此请求，请忽略此邮件。</p>
 	</body></html>`, html.EscapeString(user.Username), html.EscapeString(resetURL), html.EscapeString(resetURL))
@@ -534,7 +534,7 @@ func PortalForgotPassword(w http.ResponseWriter, r *http.Request) {
 	} else {
 		go func() {
 			if err := notify.GetNotify().SendEmail(notify.Message{
-				Subject: "RemLink VPN 密码重置",
+				Subject: "RemLink 密码重置",
 				To:      user.Email,
 				Body:    htmlBody,
 			}); err != nil {

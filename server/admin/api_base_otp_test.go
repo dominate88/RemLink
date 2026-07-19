@@ -165,7 +165,7 @@ func TestOTPQRURLFormat(t *testing.T) {
 	cfg := struct {
 		Issuer    string
 		AdminUser string
-	}{"RemLink VPN", "admin"}
+	}{"RemLink", "admin"}
 
 	// 模拟 generateAdminOTPQrBase64 逻辑
 	qrURL := "otpauth://totp/" + cfg.Issuer + ":" + cfg.AdminUser +

@@ -104,12 +104,6 @@
               <span v-else class="text-muted">-</span>
             </template>
           </el-table-column>
-          <el-table-column prop="change_pwd" label="改密" width="75" align="center">
-            <template slot-scope="scope">
-              <el-tag v-if="scope.row.change_pwd" type="warning" size="mini">需改密</el-tag>
-              <span v-else class="text-muted">-</span>
-            </template>
-          </el-table-column>
           <el-table-column prop="groups" label="用户组" width="140">
             <template slot-scope="scope">
               <div v-if="scope.row.groups && scope.row.groups.length" class="group-tags">
@@ -119,12 +113,14 @@
               <span v-else class="text-muted">-</span>
             </template>
           </el-table-column>
-          <el-table-column prop="status" label="状态" width="80" align="center">
+          <el-table-column prop="status" label="状态" width="95" align="center">
             <template slot-scope="scope">
               <el-tag :type="getStatusTagType(scope.row)" :class="getStatusTagClass(scope.row)"
                 size="small" disable-transitions>
                 {{ getStatusLabel(scope.row) }}
               </el-tag>
+              <el-tag v-if="scope.row.change_pwd" type="warning" size="mini"
+                class="force-pwd-tag" disable-transitions>需改密</el-tag>
             </template>
           </el-table-column>
           <el-table-column label="已用流量" width="120" align="center">
@@ -228,7 +224,7 @@
               <el-switch v-model="ruleForm.change_pwd"
                 :disabled="isExternalUser"
                 active-color="#e6a23c" inactive-color="#909399" />
-              <el-tooltip content="开启后该用户下次登录 VPN 时必须先修改密码才能继续建隧道（仅本地用户生效）" placement="top">
+              <el-tooltip content="开启后该用户下次登录时必须先修改密码（仅本地用户生效）" placement="top">
                 <i class="el-icon-question help-icon"></i>
               </el-tooltip>
               <span v-if="ruleForm.change_pwd" class="force-pwd-tip">下次登录强制修改密码</span>
@@ -664,6 +660,11 @@ export default {
 
 .user-status-tag {
   min-width: 44px;
+}
+.force-pwd-tag {
+  display: block;
+  width: fit-content;
+  margin: 4px auto 0;
 }
 .user-status-tag--enabled {
   color: var(--color-success) !important;

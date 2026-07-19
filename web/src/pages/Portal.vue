@@ -614,9 +614,10 @@
             <span>{{ brand.footer }}</span>
           </template>
           <template v-else>
-            <span>RemLink VPN · {{ user.issuer || '企业级安全远程接入网关' }}</span>
+            <span>{{ user.issuer || '企业级安全远程接入网关' }}</span>
             <span class="footer-divider">|</span>
-            <span>Powered by RemLink</span>
+            <span>Powered by </span>
+            <a href="https://github.com/wsczx/RemLink" target="_blank" class="footer-link">RemLink</a>
           </template>
         </footer>
       </main>

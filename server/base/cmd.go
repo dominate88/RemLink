@@ -8,10 +8,10 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/skip2/go-qrcode"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/xlzd/gotp"
 )
 
@@ -69,8 +69,8 @@ func initCmd() {
 	linkViper = viper.New()
 	rootCmd = &cobra.Command{
 		Use:   "remlink",
-		Short: "RemLink VPN Server",
-		Long:  `RemLink is a VPN Server application`,
+		Short: "RemLink Secure Remote Access Gateway",
+		Long:  `RemLink is a Enterprise-Grade Secure Remote Access Gateway`,
 		Run: func(cmd *cobra.Command, args []string) {
 			runSrv = true
 

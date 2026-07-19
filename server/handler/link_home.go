@@ -21,13 +21,20 @@ func LinkHome(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	if base.GetCfg().EnableUserPortal {
-		http.Redirect(w, r, "/ui/#/portal", http.StatusFound)
+	index := &dbdata.SettingOther{}
+	if err := dbdata.SettingGet(index); err != nil {
 		return
 	}
 
-	index := &dbdata.SettingOther{}
-	if err := dbdata.SettingGet(index); err != nil {
+	// Homecode == 0：开启自定义首页（与门户共存）
+	if index.Homecode == 0 && index.Homeindex != "" {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, index.Homeindex)
+		return
+	}
+
+	if base.GetCfg().EnableUserPortal {
+		http.Redirect(w, r, "/ui/#/portal", http.StatusFound)
 		return
 	}
 

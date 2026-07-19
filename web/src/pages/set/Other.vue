@@ -204,9 +204,14 @@
               <!-- Row 2: 自定义首页 -->
               <div class="setting-card">
                 <div class="setting-card-title"><i class="el-icon-monitor"></i> 自定义首页</div>
-                <el-form-item label="状态码" prop="homecode">
+                <el-form-item label="首页状态码" prop="homecode">
                   <el-input-number v-model="dataOther.homecode" :min="0" :max="1000"></el-input-number>
-                  <div class="form-tip-new">设为 0 使用默认页面，其他值（如 200）返回自定义首页内容。</div>
+                  <div class="form-tip-new">
+                    <br>• 0：开启自定义首页（与门户共存），/ 直接展示下方「首页内容」，门户仍在 /ui/#/portal 可进（需填写首页内容）；
+                    <br>• 200：门户关闭时 / 展示首页内容，门户开启则跳转到门户；
+                    <br>• 其他值：门户关闭时 / 直接返回该 HTTP 状态码（如 503）。
+                    <br>门户开启且未设为 0 时，/ 始终跳转到门户。
+                  </div>
                 </el-form-item>
                 <el-form-item label="首页内容" prop="homeindex">
                   <el-input type="textarea" :rows="10" v-model="dataOther.homeindex"
