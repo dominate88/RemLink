@@ -213,6 +213,11 @@
             </el-button>
           </div>
         </div>
+
+        <!-- 登录框自定义页脚（品牌设置中的页脚文本） -->
+        <div class="portal-login-footer" v-if="brand.footer">
+          <span>{{ brand.footer }}</span>
+        </div>
       </div>
     </template>
 
@@ -856,14 +861,6 @@ export default {
       }
       return list
     },
-    isIconImage(icon) {
-      if (!icon) return false
-      return /^(https?:\/\/|\/\/|\.\.?\/|data:image\/)/i.test(icon)
-    },
-    isIconClass(icon) {
-      if (!icon) return false
-      return /\s/.test(icon) || /^(el-icon|icon|fa|fas|far|fab|ivu-icon|anticon)/i.test(icon)
-    },
     cardsVisibleMap() {
       let m = {}
       if (this.dashboard.cards_visible) {
@@ -904,8 +901,24 @@ export default {
     if (this._brandHandler) {
       window.removeEventListener('remlink:brand-updated', this._brandHandler);
     }
+    // 清理 applyDashboardTheme 注入到全局 document 的自定义样式与主色变量，
+    // 避免极端自定义 CSS 残留影响登录页等其它页面
+    if (this.customCssEl) {
+      this.customCssEl.remove();
+      this.customCssEl = null;
+    }
+    document.documentElement.style.removeProperty('--color-primary');
+    document.documentElement.style.removeProperty('--color-primary-bg');
   },
   methods: {
+    isIconImage(icon) {
+      if (!icon) return false
+      return /^(https?:\/\/|\/\/|\.\.?\/|data:image\/)/i.test(icon)
+    },
+    isIconClass(icon) {
+      if (!icon) return false
+      return /\s/.test(icon) || /^(el-icon|icon|fa|fas|far|fab|ivu-icon|anticon)/i.test(icon)
+    },
     toggleDarkMode() {
       this.isDark = !this.isDark;
       localStorage.setItem('dark-mode', this.isDark);
@@ -2554,6 +2567,16 @@ export default {
 .footer-divider {
   margin: 0 8px;
   opacity: 0.4;
+}
+
+.portal-login-footer {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-color-light);
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
 }
 
 .empty-hint {

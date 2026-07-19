@@ -285,6 +285,11 @@
         <i class="el-icon-loading"></i>
         <span>{{ loadingText }}</span>
       </div>
+
+      <!-- 自定义页脚（品牌设置中的页脚文本） -->
+      <div class="webauth-footer" v-if="brand.footer">
+        <span>{{ brand.footer }}</span>
+      </div>
     </div>
   </div>
 </template>
@@ -701,6 +706,17 @@ export default {
   border-radius: 16px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.08);
   box-sizing: border-box;
+}
+
+/* 自定义页脚（品牌设置中的页脚文本） */
+.webauth-footer {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-color-light);
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
 }
 
 /* 品牌头部 */

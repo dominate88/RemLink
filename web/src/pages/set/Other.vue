@@ -477,7 +477,11 @@
                   <el-collapse class="css-vars-help">
                     <el-collapse-item title="可用 CSS 变量与选择器参考（点击展开）">
                       <p class="css-help-desc">
-                        自定义 CSS 会注入到门户页面 &lt;head&gt;（全局作用域），<strong>不仅能改配色，也能改写门户的显示布局</strong>：可覆盖下方任意 CSS 变量，或直接针对门户元素选择器编写样式（如调整卡片栅格、隐藏某区块、改边距/对齐等）。修改 <code>--color-primary</code> 等价于在上方用「主题主色」选择器设置主色。
+                        自定义 CSS 会注入到门户页面 &lt;head&gt;（<strong>全局作用域</strong>），不仅能改配色，也能改写门户的显示布局。
+                        <strong>生效范围：仅登录后的「门户首页」生效，登录页不注入。</strong>
+                      </p>
+                      <p class="css-help-warn">
+                        ⚠️ <strong>关键：</strong>门户组件样式带 scoped 属性选择器，特异性高于自定义 CSS。凡是要覆盖组件原有样式的规则，<strong>必须加 <code>!important</code></strong>，否则只有配色等少数规则生效、布局改不动（这是最常见的坑）。
                       </p>
                       <div class="css-vars-grid">
                         <div class="css-var-group">
@@ -519,28 +523,27 @@
                           <code>--card-shadow</code>
                         </div>
                         <div class="css-var-group">
-                          <div class="css-var-group-title">侧边栏 / 布局</div>
-                          <code>--sidebar-bg</code>
-                          <code>--sidebar-bg-hover</code>
-                          <code>--sidebar-text</code>
-                          <code>--sidebar-width</code>
-                          <code>--header-height</code>
-                        </div>
-                        <div class="css-var-group">
-                          <div class="css-var-group-title">常用门户选择器</div>
+                          <div class="css-var-group-title">门户核心选择器（可直接写样式）</div>
                           <code>.portal-page</code>
                           <code>.portal-dash-header</code>
                           <code>.portal-dash-main</code>
-                          <code>.dash-grid</code>
-                          <code>.quicklinks-card</code>
-                          <code>.portal-footer</code>
+                          <code>.welcome-banner</code>
+                          <code>.stats-row / .stat-card / .stat-icon</code>
+                          <code>.quicklinks-card / .quicklink-item</code>
+                          <code>.devices-card / .device-item</code>
+                          <code>.table-card / .card-title / .card-header</code>
+                          <code>.client-step / .step-num</code>
+                          <code>.group-item / .cert-item</code>
+                          <code>.dash-grid / .dash-left / .dash-right</code>
                           <code>.portal-announcement</code>
+                          <code>.portal-footer</code>
                           <code>.portal-login-card</code>
                         </div>
                       </div>
                       <p class="css-help-example">配色示例：<code>.portal-dash-main { --bg-card: #f7faff; }</code></p>
-                      <p class="css-help-example">布局示例（主区改为两列）：<code>.dash-grid { grid-template-columns: repeat(2, 1fr); }</code></p>
-                      <p class="css-help-example">布局示例（隐藏页脚）：<code>.portal-footer { display: none; }</code></p>
+                      <p class="css-help-example">布局示例（主区两列，<strong>记得加 !important</strong>）：<code>.dash-grid { display: grid !important; grid-template-columns: 1fr 360px !important; }</code></p>
+                      <p class="css-help-example">悬浮窗示例（把快捷链接钉在左侧）：<code>.quicklinks-card { position: fixed !important; left: 20px; top: 90px; width: 220px; z-index: 50; }</code></p>
+                      <p class="css-help-example">隐藏页脚：<code>.portal-footer { display: none !important; }</code></p>
                     </el-collapse-item>
                   </el-collapse>
                 </el-form-item>
@@ -1549,6 +1552,25 @@ export default {
   margin: 14px 0 0;
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+.css-help-warn {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #8a5a00;
+  background: #fff7e6;
+  border: 1px solid #ffd591;
+  border-radius: 8px;
+}
+
+.css-help-warn code {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #ad4e00;
 }
 
 /* 响应式 */

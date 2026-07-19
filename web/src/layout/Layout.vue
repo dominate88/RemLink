@@ -22,6 +22,8 @@
 
       <!-- 底部 -->
       <el-footer class="layout-footer">
+        <span v-if="brand.footer" class="footer-text">{{ brand.footer }}</span>
+        <span v-if="brand.footer" class="footer-divider">|</span>
         <span class="footer-text">RemLink 企业级安全远程接入网关</span>
         <span class="footer-divider">|</span>
         <a href="https://github.com/wsczx/RemLink" target="_blank" class="footer-link">RemLink</a>
@@ -36,6 +38,7 @@
 import LayoutAside from "@/layout/LayoutAside";
 import LayoutHeader from "@/layout/LayoutHeader";
 import axios from "axios";
+import { applyBrandToDocument } from "@/plugins/brand";
 
 export default {
   name: "Layout",
@@ -47,6 +50,7 @@ export default {
       is_mobile: false,
       route_path: '/index',
       route_name: ['仪表盘'],
+      brand: { footer: "" },
       system_warning_prompt_shown: false,
       system_warning_checking: false,
     }
@@ -175,6 +179,13 @@ export default {
   created() {
     this.handleResize()
     window.addEventListener('resize', this.handleResize)
+    // 加载品牌配置（含自定义页脚）
+    axios.get('/portal/api/login-config').then(resp => {
+      if (resp.data && resp.data.data) {
+        this.brand = Object.assign({ footer: "" }, resp.data.data)
+        applyBrandToDocument(this.brand)
+      }
+    }).catch(() => {})
   },
   beforeDestroy() {
     window.removeEventListener('resize', this.handleResize)
