@@ -865,6 +865,9 @@ func WebAuthChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	lockManager.Success(username, r.RemoteAddr)
 
+	// 强制以数据库为准重载用户信息
+	authsrv.ReloadUserInfo(pending.Ctx)
+
 	// 续跑管道：forcepwd 步见 ForcePwd=false 直接通过，继续后续步骤（如 otp）
 	result := webAuthRunOrResume(pending.Ctx, pending, true)
 	if result.IsChallengeRetry() && username != "" {
