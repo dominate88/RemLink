@@ -27,14 +27,8 @@
       <div v-show="step === 'select_group'" class="step-body">
         <p class="step-desc">请选择您所属的用户组以继续身份认证</p>
         <div class="group-grid">
-          <div
-            v-for="(g, idx) in groups"
-            :key="g"
-            class="group-card"
-            :class="{ active: selectedGroup === g }"
-            :style="{ animationDelay: `${idx * 0.06}s` }"
-            @click="selectedGroup = g"
-          >
+          <div v-for="(g, idx) in groups" :key="g" class="group-card" :class="{ active: selectedGroup === g }"
+            :style="{ animationDelay: `${idx * 0.06}s` }" @click="selectedGroup = g">
             <div class="group-card-icon" :class="`icon-${idx % 5}`">
               <i :class="groupIcon(idx)"></i>
             </div>
@@ -48,13 +42,8 @@
           </div>
         </div>
         <div class="step-actions">
-          <el-button
-            type="primary"
-            :disabled="!selectedGroup"
-            :loading="loading"
-            @click="submitGroup"
-            class="btn-full"
-          >下一步</el-button>
+          <el-button type="primary" :disabled="!selectedGroup" :loading="loading" @click="submitGroup"
+            class="btn-full">下一步</el-button>
         </div>
       </div>
 
@@ -63,25 +52,13 @@
         <p class="step-desc">{{ hint || '请输入手机号以接收短信验证码' }}</p>
         <el-form :model="phoneForm" class="auth-form" @submit.native.prevent>
           <el-form-item>
-            <el-input
-              v-model="phoneForm.phone"
-              placeholder="手机号"
-              maxlength="11"
-              prefix-icon="el-icon-phone-outline"
-              class="phone-input"
-              @keydown.enter.native.prevent="submitSmsPhone"
-            />
+            <el-input v-model="phoneForm.phone" placeholder="手机号" maxlength="11" prefix-icon="el-icon-phone-outline"
+              class="phone-input" @keydown.enter.native.prevent="submitSmsPhone" />
           </el-form-item>
         </el-form>
         <div class="step-actions">
-          <el-button
-            type="primary"
-            :loading="loading"
-            :disabled="!isPhoneValid"
-            @click="submitSmsPhone"
-            class="btn-full"
-            native-type="button"
-          >获取验证码</el-button>
+          <el-button type="primary" :loading="loading" :disabled="!isPhoneValid" @click="submitSmsPhone"
+            class="btn-full" native-type="button">获取验证码</el-button>
         </div>
       </div>
 
@@ -90,34 +67,17 @@
         <p class="step-desc">{{ hint || '请输入登录凭据' }}</p>
         <el-form :model="credForm" ref="credForm" class="auth-form" @submit.native.prevent>
           <el-form-item>
-            <el-input
-              v-model="credForm.username"
-              placeholder="用户名"
-              prefix-icon="el-icon-user-solid"
-              :disabled="!!usernameField"
-              @keydown.enter.native.prevent="submitCredentials"
-            />
+            <el-input v-model="credForm.username" placeholder="用户名" prefix-icon="el-icon-user-solid"
+              :disabled="!!usernameField" @keydown.enter.native.prevent="submitCredentials" />
           </el-form-item>
           <el-form-item v-if="!noPassword">
-            <el-input
-              v-model="credForm.password"
-              type="password"
-              placeholder="密码"
-              prefix-icon="el-icon-lock"
-              show-password
-              @keydown.enter.native.prevent="submitCredentials"
-            />
+            <el-input v-model="credForm.password" type="password" placeholder="密码" prefix-icon="el-icon-lock"
+              show-password @keydown.enter.native.prevent="submitCredentials" />
           </el-form-item>
         </el-form>
         <div class="step-actions">
-          <el-button
-            type="primary"
-            :loading="loading"
-            :disabled="noPassword ? !credForm.username : !credForm.password"
-            @click="submitCredentials"
-            class="btn-full"
-            native-type="button"
-          >继 续</el-button>
+          <el-button type="primary" :loading="loading" :disabled="noPassword ? !credForm.username : !credForm.password"
+            @click="submitCredentials" class="btn-full" native-type="button">继 续</el-button>
         </div>
       </div>
 
@@ -130,25 +90,13 @@
         </div>
         <el-form :model="otpForm" ref="otpForm" class="auth-form" @submit.native.prevent>
           <el-form-item>
-            <el-input
-              v-model="otpForm.code"
-              placeholder="6位动态验证码"
-              maxlength="6"
-              prefix-icon="el-icon-key"
-              @keydown.enter.native.prevent="submitOtp"
-              class="otp-input"
-            />
+            <el-input v-model="otpForm.code" placeholder="6位动态验证码" maxlength="6" prefix-icon="el-icon-key"
+              @keydown.enter.native.prevent="submitOtp" class="otp-input" />
           </el-form-item>
         </el-form>
         <div class="step-actions">
-          <el-button
-            type="primary"
-            :loading="loading"
-            :disabled="otpForm.code.length < 6"
-            @click="submitOtp"
-            class="btn-full"
-            native-type="button"
-          >验 证</el-button>
+          <el-button type="primary" :loading="loading" :disabled="otpForm.code.length < 6" @click="submitOtp"
+            class="btn-full" native-type="button">验 证</el-button>
         </div>
       </div>
 
@@ -161,32 +109,17 @@
         </div>
         <el-form :model="smsForm" class="auth-form" @submit.native.prevent>
           <el-form-item>
-            <el-input
-              v-model="smsForm.code"
-              placeholder="6位验证码"
-              maxlength="6"
-              prefix-icon="el-icon-edit-outline"
-              class="otp-input"
-              @keydown.enter.native.prevent="submitSmsCode"
-            />
+            <el-input v-model="smsForm.code" placeholder="6位验证码" maxlength="6" prefix-icon="el-icon-edit-outline"
+              class="otp-input" @keydown.enter.native.prevent="submitSmsCode" />
           </el-form-item>
         </el-form>
         <div class="step-actions">
-          <el-button
-            type="primary"
-            :loading="loading"
-            :disabled="smsForm.code.length < 6"
-            @click="submitSmsCode"
-            class="btn-full"
-            native-type="button"
-          >验 证</el-button>
+          <el-button type="primary" :loading="loading" :disabled="smsForm.code.length < 6" @click="submitSmsCode"
+            class="btn-full" native-type="button">验 证</el-button>
         </div>
         <div class="sms-resend-wrap">
-          <a
-            class="sms-resend-link"
-            :class="{ 'sms-resend-disabled': smsCountdown > 0 }"
-            @click="resendSmsCode"
-          >{{ smsCountdown > 0 ? smsCountdown + 's 后重新发送' : '重新发送验证码' }}</a>
+          <a class="sms-resend-link" :class="{ 'sms-resend-disabled': smsCountdown > 0 }" @click="resendSmsCode">{{
+            smsCountdown > 0 ? smsCountdown + 's 后重新发送' : '重新发送验证码' }}</a>
         </div>
       </div>
 
@@ -199,25 +132,13 @@
         </div>
         <el-form :model="credForm" ref="radiusForm" class="auth-form" @submit.native.prevent>
           <el-form-item>
-            <el-input
-              v-model="credForm.password"
-              type="password"
-              placeholder="二次验证码"
-              prefix-icon="el-icon-lock"
-              show-password
-              @keydown.enter.native.prevent="submitCredentials"
-            />
+            <el-input v-model="credForm.password" type="password" placeholder="二次验证码" prefix-icon="el-icon-lock"
+              show-password @keydown.enter.native.prevent="submitCredentials" />
           </el-form-item>
         </el-form>
         <div class="step-actions">
-          <el-button
-            type="primary"
-            :loading="loading"
-            :disabled="!credForm.password"
-            @click="submitCredentials"
-            class="btn-full"
-            native-type="button"
-          >提 交</el-button>
+          <el-button type="primary" :loading="loading" :disabled="!credForm.password" @click="submitCredentials"
+            class="btn-full" native-type="button">提 交</el-button>
         </div>
       </div>
 
@@ -225,40 +146,23 @@
       <div v-show="step === 'change_pwd'" class="step-body">
         <div class="otp-header">
           <i class="el-icon-warning-outline otp-icon"></i>
-          <p class="otp-title">{{ hint || '首次登录需修改密码' }}</p>
-          <p class="otp-desc">为保障账号安全，请设置新密码后再继续</p>
+          <p class="otp-title">{{ hint || '首次登录，请修改密码' }}</p>
+          <p class="otp-desc">新密码规则：至少8位且须包含字母和数字</p>
         </div>
         <el-form :model="changePwdForm" class="auth-form" @submit.native.prevent>
           <el-form-item>
-            <el-input
-              v-model="changePwdForm.new_password"
-              type="password"
-              placeholder="新密码（至少8位，含字母和数字）"
-              prefix-icon="el-icon-lock"
-              show-password
-              @keydown.enter.native.prevent="submitChangePwd"
-            />
+            <el-input v-model="changePwdForm.new_password" type="password" placeholder="新密码"
+              prefix-icon="el-icon-lock" show-password @keydown.enter.native.prevent="submitChangePwd" />
           </el-form-item>
           <el-form-item>
-            <el-input
-              v-model="changePwdForm.confirm_password"
-              type="password"
-              placeholder="确认新密码"
-              prefix-icon="el-icon-lock"
-              show-password
-              @keydown.enter.native.prevent="submitChangePwd"
-            />
+            <el-input v-model="changePwdForm.confirm_password" type="password" placeholder="确认新密码"
+              prefix-icon="el-icon-lock" show-password @keydown.enter.native.prevent="submitChangePwd" />
           </el-form-item>
         </el-form>
         <div class="step-actions">
-          <el-button
-            type="primary"
-            :loading="loading"
-            :disabled="!changePwdForm.new_password || !changePwdForm.confirm_password"
-            @click="submitChangePwd"
-            class="btn-full"
-            native-type="button"
-          >修改并继续</el-button>
+          <el-button type="primary" :loading="loading"
+            :disabled="!changePwdForm.new_password || !changePwdForm.confirm_password" @click="submitChangePwd"
+            class="btn-full" native-type="button">修改并继续</el-button>
         </div>
       </div>
 
@@ -267,11 +171,7 @@
         <i class="el-icon-circle-check done-icon"></i>
         <p class="done-text">认证成功</p>
         <p class="done-sub">即将跳转到用户自助门户</p>
-        <el-button
-          type="primary"
-          @click="goPortal"
-          class="btn-full"
-        >进入门户</el-button>
+        <el-button type="primary" @click="goPortal" class="btn-full">进入门户</el-button>
       </div>
 
       <!-- 错误提示 -->
@@ -366,7 +266,7 @@ export default {
           this.brand = Object.assign({ title: "", logo: "", favicon: "" }, resp.data.data)
           applyBrandToDocument(this.brand)
         }
-      }).catch(() => {})
+      }).catch(() => { })
     },
     async initAuth() {
       this.error = ''
@@ -670,23 +570,27 @@ export default {
   z-index: 0;
   pointer-events: none;
 }
+
 .bg-circle {
   position: absolute;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.03);
 }
+
 .bg-circle-1 {
   width: 500px;
   height: 500px;
   top: -150px;
   right: -100px;
 }
+
 .bg-circle-2 {
   width: 300px;
   height: 300px;
   bottom: -80px;
   left: -60px;
 }
+
 .bg-circle-3 {
   width: 200px;
   height: 200px;
@@ -724,6 +628,7 @@ export default {
   text-align: center;
   margin-bottom: 32px;
 }
+
 .brand-icon-wrap {
   width: 56px;
   height: 56px;
@@ -735,15 +640,18 @@ export default {
   justify-content: center;
   box-shadow: none;
 }
+
 .brand-icon-wrap i {
   font-size: 26px;
   color: var(--text-inverse);
 }
+
 .brand-logo-img {
   width: 48px;
   height: 48px;
   object-fit: contain;
 }
+
 .brand-name {
   margin: 0;
   font-size: 22px;
@@ -751,6 +659,7 @@ export default {
   color: var(--text-primary);
   letter-spacing: 1px;
 }
+
 .brand-desc {
   margin: 6px 0 0;
   font-size: 13px;
@@ -761,6 +670,7 @@ export default {
 .step-body {
   min-height: 80px;
 }
+
 .step-desc {
   text-align: center;
   font-size: 13px;
@@ -778,6 +688,7 @@ export default {
   overflow-y: auto;
   padding: 2px;
 }
+
 .group-card {
   position: relative;
   display: flex;
@@ -792,18 +703,21 @@ export default {
   background: var(--bg-card);
   animation: cardIn 0.4s ease-out both;
 }
+
 .group-card:hover {
   border-color: var(--color-primary-light);
   background: var(--color-primary-bg);
   transform: translateY(-2px);
   box-shadow: 0 6px 20px rgba(64, 158, 255, 0.1);
 }
+
 .group-card.active {
   border-color: var(--color-primary);
   background: linear-gradient(135deg, var(--color-primary-bg) 0%, var(--color-primary-bg) 100%);
   transform: translateY(-2px);
   box-shadow: 0 6px 24px rgba(64, 158, 255, 0.18);
 }
+
 .group-card-icon {
   width: 44px;
   height: 44px;
@@ -813,26 +727,45 @@ export default {
   justify-content: center;
   transition: all 0.25s;
 }
+
 .group-card-icon i {
   font-size: 22px;
   color: var(--text-inverse);
 }
+
 .group-card.active .group-card-icon {
   transform: scale(1.08);
   box-shadow: 0 4px 12px rgba(64, 158, 255, 0.3);
 }
+
 /* 不同颜色方案 */
-.group-card-icon.icon-0 { background: linear-gradient(135deg, var(--color-primary), #66b1ff); }
-.group-card-icon.icon-1 { background: linear-gradient(135deg, var(--color-success), #85ce61); }
-.group-card-icon.icon-2 { background: linear-gradient(135deg, var(--color-warning), #ebb563); }
-.group-card-icon.icon-3 { background: linear-gradient(135deg, var(--color-danger), #f89898); }
-.group-card-icon.icon-4 { background: linear-gradient(135deg, #6366f1, #818cf8); }
+.group-card-icon.icon-0 {
+  background: linear-gradient(135deg, var(--color-primary), #66b1ff);
+}
+
+.group-card-icon.icon-1 {
+  background: linear-gradient(135deg, var(--color-success), #85ce61);
+}
+
+.group-card-icon.icon-2 {
+  background: linear-gradient(135deg, var(--color-warning), #ebb563);
+}
+
+.group-card-icon.icon-3 {
+  background: linear-gradient(135deg, var(--color-danger), #f89898);
+}
+
+.group-card-icon.icon-4 {
+  background: linear-gradient(135deg, #6366f1, #818cf8);
+}
+
 .group-card-body {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
 }
+
 .group-card-name {
   font-size: 14px;
   font-weight: 600;
@@ -841,17 +774,21 @@ export default {
   word-break: break-all;
   line-height: 1.3;
 }
+
 .group-card.active .group-card-name {
   color: var(--color-primary);
 }
+
 .group-card-hint {
   font-size: 11px;
   color: var(--text-placeholder);
 }
+
 .group-card.active .group-card-hint {
   color: var(--color-primary);
   opacity: 0.7;
 }
+
 .group-card-check {
   position: absolute;
   top: -6px;
@@ -866,6 +803,7 @@ export default {
   box-shadow: 0 2px 8px rgba(64, 158, 255, 0.35);
   animation: popIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
 .group-card-check i {
   font-size: 12px;
   color: var(--text-inverse);
@@ -873,27 +811,43 @@ export default {
 }
 
 @keyframes cardIn {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
+
 @keyframes popIn {
-  from { transform: scale(0); }
-  to { transform: scale(1); }
+  from {
+    transform: scale(0);
+  }
+
+  to {
+    transform: scale(1);
+  }
 }
 
 /* 表单样式 — 与登录页一致 */
 .auth-form {
   margin-bottom: 8px;
 }
+
 .auth-form /deep/ .el-input__inner {
   height: 44px;
   line-height: 44px;
   font-size: 14px;
   padding-left: 40px;
 }
+
 .auth-form /deep/ .el-input__prefix {
   left: 12px;
 }
+
 .auth-form /deep/ .el-input__prefix i {
   font-size: 18px;
   color: var(--text-secondary);
@@ -904,17 +858,20 @@ export default {
   text-align: center;
   margin-bottom: 24px;
 }
+
 .otp-icon {
   font-size: 48px;
   color: var(--color-primary);
   margin-bottom: 12px;
 }
+
 .otp-title {
   font-size: 16px;
   font-weight: 600;
   color: var(--text-primary);
   margin: 0 0 8px 0;
 }
+
 .otp-desc {
   font-size: 13px;
   color: var(--text-secondary);
@@ -945,15 +902,18 @@ export default {
   text-align: center;
   margin-top: 12px;
 }
+
 .sms-resend-link {
   font-size: 13px;
   color: var(--color-primary);
   cursor: pointer;
   text-decoration: none;
 }
+
 .sms-resend-link:hover {
   color: #66b1ff;
 }
+
 .sms-resend-disabled {
   color: var(--text-placeholder);
   cursor: not-allowed;
@@ -963,6 +923,7 @@ export default {
 .step-actions {
   margin-top: 20px;
 }
+
 .btn-full {
   width: 100%;
   height: 44px;
@@ -975,17 +936,20 @@ export default {
 .done-box {
   text-align: center;
 }
+
 .done-icon {
   font-size: 56px;
   color: var(--color-success);
   margin-bottom: 14px;
 }
+
 .done-text {
   font-size: 20px;
   color: var(--text-primary);
   font-weight: 600;
   margin-bottom: 6px;
 }
+
 .done-sub {
   font-size: 13px;
   color: var(--text-secondary);
@@ -1005,6 +969,7 @@ export default {
   align-items: center;
   gap: 8px;
 }
+
 .step-error i {
   font-size: 16px;
   flex-shrink: 0;
@@ -1021,12 +986,19 @@ export default {
   justify-content: center;
   gap: 6px;
 }
+
 .step-loading i {
   animation: el-rotate 2s linear infinite;
 }
+
 @keyframes el-rotate {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* 移动端适配 — Cisco AnyConnect 内置浏览器 */
@@ -1035,6 +1007,7 @@ export default {
     padding: 0;
     align-items: stretch;
   }
+
   .webauth-card {
     width: 100%;
     max-width: 100%;
@@ -1048,6 +1021,7 @@ export default {
     box-shadow: none;
     position: relative;
   }
+
   /* 移动端卡片全屏白色，切换按钮移到卡片内部 */
   .theme-toggle-fixed {
     position: absolute;
@@ -1055,54 +1029,64 @@ export default {
     backdrop-filter: none;
     color: var(--text-secondary);
   }
+
   .theme-toggle-fixed:hover {
     background: var(--bg-hover);
     color: var(--color-primary);
   }
+
   .webauth-header {
     margin-bottom: 24px;
   }
+
   .brand-icon-wrap {
     width: 52px;
     height: 52px;
     border-radius: 12px;
   }
+
   .brand-icon-wrap i {
     font-size: 22px;
   }
+
   .brand-name {
     font-size: 20px;
   }
+
   .group-grid {
     grid-template-columns: 1fr;
     gap: 8px;
     max-height: none;
   }
+
   .group-card {
     flex-direction: row;
     padding: 14px 16px;
     gap: 12px;
   }
+
   .group-card-body {
     flex-direction: row;
     align-items: center;
     flex: 1;
     justify-content: space-between;
   }
+
   .group-card-hint {
     display: none;
   }
+
   .auth-form /deep/ .el-input__inner {
     height: 48px;
     line-height: 48px;
     font-size: 16px;
   }
+
   .btn-full {
     height: 48px;
     font-size: 16px;
   }
 }
-
 </style>
 
 <style>
@@ -1125,6 +1109,7 @@ export default {
   font-size: 18px;
   transition: all var(--transition-fast);
 }
+
 .theme-toggle-fixed:hover {
   background: rgba(255, 255, 255, 0.2);
   color: var(--text-inverse);
@@ -1132,7 +1117,7 @@ export default {
 
 html.dark .webauth-card {
   background: var(--bg-card) !important;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.5) !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5) !important;
 }
 
 html.dark .webauth-card .el-input__inner {

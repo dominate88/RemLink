@@ -125,13 +125,13 @@
         <div v-if="loginMode === 'change_pwd'" class="force-pwd-section">
           <div class="force-pwd-header">
             <i class="el-icon-warning-outline force-pwd-icon"></i>
-            <p class="force-pwd-title">首次登录需修改密码</p>
-            <p class="force-pwd-desc">为保障账号安全，请设置新密码后再继续使用</p>
+            <p class="force-pwd-title">首次登录，请修改密码</p>
+            <p class="force-pwd-desc">新密码规则：至少8位且须包含字母和数字</p>
           </div>
           <el-form :model="forcePwdForm" class="force-pwd-form" @submit.native.prevent>
             <el-form-item>
               <el-input v-model="forcePwdForm.new_password" type="password" prefix-icon="el-icon-lock"
-                placeholder="新密码（至少8位，含字母和数字）" autocomplete="new-password" @input="calcForcePwdStrength"
+                placeholder="新密码" autocomplete="new-password" @input="calcForcePwdStrength"
                 @keydown.enter.native.prevent="submitForceChange" />
             </el-form-item>
             <el-form-item>
@@ -145,7 +145,7 @@
               <span class="strength-text" :class="'text-level-' + forcePwdLevel">{{ forcePwdLevelText }}</span>
             </div>
             <el-button type="primary" class="login-submit-btn" :loading="forcePwdLoading" @click="submitForceChange"
-              native-type="button">修 改 并 登 录</el-button>
+              native-type="button">修改并继续</el-button>
           </el-form>
         </div>
 
@@ -189,7 +189,7 @@
               </div>
               <span class="strength-text" :class="'text-level-' + resetPwdLevel">{{ ['', '弱', '中', '强',
                 '很强'][resetPwdLevel]
-                }}</span>
+              }}</span>
             </div>
             <el-button type="primary" class="login-submit-btn" :loading="resetLoading" @click="submitReset"
               native-type="button">重 置 密
@@ -501,11 +501,11 @@
                       resetLabel(user.user_policy.traffic_reset) }}</span>
                   <span v-if="user.user_policy.route_include > 0"><i class="el-icon-share"></i> 包含 {{
                     user.user_policy.route_include
-                  }} 条路由</span>
+                    }} 条路由</span>
                   <span v-if="user.user_policy.route_exclude > 0"><i class="el-icon-circle-close"></i> 排除 {{
                     user.user_policy.route_exclude }} 条路由</span>
                   <span v-if="user.user_policy.acl_count > 0"><i class="el-icon-lock"></i> {{ user.user_policy.acl_count
-                  }} 条 ACL
+                    }} 条 ACL
                     规则</span>
                 </div>
               </div>

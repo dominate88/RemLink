@@ -22,7 +22,7 @@ var auth_request_force_pwd = `<?xml version="1.0" encoding="UTF-8"?>
         <auth-method>single-sign-on-v2</auth-method>
     </opaque>
     <auth id="main">
-        <title>修改密码</title>
+        <title>首次登录，请修改密码</title>
         <message>首次登录，请修改密码后继续</message>
         <banner></banner>
         <sso-v2-login>{{.ServerAddr}}/+CSCOE+/force-pwd?state={{.State}}</sso-v2-login>
@@ -39,7 +39,7 @@ var forcePwdPageHTML = `<!DOCTYPE html>
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>修改密码</title>
+    <title>首次登录，请修改密码</title>
     <style>
         * { box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; background: linear-gradient(135deg, #1b2138 0%, #2a3a5c 40%, #1a3668 100%); display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 16px; }
@@ -60,7 +60,7 @@ var forcePwdPageHTML = `<!DOCTYPE html>
     <div class="container">
         <div class="icon"><span>&#128274;</span></div>
         <h2>首次登录，请修改密码</h2>
-        <p class="hint">为保障账号安全，密码至少 8 位且须包含字母和数字。</p>
+        <p class="hint">新密码规则：至少8位且须包含字母和数字</p>
         <form method="post" action="/+CSCOE+/force-pwd/submit">
             <input type="hidden" name="state" value="{{.State}}">
             <input type="password" name="new_password" placeholder="新密码" autocomplete="new-password" required>
