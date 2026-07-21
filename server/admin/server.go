@@ -9,12 +9,12 @@ import (
 	"time"
 
 	"github.com/arl/statsviz"
+	"github.com/gorilla/handlers"
+	"github.com/gorilla/mux"
 	_ "github.com/wsczx/remlink/auth/authsrv" // 触发认证器 init() 注册
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
 	"github.com/wsczx/remlink/pkg/utils"
-	"github.com/gorilla/handlers"
-	"github.com/gorilla/mux"
 )
 
 var UiData embed.FS
@@ -213,7 +213,7 @@ func StartAdmin() {
 		},
 	}
 	srv := &http.Server{
-		Addr:              base.GetCfg().AdminAddr,
+		Addr:              base.FormatListenAddr(base.GetCfg().AdminAddr),
 		Handler:           r,
 		TLSConfig:         tlsConfig,
 		ErrorLog:          base.GetServerLog(),

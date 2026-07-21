@@ -83,7 +83,7 @@ func initCmd() {
 
 	linkViper.SetEnvPrefix("link")
 
-	// 从 ServerConfig struct tag 注册命令行参数和默认值
+	// 依据 ServerConfig 字段 + configMetas 注册命令行参数和默认值
 	registerFlagsFromConfig()
 
 	rootCmd.Flags().BoolVarP(&rev, "version", "v", false, "display version info")
@@ -98,31 +98,30 @@ func initCmd() {
 	})
 }
 
-// 从 ServerConfig struct tag 中读取元数据注册 cobra flags
+// 遍历 ServerConfig 字段，结合 configMetas 元数据注册 cobra flags
 func registerFlagsFromConfig() {
 	typ := reflect.TypeFor[ServerConfig]()
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
 		name := field.Tag.Get("json")
-		usage := field.Tag.Get("usage")
+		// 默认值/说明来自 config.go 的 configMetas
+		meta := configMetas[name]
+		usage := meta.usage
 
 		switch field.Type.Kind() {
 		case reflect.String:
-			dv := field.Tag.Get("default")
+			dv := meta.defaultVal
 			// AdminPass 默认值由 CompleteConfig 随机生成，不暴露在命令行
 			if dv == "defaultPwd" {
 				dv = ""
 			}
 			rootCmd.Flags().StringP(name, "", dv, usage)
 		case reflect.Int:
-			dv := field.Tag.Get("default")
 			var iDef int
-			fmt.Sscan(dv, &iDef)
+			fmt.Sscan(meta.defaultVal, &iDef)
 			rootCmd.Flags().IntP(name, "", iDef, usage)
 		case reflect.Bool:
-			dv := field.Tag.Get("default")
-			def := dv == "true"
-			rootCmd.Flags().BoolP(name, "", def, usage)
+			rootCmd.Flags().BoolP(name, "", meta.defaultVal == "true", usage)
 		}
 
 		linkViper.BindPFlag(name, rootCmd.Flags().Lookup(name))

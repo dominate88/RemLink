@@ -3,6 +3,7 @@ package base
 import (
 	"os"
 	"strconv"
+	"strings"
 	"syscall"
 )
 
@@ -11,13 +12,12 @@ func RestartProcess() error {
 	if err != nil {
 		return err
 	}
-	// 关闭所有非标准 fd（fd > 2），确保 tun/tap 设备被释放
-	// syscall.Exec 不执行 defer，water 库创建的 tun fd 没有 O_CLOEXEC，会残留在新进程中
-	closeNonStdFDs()
+	closeDeviceFDs()
 	return syscall.Exec(app, os.Args, os.Environ())
 }
 
-func closeNonStdFDs() {
+// 关闭设备 fd
+func closeDeviceFDs() {
 	entries, err := os.ReadDir("/proc/self/fd")
 	if err != nil {
 		return
@@ -27,6 +27,12 @@ func closeNonStdFDs() {
 		if err != nil || fd <= 2 {
 			continue
 		}
-		syscall.Close(fd)
+		target, err := os.Readlink("/proc/self/fd/" + e.Name())
+		if err != nil {
+			continue
+		}
+		if strings.HasPrefix(target, "/dev/net/tun") || strings.HasPrefix(target, "/dev/tap") {
+			syscall.Close(fd)
+		}
 	}
 }

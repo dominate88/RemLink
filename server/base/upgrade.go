@@ -157,7 +157,8 @@ func DoUpgrade(info *ReleaseInfo, progressCh chan<- UpgradeProgress) {
 	sendProgress(progressCh, "done", 100, info.Size, info.Size)
 
 	time.Sleep(500 * time.Millisecond)
-	closeNonStdFDs()
+	// 关闭 tun/tap/macvtap 设备 fd，避免泄漏到新进程（详见 restart.go）
+	closeDeviceFDs()
 	if err := syscall.Exec(exePath, os.Args, os.Environ()); err != nil {
 		Error("在线升级重启失败:", err)
 	}

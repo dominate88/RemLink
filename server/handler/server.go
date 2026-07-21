@@ -81,7 +81,7 @@ func startTls() {
 		WriteTimeout: 100 * time.Second,
 	}
 
-	ln, err = net.Listen("tcp", addr)
+	ln, err = net.Listen("tcp", base.FormatListenAddr(addr))
 	if err != nil {
 		base.Error("VPN 服务监听失败，请到管理后台「软件配置→服务监听→VPN 服务地址」修改端口后重启:", err)
 		return

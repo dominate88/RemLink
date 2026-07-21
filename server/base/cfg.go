@@ -1,5 +1,6 @@
-// 全局配置，基于 atomic.Pointer[ServerConfig] 无锁并发读写
-
+// 新增配置项只需改 config.go：在 ServerConfig 结构体加字段，并在 configMetas 加对应元数据。
+// 本文件的加载/校验/读写逻辑通过反射 + init() 断言自动适配，无需改动。
+// ServerConfig 仅允许 string/int/bool 等值类型（见 init 断言），否则启动即 panic。
 package base
 
 import (
@@ -19,14 +20,14 @@ import (
 )
 
 type ConfigManager struct {
-	cfgPtr atomic.Pointer[ServerConfig]
+	cfgPtr      atomic.Pointer[ServerConfig]
+	explicitSet map[string]bool
 }
 
-var defaultConfigManager = NewConfigManager()
-
 var (
-	configFields      = buildConfigFields()
-	configFieldByName = buildConfigFieldByName(configFields)
+	configFields         = buildConfigFields()
+	configFieldByName    = buildConfigFieldByName(configFields)
+	defaultConfigManager = NewConfigManager()
 )
 
 func NewConfigManager() *ConfigManager {
@@ -37,15 +38,24 @@ func NewConfigManager() *ConfigManager {
 
 func (m *ConfigManager) Get() *ServerConfig { return m.cfgPtr.Load() }
 
-func (m *ConfigManager) Update(fn func(cfg *ServerConfig)) {
+// fn 返回错误时放弃本次提交直接返回
+// fn 内只能修改传入的 *ServerConfig
+func (m *ConfigManager) mutate(fn func(c *ServerConfig) error) error {
 	for {
 		old := m.cfgPtr.Load()
 		newCfg := *old
-		fn(&newCfg)
+		if err := fn(&newCfg); err != nil {
+			return err
+		}
 		if m.cfgPtr.CompareAndSwap(old, &newCfg) {
-			return
+			return nil
 		}
 	}
+}
+
+// 仅用于绝不会失败的纯字段赋值；若 fn 可能失败，必须改用 mutate（func(cfg) error），
+func (m *ConfigManager) Update(fn func(cfg *ServerConfig)) {
+	m.mutate(func(c *ServerConfig) error { fn(c); return nil })
 }
 
 func (m *ConfigManager) InitDirs() {
@@ -85,29 +95,28 @@ func (m *ConfigManager) Complete(cfg *ServerConfig) {
 			}
 		}
 	}
-
 	if cfg.AdvertiseDTLSAddr == "" {
 		cfg.AdvertiseDTLSAddr = cfg.ServerDTLSAddr
 	}
-
-	if newAdminPass != "" {
-		fmt.Fprintf(os.Stderr, "\n")
-		fmt.Fprintf(os.Stderr, "========================================\n")
-		fmt.Fprintf(os.Stderr, "  RemLink 首次启动 — 管理员账号信息\n")
-		fmt.Fprintf(os.Stderr, "========================================\n")
-		fmt.Fprintf(os.Stderr, "  用户名:      %s\n", cfg.AdminUser)
-		fmt.Fprintf(os.Stderr, "  初始密码:    %s\n", newAdminPass)
-		fmt.Fprintf(os.Stderr, "  管理后台:    https://<服务器IP>%s\n", cfg.AdminAddr)
-		fmt.Fprintf(os.Stderr, "========================================\n")
-		fmt.Fprintf(os.Stderr, "  ⚠ 请立即登录修改密码！\n")
-		fmt.Fprintf(os.Stderr, "  忘记密码时请停止服务后执行: remlink --reset-admin-password\n")
-		fmt.Fprintf(os.Stderr, "========================================\n\n")
-	}
+	printAdminBanner(cfg, newAdminPass)
 }
-func (m *ConfigManager) completeDerived(cfg *ServerConfig) {
-	if cfg.AdvertiseDTLSAddr == "" {
-		cfg.AdvertiseDTLSAddr = cfg.ServerDTLSAddr
+
+// 在首次生成管理员密码时打印账号信息到终端
+func printAdminBanner(cfg *ServerConfig, plainPass string) {
+	if plainPass == "" {
+		return
 	}
+	fmt.Fprintf(os.Stderr, "\n")
+	fmt.Fprintf(os.Stderr, "========================================\n")
+	fmt.Fprintf(os.Stderr, "  RemLink 首次启动 — 管理员账号信息\n")
+	fmt.Fprintf(os.Stderr, "========================================\n")
+	fmt.Fprintf(os.Stderr, "  用户名:      %s\n", cfg.AdminUser)
+	fmt.Fprintf(os.Stderr, "  初始密码:    %s\n", plainPass)
+	fmt.Fprintf(os.Stderr, "  管理后台:    https://<服务器IP>%s\n", cfg.AdminAddr)
+	fmt.Fprintf(os.Stderr, "========================================\n")
+	fmt.Fprintf(os.Stderr, "  ⚠ 请立即登录修改密码！\n")
+	fmt.Fprintf(os.Stderr, "  忘记密码时请停止服务后执行: remlink --reset-admin-password\n")
+	fmt.Fprintf(os.Stderr, "========================================\n\n")
 }
 
 func (m *ConfigManager) ResetAdminPassword() string {
@@ -141,82 +150,75 @@ func (m *ConfigManager) EnableFakeDNS() {
 }
 
 func (m *ConfigManager) applyDefaults(cfg *ServerConfig, skipSet map[string]bool) {
-	ref := reflect.ValueOf(cfg)
-	s := ref.Elem()
+	s := reflect.ValueOf(cfg).Elem()
 	typ := s.Type()
 	for i := 0; i < s.NumField(); i++ {
 		field := s.Field(i)
-		tag := typ.Field(i).Tag
-		name := tag.Get("json")
-		dv := tag.Get("default")
-		if dv == "" {
+		name := typ.Field(i).Tag.Get("json")
+		dv := configMetas[name].defaultVal
+		if dv == "" || skipSet[name] {
 			continue
 		}
-		if skipSet[name] {
+		if dv == "defaultPwd" {
 			continue
 		}
-
-		switch field.Kind() {
-		case reflect.String:
-			if field.String() != "" {
-				continue
-			}
-			if dv == "defaultPwd" {
-				continue
-			}
-			field.SetString(dv)
-		case reflect.Int:
-			if field.Int() != 0 {
-				continue
-			}
-			var iv int64
-			if _, e := fmt.Sscan(dv, &iv); e == nil {
-				field.SetInt(iv)
-			}
-		case reflect.Bool:
-			if field.Bool() {
-				continue
-			}
-			field.SetBool(dv == "true")
-		default:
-			Warn("applyDefaults: unsupported field type", name, field.Kind().String())
+		if !field.IsZero() {
+			continue
+		}
+		if err := setFieldValue(field, dv); err != nil {
+			Warn("设置默认值失败", name, err)
 		}
 	}
 }
 
 func (m *ConfigManager) loadDbConfig(cfg *ServerConfig) {
-	type dbCfg struct {
+	dbPath := filepath.Join("conf", "db.json")
+	b, err := os.ReadFile(dbPath)
+	if err != nil {
+		// 文件不存在：写入默认数据库配置
+		m.ensureDbConfig(cfg)
+		return
+	}
+	if !m.applyDbConfig(cfg, b) {
+		// 解析失败不覆盖原文件
+		Warn("db.json 解析失败, 将使用默认配置")
+	}
+}
+
+// 解析 db.json 内容并写入 cfg
+func (m *ConfigManager) applyDbConfig(cfg *ServerConfig, b []byte) bool {
+	var d struct {
 		DbType   string `json:"db_type"`
 		DbSource string `json:"db_source"`
 	}
-	dbPath := filepath.Join("conf", "db.json")
-	b, err := os.ReadFile(dbPath)
-	if err == nil {
-		var d dbCfg
-		if jsonErr := json.Unmarshal(b, &d); jsonErr == nil {
-			if d.DbType != "" {
-				cfg.DbType = d.DbType
-			}
-			if d.DbSource != "" {
-				cfg.DbSource = d.DbSource
-			}
-		} else {
-			Warn("db.json 解析失败, 将使用默认配置:", jsonErr)
-		}
-		return
+	if err := json.Unmarshal(b, &d); err != nil {
+		return false
 	}
+	if d.DbType != "" {
+		cfg.DbType = d.DbType
+	}
+	if d.DbSource != "" {
+		cfg.DbSource = d.DbSource
+	}
+	return true
+}
 
+// 当 db.json 不存在时写入默认数据库配置
+func (m *ConfigManager) ensureDbConfig(cfg *ServerConfig) {
 	if cfg.DbType == "" {
 		cfg.DbType = "sqlite3"
 	}
 	if cfg.DbSource == "" {
 		cfg.DbSource = "./conf/remlink.db"
 	}
-	d := dbCfg{DbType: cfg.DbType, DbSource: cfg.DbSource}
+	d := struct {
+		DbType   string `json:"db_type"`
+		DbSource string `json:"db_source"`
+	}{DbType: cfg.DbType, DbSource: cfg.DbSource}
 	if data, err := json.MarshalIndent(d, "", "  "); err == nil {
 		CreateDir("conf")
-		if err := os.WriteFile(dbPath, data, 0600); err != nil {
-			fmt.Fprintf(os.Stderr, "[Warn] 写入 %s 失败: %v\n", dbPath, err)
+		if err := os.WriteFile(filepath.Join("conf", "db.json"), data, 0600); err != nil {
+			fmt.Fprintf(os.Stderr, "[Warn] 写入 %s 失败: %v\n", "conf/db.json", err)
 		}
 	}
 }
@@ -247,7 +249,8 @@ func (m *ConfigManager) initCfg() {
 
 	m.loadDbConfig(cfg)
 	m.applyDefaults(cfg, explicitSet)
-
+	formatConfigAddrs(cfg)
+	m.explicitSet = explicitSet
 	m.cfgPtr.Store(cfg)
 	m.InitDirs()
 }
@@ -315,53 +318,109 @@ func (m *ConfigManager) SetField(name string, data any) (restart bool, err error
 	}
 	restart = field.restart
 
-	for {
-		old := m.cfgPtr.Load()
-		newCfg := *old
-		value := reflect.ValueOf(&newCfg).Elem().Field(field.index)
-		if err := setReflectValue(value, data); err != nil {
-			return false, fmt.Errorf("设置配置项 %s 失败: %w", name, err)
+	if err = m.mutate(func(c *ServerConfig) error {
+		value := reflect.ValueOf(c).Elem().Field(field.index)
+		if err := setFieldValue(value, data); err != nil {
+			return fmt.Errorf("设置配置项 %s 失败: %w", name, err)
 		}
-
-		m.completeDerived(&newCfg)
-		if m.cfgPtr.CompareAndSwap(old, &newCfg) {
-			if name == "log_level" {
-				baseLevel.Store(int32(logLevel2Int(newCfg.LogLevel)))
-			}
-			if name == "log_path" {
-				ReinitLog()
-			}
-			return restart, nil
+		formatConfigAddrs(c)
+		if c.AdvertiseDTLSAddr == "" {
+			c.AdvertiseDTLSAddr = c.ServerDTLSAddr
 		}
+		return nil
+	}); err != nil {
+		return false, err
 	}
+
+	cfg := m.Get()
+	if name == "log_level" {
+		baseLevel.Store(int32(logLevel2Int(cfg.LogLevel)))
+	}
+	if name == "log_path" {
+		ReinitLog()
+	}
+	return restart, nil
 }
 
 func (m *ConfigManager) IsSensitive(name string) bool {
 	field, found := m.field(name)
 	return found && field.sensitive
 }
+func FormatListenAddr(addr string) string {
+	if addr == "" {
+		return addr
+	}
+	if strings.Contains(addr, ":") {
+		return addr
+	}
+	return ":" + addr
+}
 
+func formatConfigAddrs(cfg *ServerConfig) {
+	cfg.ServerAddr = FormatListenAddr(cfg.ServerAddr)
+	cfg.ServerDTLSAddr = FormatListenAddr(cfg.ServerDTLSAddr)
+	cfg.AdminAddr = FormatListenAddr(cfg.AdminAddr)
+	cfg.AdvertiseDTLSAddr = FormatListenAddr(cfg.AdvertiseDTLSAddr)
+}
+
+// 将 src 中 json 名为 name 的字段值复制到 dst，返回被复制的值
+func copyFieldByName(dst, src *ServerConfig, name string) reflect.Value {
+	ref := reflect.ValueOf(dst).Elem()
+	typ := ref.Type()
+	for i := 0; i < ref.NumField(); i++ {
+		if typ.Field(i).Tag.Get("json") == name {
+			v := reflect.ValueOf(src).Elem().Field(i)
+			ref.Field(i).Set(v)
+			return v
+		}
+	}
+	return reflect.Value{}
+}
+
+// 用数据库持久化配置覆盖当前配置，并叠加命令行/环境变量优先级。
+//
+//	db.json > 命令行/环境变量(explicitSet) > DB 持久化(incoming) > 启动期 flag 值(敏感字段, DB 为空时回退)
 func (m *ConfigManager) LoadPersisted(incoming ServerConfig) {
 	m.Update(func(c *ServerConfig) {
+		// 含 db.json 值与命令行/环境变量/默认值
 		dbType, dbSource := c.DbType, c.DbSource
-		jw, ap, ao := c.JwtSecret, c.AdminPass, c.AdminOtp
-		*c = incoming
-		c.DbType = dbType
-		c.DbSource = dbSource
+		startup := *c
+
+		*c = incoming // 先整体采用数据库持久化配置
+
+		// 命令行/环境变量显式设置的字段优先于数据库持久化配置
+		for name := range m.explicitSet {
+			v := copyFieldByName(c, &startup, name)
+			if !v.IsValid() {
+				continue
+			}
+			if m.IsSensitive(name) {
+				Info("命令行参数覆盖数据库配置:", name, "= ******(已隐藏)")
+			} else {
+				Info("命令行参数覆盖数据库配置:", name, "=", fmt.Sprint(v.Interface()))
+			}
+		}
+
+		// db.json 来源的数据库配置不被 DB 持久化覆盖
+		c.DbType, c.DbSource = dbType, dbSource
+
+		// 敏感字段：数据库有值则用数据库，否则保留启动期 flag 值
 		if incoming.JwtSecret == "" {
-			c.JwtSecret = jw
+			c.JwtSecret = startup.JwtSecret
 		}
 		if incoming.AdminPass == "" {
-			c.AdminPass = ap
+			c.AdminPass = startup.AdminPass
 		}
 		if incoming.AdminOtp == "" {
-			c.AdminOtp = ao
+			c.AdminOtp = startup.AdminOtp
 		}
+
 		if c.AdminPass == "" || c.JwtSecret == "" {
 			m.Complete(c)
-		} else {
-			m.completeDerived(c)
+		} else if c.AdvertiseDTLSAddr == "" {
+			c.AdvertiseDTLSAddr = c.ServerDTLSAddr
 		}
+		formatConfigAddrs(c)
 	})
 	m.InitDirs()
 	// 重新应用日志路径
@@ -402,6 +461,7 @@ func (m *ConfigManager) Warnings() []SystemWarning {
 			})
 		}
 	}
+
 	return warnings
 }
 
@@ -449,6 +509,40 @@ func buildConfigFieldByName(fields []configFieldMeta) map[string]configFieldMeta
 	return result
 }
 
+// 启动期校验 ServerConfig 字段与 configMetas 一一对应，避免元数据遗漏或多余
+func init() {
+	typ := reflect.TypeFor[ServerConfig]()
+	structNames := make(map[string]bool, typ.NumField())
+	for i := 0; i < typ.NumField(); i++ {
+		name := typ.Field(i).Tag.Get("json")
+		structNames[name] = true
+		if _, ok := configMetas[name]; !ok {
+			panic("configMetas 缺少字段元数据: " + name)
+		}
+	}
+	for name := range configMetas {
+		if !structNames[name] {
+			panic("configMetas 存在多余字段(在 ServerConfig 中不存在): " + name)
+		}
+	}
+
+	// ServerConfig 必须仅含可比较的值类型（string/int/bool 等）。
+	// mutate 通过浅值拷贝 newCfg := *old 实现无锁并发安全；
+	// 若引入 slice/map/指针等引用类型字段，浅拷贝会让 fn 直接修改共享的 old 对象，破坏并发安全。
+	for i := 0; i < typ.NumField(); i++ {
+		switch typ.Field(i).Type.Kind() {
+		case reflect.String, reflect.Bool,
+			reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+			reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128:
+			// 值类型，允许
+		default:
+			panic("ServerConfig 含非值类型字段 " + typ.Field(i).Name +
+				" (" + typ.Field(i).Type.Kind().String() + ")，会破坏 mutate 的无锁并发安全：请改用值类型或实现深拷贝")
+		}
+	}
+}
+
 func buildFieldMeta(field reflect.StructField, index int) configFieldMeta {
 	tag := field.Tag
 	name := tag.Get("json")
@@ -459,7 +553,7 @@ func buildFieldMeta(field reflect.StructField, index int) configFieldMeta {
 		usage:     meta.usage,
 		typ:       valueType(field.Type.Kind()),
 		group:     meta.group,
-		restart:   tag.Get("restart") == "true",
+		restart:   meta.restart,
 		sensitive: meta.sensitive,
 		hidden:    meta.hidden,
 		readonly:  meta.readonly,
@@ -468,7 +562,8 @@ func buildFieldMeta(field reflect.StructField, index int) configFieldMeta {
 	}
 }
 
-func setReflectValue(value reflect.Value, data any) error {
+// 将 data 按字段类型转换为对应值并写入 value。
+func setFieldValue(value reflect.Value, data any) error {
 	switch value.Kind() {
 	case reflect.String:
 		value.SetString(fmt.Sprint(data))
@@ -486,12 +581,7 @@ func setReflectValue(value reflect.Value, data any) error {
 			value.SetInt(iv)
 		}
 	case reflect.Bool:
-		switch v := data.(type) {
-		case bool:
-			value.SetBool(v)
-		default:
-			value.SetBool(fmt.Sprint(data) == "true")
-		}
+		value.SetBool(fmt.Sprint(data) == "true")
 	default:
 		return fmt.Errorf("不支持的配置类型")
 	}
@@ -500,15 +590,12 @@ func setReflectValue(value reflect.Value, data any) error {
 
 func initCfg() { defaultConfigManager.initCfg() }
 
-// 返回当前配置快照。
 func GetCfg() *ServerConfig { return defaultConfigManager.Get() }
 
-// 基于当前配置副本执行修改并原子替换。
 func UpdateCfg(fn func(cfg *ServerConfig)) { defaultConfigManager.Update(fn) }
 
 func InitConfigDirs() { defaultConfigManager.InitDirs() }
 
-// 补齐运行必需的派生配置。
 func CompleteConfig(cfg *ServerConfig) { defaultConfigManager.Complete(cfg) }
 
 // 重置管理员密码，返回明文密码。
@@ -520,7 +607,7 @@ func DisableAdminOtp() { defaultConfigManager.DisableAdminOtp() }
 // 开启 FakeDNS 功能可见性。
 func EnableFakeDNS() { defaultConfigManager.EnableFakeDNS() }
 
-// 返回前端配置表单元数据。
+// 返回前端设置页所需的配置元数据（含当前值）。
 func GetConfigMeta() []map[string]any { return defaultConfigManager.Meta() }
 
 // 修改单个配置项，返回是否需要重启。

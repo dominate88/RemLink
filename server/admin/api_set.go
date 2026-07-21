@@ -13,18 +13,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wsczx/remlink/auth"
-	"github.com/wsczx/remlink/base"
-	"github.com/wsczx/remlink/dbdata"
-	"github.com/wsczx/remlink/pkg/mask"
-	"github.com/wsczx/remlink/pkg/utils"
-	"github.com/wsczx/remlink/sessdata"
 	"github.com/shirou/gopsutil/cpu"
 	"github.com/shirou/gopsutil/disk"
 	"github.com/shirou/gopsutil/host"
 	"github.com/shirou/gopsutil/load"
 	"github.com/shirou/gopsutil/mem"
 	"github.com/vishvananda/netlink"
+	"github.com/wsczx/remlink/auth"
+	"github.com/wsczx/remlink/base"
+	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/mask"
+	"github.com/wsczx/remlink/pkg/utils"
+	"github.com/wsczx/remlink/sessdata"
 	"xorm.io/xorm"
 )
 
@@ -718,6 +718,7 @@ func validateAddressField(name, addr string) error {
 		return nil
 	}
 
+	addr = base.FormatListenAddr(addr)
 	host, portStr, err := net.SplitHostPort(addr)
 	if err != nil {
 		return fmt.Errorf("「%s」地址格式错误，应为 IP:端口 或 :端口 格式，当前值: %s，错误: %v",
@@ -739,7 +740,7 @@ func validateAddressField(name, addr string) error {
 	// admin_addr 与 server_addr 端口冲突检查（两者都监听 TCP）
 	cfg := base.GetCfg()
 	if name == "admin_addr" {
-		serverHost, serverPort, err := net.SplitHostPort(cfg.ServerAddr)
+		serverHost, serverPort, err := net.SplitHostPort(base.FormatListenAddr(cfg.ServerAddr))
 		if err == nil && serverPort == portStr {
 			// 同端口 + 同 IP 或至少一方监听所有接口 → 冲突
 			if host == "" || serverHost == "" || host == serverHost {
@@ -749,7 +750,7 @@ func validateAddressField(name, addr string) error {
 		}
 	}
 	if name == "server_addr" {
-		adminHost, adminPort, err := net.SplitHostPort(cfg.AdminAddr)
+		adminHost, adminPort, err := net.SplitHostPort(base.FormatListenAddr(cfg.AdminAddr))
 		if err == nil && adminPort == portStr {
 			if host == "" || adminHost == "" || host == adminHost {
 				return fmt.Errorf("「VPN 服务地址」端口 %s 与「管理后台地址」(%s) 冲突，请使用不同端口",

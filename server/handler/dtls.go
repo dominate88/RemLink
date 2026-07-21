@@ -9,11 +9,11 @@ import (
 	"net"
 	"strings"
 
-	"github.com/wsczx/remlink/base"
-	"github.com/wsczx/remlink/sessdata"
 	"github.com/pion/dtls/v3"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	"github.com/pion/logging"
+	"github.com/wsczx/remlink/base"
+	"github.com/wsczx/remlink/sessdata"
 )
 
 func startDtls() {
@@ -74,7 +74,7 @@ func startDtls() {
 		dtls.WithMTU(BufferSize),
 	}
 
-	addr, err := net.ResolveUDPAddr("udp", base.GetCfg().ServerDTLSAddr)
+	addr, err := net.ResolveUDPAddr("udp", base.FormatListenAddr(base.GetCfg().ServerDTLSAddr))
 	if err != nil {
 		panic(err)
 	}

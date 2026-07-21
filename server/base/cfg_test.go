@@ -126,6 +126,20 @@ func TestSetConfigField(t *testing.T) {
 	}
 }
 
+// TestSetConfigFieldFloat64 锁定回归：前端经 JSON→any 传入的数字是 float64，
+// 大数值（>=1e6，如 no_compress_limit 设 1MB）不能被 fmt 转成科学计数法导致解析失败。
+func TestSetConfigFieldFloat64(t *testing.T) {
+	SetCfgForTest(&ServerConfig{NoCompressLimit: 0})
+
+	_, err := SetConfigField("no_compress_limit", float64(1048576))
+	if err != nil {
+		t.Fatalf("SetConfigField failed: %v", err)
+	}
+	if GetCfg().NoCompressLimit != 1048576 {
+		t.Errorf("NoCompressLimit = %d, want 1048576", GetCfg().NoCompressLimit)
+	}
+}
+
 func TestSetConfigFieldBool(t *testing.T) {
 	SetCfgForTest(&ServerConfig{Compression: false})
 
@@ -230,5 +244,49 @@ func TestConfigMetasCoverServerConfig(t *testing.T) {
 		if _, ok := configMetas[name]; !ok {
 			t.Errorf("configMetas missing field %q", name)
 		}
+	}
+}
+
+// TestLoadPersistedPriority 锁定 LoadPersisted 的配置来源优先级：
+// db.json(db_type/db_source) > 命令行/环境变量(explicitSet) > DB 持久化(incoming) > 启动期 flag 值(敏感字段, DB 为空时回退)
+func TestLoadPersistedPriority(t *testing.T) {
+	initLog() // 真实启动流程中 LoadPersisted 前 logger 已就绪
+	m := NewConfigManager()
+	// 模拟启动期：flag 设置了 max_client；db.json 提供了 db_type/db_source
+	m.cfgPtr.Store(&ServerConfig{
+		MaxClient: 5,            // 来自命令行 flag
+		DbType:    "sqlite3",    // 来自 db.json
+		DbSource:  "remlink.db", // 无父目录，避免测试创建目录
+		AdminPass: "startup-pass",
+		JwtSecret: "startup-jwt",
+	})
+	m.explicitSet = map[string]bool{"max_client": true}
+
+	// 数据库持久化配置（与启动期不同，用于验证优先级）
+	incoming := ServerConfig{
+		MaxClient: 100,
+		DbType:    "mysql",
+		DbSource:  "/var/remlink.db",
+		AdminPass: "db-pass",
+		JwtSecret: "db-jwt",
+	}
+
+	m.LoadPersisted(incoming)
+
+	got := m.Get()
+	if got.MaxClient != 5 {
+		t.Errorf("MaxClient = %d, want 5 (命令行 flag 应优先于 DB)", got.MaxClient)
+	}
+	if got.DbType != "sqlite3" {
+		t.Errorf("DbType = %s, want sqlite3 (db.json 应优先于 DB)", got.DbType)
+	}
+	if got.DbSource != "remlink.db" {
+		t.Errorf("DbSource = %s, want remlink.db (db.json 应优先于 DB)", got.DbSource)
+	}
+	if got.AdminPass != "db-pass" {
+		t.Errorf("AdminPass = %s, want db-pass (DB 有值时应优先)", got.AdminPass)
+	}
+	if got.JwtSecret != "db-jwt" {
+		t.Errorf("JwtSecret = %s, want db-jwt (DB 有值时应优先)", got.JwtSecret)
 	}
 }

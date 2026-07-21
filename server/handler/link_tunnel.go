@@ -89,9 +89,10 @@ func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 	cSess.CstpDpd = cstpDpd
 
 	dtlsPort := "443"
-	if strings.Contains(base.GetCfg().AdvertiseDTLSAddr, ":") {
-		ss := strings.Split(base.GetCfg().AdvertiseDTLSAddr, ":")
-		dtlsPort = ss[1]
+	if norm := base.FormatListenAddr(base.GetCfg().AdvertiseDTLSAddr); norm != "" {
+		if _, port, err := net.SplitHostPort(norm); err == nil {
+			dtlsPort = port
+		}
 	}
 
 	base.Info(sess.Username, cSess.IpAddr, cSess.MacHw, cSess.Client, mobile)
