@@ -38,17 +38,19 @@ func (a *WXWorkAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 
 			allowedDepts := a.ParseDepartments()
 			if len(allowedDepts) > 0 {
-				accessToken, err := a.GetAccessToken()
-				if err != nil {
-					return auth.StepFail, fmt.Errorf("获取企微 access_token 失败: %w", err)
-				}
-				ok, err := a.CheckUserDepartment(accessToken, userID, allowedDepts)
+				ok, err := a.CheckUserDepartment(userID, allowedDepts)
 				if err != nil {
 					return auth.StepFail, fmt.Errorf("验证部门失败: %w", err)
 				}
 				if !ok {
 					return auth.StepFail, fmt.Errorf("用户不在允许的部门范围内")
 				}
+			}
+
+			// 用户ID拒绝清单：与部门过滤叠加（先过部门白名单，再排除被拒 userid）
+			blockedUserIDs := a.ParseBlockedUserIDs()
+			if len(blockedUserIDs) > 0 && a.CheckUserID(userID, blockedUserIDs) {
+				return auth.StepFail, fmt.Errorf("用户在被拒绝的用户ID列表中")
 			}
 
 			ctx.Conn.Username = userID

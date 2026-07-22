@@ -137,13 +137,7 @@ func WXAuthCallback(w http.ResponseWriter, r *http.Request) {
 	// 部门过滤：在回调阶段完成校验，避免后续管道绕过
 	allowedDepts := wxworkConfig.ParseDepartments()
 	if len(allowedDepts) > 0 {
-		accessToken, err := wxworkConfig.GetAccessToken()
-		if err != nil {
-			base.Error("获取企微 access_token 失败", err)
-			SAMLError(w, err)
-			return
-		}
-		ok, err := wxworkConfig.CheckUserDepartment(accessToken, userID, allowedDepts)
+		ok, err := wxworkConfig.CheckUserDepartment(userID, allowedDepts)
 		if err != nil {
 			base.Error("验证部门失败", err)
 			SAMLError(w, err)
@@ -154,6 +148,14 @@ func WXAuthCallback(w http.ResponseWriter, r *http.Request) {
 			SAMLError(w, fmt.Errorf("用户不在允许的部门范围内"))
 			return
 		}
+	}
+
+	// 用户ID拒绝清单：在回调阶段完成校验，避免后续管道绕过
+	blockedUserIDs := wxworkConfig.ParseBlockedUserIDs()
+	if len(blockedUserIDs) > 0 && wxworkConfig.CheckUserID(userID, blockedUserIDs) {
+		base.Error("用户在被拒绝的用户ID列表中:", userID)
+		SAMLError(w, fmt.Errorf("用户在被拒绝的用户ID列表中"))
+		return
 	}
 
 	// 创建完整 SSO 会话（覆盖 pending 状态）

@@ -78,7 +78,7 @@ func getPipelineResult(ctx *auth.Context, result auth.StepResult, err error, pip
 	return pr
 }
 
-// 按用户名查库并投影为认证信息（内部原语，调用方需自行处理错误）。
+// 加载用户信息
 func loadUser(username string) (*auth.UserInfo, error) {
 	u := &dbdata.User{}
 	if err := dbdata.One("Username", username, u); err != nil {
@@ -108,22 +108,18 @@ func ReloadUserInfo(ctx *auth.Context) {
 	}
 }
 
-// 返回组的 SSO 类型；仅当所有步骤都是 SSO 认证器时才有值。
+// 返回组的 SSO 类型：只要认证管道中包含 SSO 步骤即返回该步骤类型
 func GetSSOType(groupName string) string {
 	profile, err := loadAndParseProfile(groupName)
 	if err != nil || len(profile.Step) == 0 {
 		return ""
 	}
-	var ssoType string
 	for _, step := range profile.Step {
-		if !auth.IsSSOType(step.Type) {
-			return ""
-		}
-		if ssoType == "" {
-			ssoType = step.Type
+		if auth.IsSSOType(step.Type) {
+			return step.Type
 		}
 	}
-	return ssoType
+	return ""
 }
 
 // 判断证书自动认证是否可行：首步必须为 cert，且后续不能出现需要交互的步骤。

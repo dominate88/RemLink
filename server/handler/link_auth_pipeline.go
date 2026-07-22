@@ -5,12 +5,47 @@ package handler
 import (
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/auth/authsrv"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
 )
+
+// 认证阶段名前缀，用于过滤错误信息
+var stepNamePrefixes = []string{
+	"cert:", "local:", "ldap:", "radius:", "otp:", "wxwork:", "feishu:", "saml:", "admin:",
+}
+
+// 认证失败时，将错误信息映射为用户可读的文案。
+func stripStepPrefix(msg string) string {
+	for _, p := range stepNamePrefixes {
+		if strings.HasPrefix(msg, p) {
+			return msg[len(p):]
+		}
+	}
+	return msg
+}
+
+// 认证失败时，根据错误类型返回面向用户的错误信息。
+func authFailMessage(err error) string {
+	if err == nil {
+		return "认证失败"
+	}
+	msg := err.Error()
+	switch {
+	case strings.HasPrefix(msg, "cert:"):
+		return "客户端证书认证失败，请检查客户端证书"
+	case strings.HasPrefix(msg, "wxwork:"), strings.HasPrefix(msg, "feishu:"):
+		return "单点登录认证失败"
+	case strings.HasPrefix(msg, "otp:"):
+		return "动态码验证失败"
+	default:
+		// local/ldap/radius 等凭据认证：统一文案，避免用户枚举
+		return "用户名或密码错误"
+	}
+}
 
 // 从 ClientRequest 构建认证上下文（首次认证用）。
 func newAuthContext(cr *ClientRequest, r *http.Request) *auth.Context {
@@ -93,10 +128,10 @@ func handlePipelineResult(w http.ResponseWriter, r *http.Request,
 		data := RequestData{
 			Group:  ctx.Conn.GroupName,
 			Groups: dbdata.GetGroupNamesNormal(),
-			Error:  "用户名或密码错误",
+			Error:  authFailMessage(result.Err),
 		}
 		if base.GetCfg().DisplayError && result.Err != nil {
-			data.Error = errMsg
+			data.Error = stripStepPrefix(errMsg)
 		}
 		tplRequest(tpl_request, w, data)
 

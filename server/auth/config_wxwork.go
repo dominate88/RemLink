@@ -16,6 +16,7 @@ type WXWorkConfig struct {
 	Secret             string `json:"secret"`
 	UseDefaultBrowser  bool   `json:"use_default_browser"`
 	AllowedDepartments string `json:"allowed_departments"`
+	BlockedUserIDs     string `json:"blocked_userids"`
 }
 
 func (c *WXWorkConfig) ValidateConfig() error {
@@ -29,13 +30,20 @@ func (c *WXWorkConfig) ValidateConfig() error {
 		return fmt.Errorf("应用 Secret 不能为空")
 	}
 	if c.AllowedDepartments != "" {
-		parts := strings.Split(c.AllowedDepartments, ",")
-		for _, part := range parts {
+		parts := strings.SplitSeq(c.AllowedDepartments, ",")
+		for part := range parts {
 			part = strings.TrimSpace(part)
 			if part != "" {
 				if _, err := strconv.Atoi(part); err != nil {
 					return fmt.Errorf("部门 ID 必须为数字: %s", part)
 				}
+			}
+		}
+	}
+	if c.BlockedUserIDs != "" {
+		for part := range strings.SplitSeq(c.BlockedUserIDs, ",") {
+			if strings.TrimSpace(part) == "" {
+				return fmt.Errorf("拒绝的用户ID列表格式错误：存在空值")
 			}
 		}
 	}
@@ -104,8 +112,31 @@ func (c *WXWorkConfig) GetWeworkUser(code string) (string, error) {
 	return userInfo.UserID, nil
 }
 
-// 检查用户是否属于允许的部门
-func (c *WXWorkConfig) CheckUserDepartment(accessToken, userID string, allowedDepts []int) (bool, error) {
+// 解析拒绝的用户ID列表
+func (c *WXWorkConfig) ParseBlockedUserIDs() []string {
+	if c.BlockedUserIDs == "" {
+		return nil
+	}
+	var ids []string
+	for part := range strings.SplitSeq(c.BlockedUserIDs, ",") {
+		if id := strings.TrimSpace(part); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// 检查用户ID是否在拒绝列表中（列表为空表示不限制）
+func (c *WXWorkConfig) CheckUserID(userID string, blockedUserIDs []string) bool {
+	return slices.Contains(blockedUserIDs, userID)
+}
+
+// 检查用户是否属于允许的部门（内部自取 access_token，调用处与 userid 校验对称）
+func (c *WXWorkConfig) CheckUserDepartment(userID string, allowedDepts []int) (bool, error) {
+	accessToken, err := c.GetAccessToken()
+	if err != nil {
+		return false, err
+	}
 	url := fmt.Sprintf("https://qyapi.weixin.qq.com/cgi-bin/user/get?access_token=%s&userid=%s", accessToken, userID)
 	userInfo := &WXWorkUserResponse{}
 	if err := fetchJSON("获取企微用户详细信息", "GET", url, nil, nil, userInfo, 0); err != nil {

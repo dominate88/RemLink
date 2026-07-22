@@ -297,6 +297,15 @@
                 </el-form-item>
               </el-col>
             </el-row>
+            <el-form-item>
+              <template slot="label">
+                拒绝的用户
+                <el-tooltip content="拒绝登录的企业微信用户ID（userid），逗号分隔，留空不限制。与允许的部门叠加生效：需先属于允许部门、且不在拒绝列表中" placement="top">
+                  <i class="el-icon-question help-icon"></i>
+                </el-tooltip>
+              </template>
+              <el-input v-model="configForm.blocked_userids" placeholder="逗号分隔，留空不限制"></el-input>
+            </el-form-item>
           </template>
         </div>
       </el-form>
@@ -362,7 +371,7 @@ const configDefaults = {
     object_class: "person", search_attr: "sAMAccountName",
     member_of: "", sync_user_status: false, enable_otp: false },
   radius: { addr: "", secret: "", nasip: "" },
-  wxwork: { corp_id: "", agent_id: "", secret: "", use_default_browser: false, allowed_departments: "" },
+  wxwork: { corp_id: "", agent_id: "", secret: "", use_default_browser: false, allowed_departments: "", blocked_userids: "" },
   feishu: { app_id: "", app_secret: "", use_default_browser: false, allowed_departments: "" },
 };
 

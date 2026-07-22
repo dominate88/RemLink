@@ -90,7 +90,7 @@ var auth_request = `<?xml version="1.0" encoding="UTF-8"?>
         <message>请输入你的用户名和密码</message>
         <banner></banner>
         {{if .Error}}
-        <error id="88" param1="{{.Error}}" param2="">登陆失败:  %s</error>
+        <error id="88" param1="{{.Error}}" param2="">登陆失败: {{.Error}}</error>
         {{end}}
         <form>
             <input type="text" name="username" label="Username:"></input>
@@ -161,7 +161,7 @@ var auth_request_saml = `<?xml version="1.0" encoding="UTF-8"?>
         <message>请完成SAML单点登录认证</message>
         <banner></banner>
         {{if .Error}}
-        <error id="88" param1="{{.Error}}" param2="">SAML认证失败: %s</error>
+        <error id="88" param1="{{.Error}}" param2="">SAML认证失败: {{.Error}}</error>
         {{end}}
         <sso-v2-login>{{.ServerAddr}}/+CSCOE+/saml/sp/login?tgname={{.Group}}&#x26;ssotype={{.SsoType}}&#x26;acsamlcap=v2</sso-v2-login>
         <sso-v2-login-final>{{.ServerAddr}}/+CSCOE+/saml_ac_login.html</sso-v2-login-final>
@@ -169,6 +169,11 @@ var auth_request_saml = `<?xml version="1.0" encoding="UTF-8"?>
         {{if .BrowserMode}}<sso-v2-browser-mode>{{.BrowserMode}}</sso-v2-browser-mode>{{end}}
         <form>
             <input type="sso" name="sso-token"></input>
+            <select name="group_list" label="GROUP:">
+            {{range $v := .Groups}}
+            <option {{if eq $v $.Group}} selected="true"{{end}}>{{$v}}</option>
+            {{end}}
+            </select>
         </form>
     </auth>
 </config-auth>`
