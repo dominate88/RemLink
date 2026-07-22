@@ -25,7 +25,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.24
 	github.com/miekg/dns v1.1.62
 	github.com/orcaman/concurrent-map v1.0.0
-	github.com/pion/dtls/v3 v3.1.2
+	github.com/pion/dtls/v2 v2.2.12
 	github.com/pion/logging v0.2.4
 	github.com/pires/go-proxyproto v0.8.1
 	github.com/shirou/gopsutil v3.21.11+incompatible
@@ -68,7 +68,7 @@ require (
 	github.com/mdlayher/socket v0.5.0 // indirect
 	github.com/opentracing/opentracing-go v1.2.1-0.20220228012449-10b1cf09e00b // indirect
 	github.com/pelletier/go-toml/v2 v2.2.3 // indirect
-	github.com/pion/transport/v4 v4.0.1 // indirect
+	github.com/pion/transport/v2 v2.2.4 // indirect
 	github.com/sagikazarmark/locafero v0.6.0 // indirect
 	github.com/sagikazarmark/slog-shim v0.1.0 // indirect
 	github.com/sourcegraph/conc v0.3.0 // indirect
