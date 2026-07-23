@@ -1,7 +1,13 @@
 <template>
   <div class="portal-page" :class="{ 'portal-logged-in': loggedIn }">
+    <!-- 校验登录态中：显示加载占位，避免刷新瞬间闪现登录卡片 -->
+    <template v-if="checking">
+      <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;font-size:32px;color:var(--color-primary,#409eff);">
+        <i class="el-icon-loading"></i>
+      </div>
+    </template>
     <!-- 登录页 -->
-    <template v-if="!loggedIn">
+    <template v-else-if="!loggedIn">
       <!-- 暗色模式切换（登录页） -->
       <div class="theme-toggle-fixed" @click="toggleDarkMode" :title="isDark ? '切换亮色' : '切换暗色'">
         <i :class="isDark ? 'el-icon-sunny' : 'el-icon-moon'"></i>
@@ -681,6 +687,7 @@ export default {
   data() {
     return {
       loggedIn: false,
+      checking: true,
       isDark: false,
       brand: { title: "", logo: "", footer: "", sso_types: [], sms_enabled: false, features_enabled: 0, features: "" },
       featureIcons: [
@@ -979,6 +986,8 @@ export default {
         }
       }).catch(() => {
         this.loggedIn = false
+      }).finally(() => {
+        this.checking = false
       })
     },
     resumeCallbackChallenge() {
