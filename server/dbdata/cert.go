@@ -18,8 +18,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wsczx/remlink/base"
-	"github.com/wsczx/remlink/pkg/security"
 	"github.com/go-acme/lego/v4/certcrypto"
 	"github.com/go-acme/lego/v4/certificate"
 	"github.com/go-acme/lego/v4/challenge"
@@ -30,6 +28,8 @@ import (
 	"github.com/go-acme/lego/v4/providers/dns/tencentcloud"
 	"github.com/go-acme/lego/v4/registration"
 	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
+	"github.com/wsczx/remlink/base"
+	"github.com/wsczx/remlink/pkg/security"
 )
 
 var (

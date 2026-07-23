@@ -5,16 +5,15 @@ import (
 	"io"
 	"net"
 
-	"github.com/wsczx/remlink/base"
-	"github.com/wsczx/remlink/pkg/arpdis"
-	"github.com/wsczx/remlink/sessdata"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
-	gosysctl "github.com/lorenzosaino/go-sysctl"
 	"github.com/songgao/packets/ethernet"
 	"github.com/songgao/water"
 	"github.com/songgao/water/waterutil"
 	"github.com/vishvananda/netlink"
+	"github.com/wsczx/remlink/base"
+	"github.com/wsczx/remlink/pkg/arpdis"
+	"github.com/wsczx/remlink/sessdata"
 )
 
 const bridgeName = "remlink0"
@@ -118,9 +117,7 @@ func LinkTap(cSess *sessdata.ConnSession) error {
 		return err
 	}
 
-	// cmdstr3 := fmt.Sprintf("sysctl -w net.ipv6.conf.%s.disable_ipv6=1", ifce.Name())
-	// execCmd([]string{cmdstr3})
-	err = gosysctl.Set(fmt.Sprintf("net.ipv6.conf.%s.disable_ipv6", ifce.Name()), "1")
+	err = sysctlSet(fmt.Sprintf("net.ipv6.conf.%s.disable_ipv6", ifce.Name()), "1")
 	if err != nil {
 		base.Warn(err)
 	}
@@ -129,8 +126,6 @@ func LinkTap(cSess *sessdata.ConnSession) error {
 	go allTapWrite(ifce, cSess)
 	return nil
 }
-
-// ========================通用代码===========================
 
 func allTapWrite(ifce LinkDriver, cSess *sessdata.ConnSession) {
 	defer func() {

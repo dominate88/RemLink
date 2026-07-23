@@ -4,9 +4,9 @@ import (
 	"path"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
-	"github.com/stretchr/testify/assert"
 )
 
 type testAuthStub struct {

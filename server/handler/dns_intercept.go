@@ -5,11 +5,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/miekg/dns"
+	"github.com/songgao/water/waterutil"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
 	"github.com/wsczx/remlink/sessdata"
-	"github.com/miekg/dns"
-	"github.com/songgao/water/waterutil"
 )
 
 // DNS 拦截 - 返回 FakeIP 或透明转发

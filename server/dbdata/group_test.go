@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/wsczx/remlink/pkg/security"
 	"github.com/wsczx/remlink/pkg/utils"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestGetGroupNames(t *testing.T) {

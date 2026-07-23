@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wsczx/remlink/base"
 	"github.com/stretchr/testify/assert"
+	"github.com/wsczx/remlink/base"
 )
 
 func TestJwtData(t *testing.T) {

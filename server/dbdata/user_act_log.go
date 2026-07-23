@@ -4,11 +4,11 @@ import (
 	"net"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/wsczx/remlink/base"
-	"github.com/ivpusic/grpool"
-	"github.com/spf13/cast"
+	"github.com/wsczx/remlink/pkg/utils"
 	"xorm.io/xorm"
 )
 
@@ -32,7 +32,7 @@ const (
 )
 
 type UserActLogProcess struct {
-	Pool      *grpool.Pool
+	Pool      *utils.WorkerPool
 	StatusOps []string
 	OsOps     []string
 	ClientOps []string
@@ -41,7 +41,7 @@ type UserActLogProcess struct {
 
 var (
 	UserActLogIns = &UserActLogProcess{
-		Pool: grpool.NewPool(1, 100),
+		Pool: utils.NewWorkerPool(1, 100),
 		StatusOps: []string{ // 操作类型
 			UserAuthFail:    "认证失败",
 			UserAuthSuccess: "认证成功",
@@ -250,13 +250,16 @@ func (ua *UserActLogProcess) GetSession(values url.Values) *xorm.Session {
 		session.And("created_at <= ?", values.Get("edate")+" 23:59:59")
 	}
 	if v := values.Get("status"); v != "" {
-		session.And("status = ?", cast.ToUint8(v)-1)
+		n, _ := strconv.ParseUint(v, 10, 8)
+		session.And("status = ?", uint8(n)-1)
 	}
 	if v := values.Get("os"); v != "" {
-		session.And("os = ?", cast.ToUint8(v)-1)
+		n, _ := strconv.ParseUint(v, 10, 8)
+		session.And("os = ?", uint8(n)-1)
 	}
 	if v := values.Get("client"); v != "" {
-		session.And("client = ?", cast.ToUint8(v)-1)
+		n, _ := strconv.ParseUint(v, 10, 8)
+		session.And("client = ?", uint8(n)-1)
 	}
 	if values.Get("sort") == "1" {
 		session.OrderBy("id desc")

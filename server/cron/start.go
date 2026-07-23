@@ -3,9 +3,9 @@ package cron
 import (
 	"time"
 
+	"github.com/go-co-op/gocron/v2"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
-	"github.com/go-co-op/gocron/v2"
 )
 
 var scheduler gocron.Scheduler

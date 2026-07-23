@@ -15,12 +15,12 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/skip2/go-qrcode"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
 	"github.com/wsczx/remlink/pkg/notify"
 	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/wsczx/remlink/sessdata"
-	"github.com/skip2/go-qrcode"
 	mail "github.com/xhit/go-simple-mail/v2"
 )
 

@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wsczx/remlink/base"
 	"github.com/stretchr/testify/assert"
+	"github.com/wsczx/remlink/base"
 )
 
 func TestNewSession(t *testing.T) {

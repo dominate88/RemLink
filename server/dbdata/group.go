@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/songgao/water/waterutil"
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/pkg/utils"
-	"github.com/songgao/water/waterutil"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 )

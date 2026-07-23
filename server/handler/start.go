@@ -7,7 +7,6 @@ import (
 	"github.com/wsczx/remlink/cron"
 	"github.com/wsczx/remlink/dbdata"
 	"github.com/wsczx/remlink/sessdata"
-	gosysctl "github.com/lorenzosaino/go-sysctl"
 )
 
 // 初始化并启动所有服务组件：数据库、定时任务、认证会话、IP转发、管理后台等
@@ -23,12 +22,12 @@ func Start() {
 	sessdata.CleanupAllNatRules() // 清理所有防火墙残留规则
 
 	// 开启服务器转发
-	err := gosysctl.Set("net.ipv4.ip_forward", "1")
+	err := sysctlSet("net.ipv4.ip_forward", "1")
 	if err != nil {
 		base.Warn(err)
 	}
 
-	val, err := gosysctl.Get("net.ipv4.ip_forward")
+	val, err := sysctlGet("net.ipv4.ip_forward")
 	if err != nil || val != "1" {
 		base.Fatal("请执行 sysctl -w net.ipv4.ip_forward=1 开启IP转发")
 	}

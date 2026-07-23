@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wsczx/remlink/base"
 	"github.com/songgao/water/waterutil"
+	"github.com/wsczx/remlink/base"
 )
 
 // 根据 ID 加载策略并预处理所有字段

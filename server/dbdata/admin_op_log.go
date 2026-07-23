@@ -5,13 +5,13 @@ import (
 	"strings"
 
 	"github.com/wsczx/remlink/base"
-	"github.com/ivpusic/grpool"
+	"github.com/wsczx/remlink/pkg/utils"
 	"xorm.io/xorm"
 )
 
 var (
-	// adminOpLogPool 管理员操作日志异步写入池
-	adminOpLogPool = grpool.NewPool(1, 100)
+	// 管理员操作日志异步写入池
+	adminOpLogPool = utils.NewWorkerPool(1, 100)
 )
 
 // AdminLog 异步写入管理员操作日志（安全审计），管理员用户名自动取自当前配置。

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync/atomic"
 
@@ -234,15 +235,20 @@ func (m *ConfigManager) initCfg() {
 	for i := 0; i < ref.NumField(); i++ {
 		name := typ.Field(i).Tag.Get("json")
 		value := ref.Field(i)
+		raw, explicit := readConfigRaw(name)
 		switch value.Kind() {
 		case reflect.String:
-			value.SetString(linkViper.GetString(name))
+			value.SetString(raw)
 		case reflect.Int:
-			value.SetInt(int64(linkViper.GetInt(name)))
+			if n, err := strconv.Atoi(raw); err == nil {
+				value.SetInt(int64(n))
+			}
 		case reflect.Bool:
-			value.SetBool(linkViper.GetBool(name))
+			if b, err := strconv.ParseBool(raw); err == nil {
+				value.SetBool(b)
+			}
 		}
-		if linkViper.IsSet(name) {
+		if explicit {
 			explicitSet[name] = true
 		}
 	}
@@ -593,8 +599,6 @@ func initCfg() { defaultConfigManager.initCfg() }
 func GetCfg() *ServerConfig { return defaultConfigManager.Get() }
 
 func UpdateCfg(fn func(cfg *ServerConfig)) { defaultConfigManager.Update(fn) }
-
-func InitConfigDirs() { defaultConfigManager.InitDirs() }
 
 func CompleteConfig(cfg *ServerConfig) { defaultConfigManager.Complete(cfg) }
 

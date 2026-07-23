@@ -3,16 +3,15 @@ package admin
 import (
 	"errors"
 	"fmt"
+	"maps"
 
-	"github.com/wsczx/remlink/base"
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/wsczx/remlink/base"
 )
 
 func SetJwtData(data map[string]interface{}, expiresAt int64) (string, error) {
 	jwtData := jwt.MapClaims{"exp": expiresAt}
-	for k, v := range data {
-		jwtData[k] = v
-	}
+	maps.Copy(jwtData, data)
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwtData)
 
 	// Sign and get the complete encoded token as a string using the secret
@@ -43,5 +42,3 @@ func GetJwtData(jwtToken string) (map[string]interface{}, error) {
 
 	return claims, nil
 }
-
-

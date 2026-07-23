@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/wsczx/remlink/dbdata"
 	"github.com/gocarina/gocsv"
+	"github.com/wsczx/remlink/dbdata"
 )
 
 func SetAuditList(w http.ResponseWriter, r *http.Request) {

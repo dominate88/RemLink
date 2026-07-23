@@ -2,8 +2,6 @@ package utils
 
 import (
 	"sync"
-
-	cmap "github.com/orcaman/concurrent-map"
 )
 
 type IMaps interface {
@@ -19,8 +17,8 @@ type IMaps interface {
  *
  */
 type BaseMap struct {
-	m    map[string]interface{}
-	mu   sync.Mutex
+	m  map[string]interface{}
+	mu sync.Mutex
 }
 
 func (m *BaseMap) Set(key string, value interface{}) {
@@ -47,30 +45,6 @@ func (m *BaseMap) Items() map[string]interface{} {
 		result[k] = v
 	}
 	return result
-}
-
-/**
- * CMap 并发结构
- *
- */
-type ConcurrentMap struct {
-	m cmap.ConcurrentMap
-}
-
-func (m *ConcurrentMap) Set(key string, value interface{}) {
-	m.m.Set(key, value)
-}
-
-func (m *ConcurrentMap) Get(key string) (interface{}, bool) {
-	return m.m.Get(key)
-}
-
-func (m *ConcurrentMap) Del(key string) {
-	m.m.Remove(key)
-}
-
-func (m *ConcurrentMap) Items() map[string]interface{} {
-	return m.m.Items()
 }
 
 /**
@@ -143,7 +117,7 @@ func (m *SyncMap) Items() map[string]interface{} {
 func NewMap(name string, len int) IMaps {
 	switch name {
 	case "cmap":
-		return &ConcurrentMap{m: cmap.New()}
+		return &SyncMap{}
 	case "rwmap":
 		m := make(map[string]interface{}, len)
 		return &RWLockMap{m: m}

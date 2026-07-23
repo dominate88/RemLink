@@ -11,8 +11,6 @@ import (
 	"strings"
 	"time"
 
-	mapset "github.com/deckarep/golang-set"
-	"github.com/spf13/cast"
 	"github.com/wsczx/remlink/dbdata"
 	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/xuri/excelize/v2"
@@ -78,9 +76,9 @@ func UploadUser(file string) error {
 	if rows[0][0] != "id" || rows[0][1] != "username" || rows[0][2] != "nickname" || rows[0][3] != "email" || rows[0][4] != "pin_code" || rows[0][5] != "limittime" || rows[0][6] != "otp_secret" || rows[0][7] != "disable_otp" || rows[0][8] != "groups" || rows[0][9] != "status" || rows[0][10] != "send_email" || rows[0][11] != "change_pwd" {
 		return fmt.Errorf("批量添加失败，表格格式不正确")
 	}
-	var k []interface{}
+	groupSet := make(map[string]struct{})
 	for _, v := range dbdata.GetGroupNames() {
-		k = append(k, v)
+		groupSet[v] = struct{}{}
 	}
 	for index, row := range rows {
 		if index == 0 {
@@ -96,14 +94,15 @@ func UploadUser(file string) error {
 		if row[8] == "" {
 			return fmt.Errorf("第%d行数据错误，用户组不允许为空", index)
 		}
-		for _, v := range strings.Split(row[8], ",") {
-			if s := mapset.NewSetFromSlice(k); s.Contains(v) {
+		for v := range strings.SplitSeq(row[8], ",") {
+			if _, ok := groupSet[v]; ok {
 				group = append(group, v)
 			} else {
 				return fmt.Errorf("用户组【%s】不存在,请检查第%d行数据", v, index)
 			}
 		}
-		status := cast.ToInt8(row[9])
+		statusVal, _ := strconv.ParseInt(row[9], 10, 8)
+		status := int8(statusVal)
 		sendmail, _ := strconv.ParseBool(row[10])
 		changePwd, _ := strconv.ParseBool(row[11])
 		// createdAt, _ := time.ParseInLocation("2006-01-02 15:04:05", row[12], time.Local)

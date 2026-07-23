@@ -6,11 +6,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wsczx/remlink/base"
 	"github.com/gorilla/websocket"
+	"github.com/wsczx/remlink/base"
 )
 
-// SyslogEntry 系统日志条目（通过 WebSocket 推送）
+// 系统日志条目（通过 WebSocket 推送）
 type SyslogEntry struct {
 	Level string `json:"level"` // Trace/Debug/Info/Warn/Error/Fatal
 	Time  string `json:"time"`  // 2006-01-02 15:04:05
@@ -38,14 +38,14 @@ var (
 	syslogBroadcast = make(chan SyslogEntry, 2048)
 )
 
-// SyslogClient 单个 WebSocket 客户端连接
+// 单个 WebSocket 客户端连接
 type SyslogClient struct {
 	conn *websocket.Conn
 	send chan []byte
 	hub  *SyslogHub
 }
 
-// SyslogHub WebSocket 连接管理中心
+// WebSocket 连接管理中心
 type SyslogHub struct {
 	clients    map[*SyslogClient]bool
 	broadcast  chan []byte

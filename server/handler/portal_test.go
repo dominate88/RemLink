@@ -7,16 +7,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/wsczx/remlink/admin"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
 	"github.com/wsczx/remlink/pkg/utils"
-	"github.com/stretchr/testify/assert"
 )
-
-// ============================================================
-// 密码强度校验（纯函数，无需 setup）
-// ============================================================
 
 func TestValidatePasswordStrength(t *testing.T) {
 	ast := assert.New(t)
@@ -53,10 +49,6 @@ func TestValidatePasswordStrength(t *testing.T) {
 		ast.Contains(err.Error(), "字母和数字")
 	})
 }
-
-// ============================================================
-// Portal 登录
-// ============================================================
 
 // 创建 Portal 登录所需的测试数据
 func createPortalLoginSetup(t *testing.T, username, password, groupName string) {
@@ -182,10 +174,6 @@ func TestPortalLogin_Disabled(t *testing.T) {
 	ast := assert.New(t)
 	ast.Equal(http.StatusNotFound, w.Code)
 }
-
-// ============================================================
-// Portal 修改密码
-// ============================================================
 
 // 创建可修改密码的测试用户和相关策略/组，返回 JWT token
 func createPortalPwdUser(t *testing.T, username, password string) (*dbdata.User, string) {
@@ -423,10 +411,6 @@ func TestPortalChangePassword_ExternalUser(t *testing.T) {
 	ast.Contains(resp["msg"], "外部认证")
 }
 
-// ============================================================
-// Portal 重置密码
-// ============================================================
-
 func TestPortalResetPassword_InvalidToken(t *testing.T) {
 	base.Test()
 	preIpData(t)
@@ -543,10 +527,6 @@ func TestPortalResetPassword_Success(t *testing.T) {
 	json.NewDecoder(loginW.Body).Decode(&loginResp)
 	ast.Equal(float64(0), loginResp["code"], "should login with new password")
 }
-
-// ============================================================
-// Portal 登出
-// ============================================================
 
 func TestPortalLogout(t *testing.T) {
 	base.Test()

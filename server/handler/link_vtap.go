@@ -8,11 +8,10 @@ import (
 	"syscall"
 	"unsafe"
 
+	"github.com/vishvananda/netlink"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/wsczx/remlink/sessdata"
-	gosysctl "github.com/lorenzosaino/go-sysctl"
-	"github.com/vishvananda/netlink"
 )
 
 // link vtap
@@ -127,23 +126,12 @@ func LinkMacvtap(cSess *sessdata.ConnSession) error {
 		base.Error(err)
 		return err
 	}
-	// cmdstr3 := fmt.Sprintf("sysctl -w net.ipv6.conf.%s.disable_ipv6=1", ifName)
-	// execCmd([]string{cmdstr3})
-	err = gosysctl.Set(fmt.Sprintf("net.ipv6.conf.%s.disable_ipv6", ifName), "1")
+	err = sysctlSet(fmt.Sprintf("net.ipv6.conf.%s.disable_ipv6", ifName), "1")
 	if err != nil {
 		base.Warn(err)
 	}
 
 	return createVtap(cSess, ifName)
-}
-
-// func checkIpvtap() {
-
-// }
-
-// 创建 Ipvtap 网卡
-func LinkIpvtap(cSess *sessdata.ConnSession) error {
-	return nil
 }
 
 type ifReq struct {

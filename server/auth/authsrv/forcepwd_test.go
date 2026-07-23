@@ -3,10 +3,10 @@ package authsrv
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/dbdata"
 	"github.com/wsczx/remlink/pkg/utils"
-	"github.com/stretchr/testify/assert"
 )
 
 // 创建带 Type / ForcePwd 的测试用户

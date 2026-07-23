@@ -3,10 +3,10 @@ package dbdata
 import (
 	"fmt"
 
+	"github.com/go-ldap/ldap"
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/pkg/utils"
-	"github.com/go-ldap/ldap"
 	"github.com/xlzd/gotp"
 )
 

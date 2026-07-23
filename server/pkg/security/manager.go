@@ -23,9 +23,6 @@ var (
 // 设置密钥文件目录（仅启动时调用，非并发安全）。
 func SetDir(dir string) { defaultDir = dir }
 
-// 返回密钥文件存放目录。
-func GetDataDir() string { return defaultDir }
-
 // 环境变量优先于默认路径：
 // REMLINK_ENCRYPTION_KEY 指定完整路径，REMLINK_ENCRYPTION_KEY_DIR 指定目录。
 func keyPath() string {
@@ -110,24 +107,6 @@ func LoadKey() error {
 	copy(k, key)
 	globalKey.Store(&k)
 	return nil
-}
-
-// 返回当前密钥的十六进制字符串。
-func KeyHex() string {
-	k := getKeyLocked()
-	if k == nil {
-		return ""
-	}
-	return hex.EncodeToString(k)
-}
-
-// 返回脱敏后的密钥（首尾各 8 位）。
-func KeyMasked() string {
-	hexKey := KeyHex()
-	if len(hexKey) < 16 {
-		return ""
-	}
-	return hexKey[:8] + "****" + hexKey[len(hexKey)-8:]
 }
 
 // 返回密钥文件路径。

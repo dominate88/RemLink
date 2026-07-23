@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wsczx/remlink/base"
 	"github.com/stretchr/testify/assert"
+	"github.com/wsczx/remlink/base"
 )
 
 func TestMain(m *testing.M) {
@@ -16,7 +16,7 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// mockFirewall 用于测试，不实际操作内核防火墙
+// 用于测试，不实际操作内核防火墙
 type mockFirewall struct {
 	mu           sync.Mutex
 	natRules     map[string]string // fakeIP -> realIP

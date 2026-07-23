@@ -89,11 +89,3 @@ func timeToBytes(t time.Time) []byte {
 	}
 	return b
 }
-
-func bytesToTime(b []byte) time.Time {
-	var nsec int64
-	for i := uint8(0); i < 8; i++ {
-		nsec += int64(b[i]) << ((7 - i) * 8)
-	}
-	return time.Unix(nsec/1000000000, nsec%1000000000)
-}

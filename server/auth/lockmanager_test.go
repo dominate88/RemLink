@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wsczx/remlink/base"
 	"github.com/stretchr/testify/assert"
+	"github.com/wsczx/remlink/base"
 )
 
 // 重置单例以隔离测试

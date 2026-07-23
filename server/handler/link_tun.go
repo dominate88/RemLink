@@ -6,12 +6,11 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/songgao/water"
+	"github.com/vishvananda/netlink"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/wsczx/remlink/sessdata"
-	gosysctl "github.com/lorenzosaino/go-sysctl"
-	"github.com/songgao/water"
-	"github.com/vishvananda/netlink"
 )
 
 var groupNatCIDRs sync.Map
@@ -134,10 +133,7 @@ func LinkTun(cSess *sessdata.ConnSession) error {
 
 	// 设置组NAT
 	setGroupNAT(cSess)
-
-	// cmdstr3 := fmt.Sprintf("sysctl -w net.ipv6.conf.%s.disable_ipv6=1", ifce.Name())
-	// execCmd([]string{cmdstr3})
-	err = gosysctl.Set(fmt.Sprintf("net.ipv6.conf.%s.disable_ipv6", ifce.Name()), "1")
+	err = sysctlSet(fmt.Sprintf("net.ipv6.conf.%s.disable_ipv6", ifce.Name()), "1")
 	if err != nil {
 		base.Warn(err)
 	}

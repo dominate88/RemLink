@@ -91,21 +91,6 @@ func FindWhere(data interface{}, limit int, page int, where string, args ...inte
 	return xdb.Where(where, args...).OrderBy("id ASC").Limit(limit, start).Find(data)
 }
 
-func CountPrefix(fieldName string, prefix string, data interface{}) int {
-	n, _ := xdb.Where(fieldName+" like ?", prefix+"%").Count(data)
-	return int(n)
-}
-
-func Prefix(fieldName string, prefix string, data interface{}, limit, page int) error {
-	where := xdb.Where(fieldName+" like ?", prefix+"%")
-	if limit == 0 {
-		return where.OrderBy("id ASC").Find(data)
-	}
-
-	start := (page - 1) * limit
-	return where.OrderBy("id ASC").Limit(limit, start).Find(data)
-}
-
 func FindAndCount(session *xorm.Session, data interface{}, limit, page int) (int64, error) {
 	if limit == 0 {
 		return session.OrderBy("id ASC").FindAndCount(data)

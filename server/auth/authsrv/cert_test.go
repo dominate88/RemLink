@@ -6,10 +6,10 @@ import (
 	"encoding/pem"
 	"testing"
 
-	"github.com/wsczx/remlink/auth"
-	"github.com/wsczx/remlink/dbdata"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wsczx/remlink/auth"
+	"github.com/wsczx/remlink/dbdata"
 )
 
 // 将 PEM 字符串解析为 x509 证书（仅测试用）。

@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wsczx/remlink/base"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wsczx/remlink/base"
 )
 
 func TestGenerateClientCert(t *testing.T) {

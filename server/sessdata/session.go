@@ -514,10 +514,6 @@ func Dtls2MasterSecret(did string) string {
 	return sess.CSess.MasterSecret
 }
 
-func DelSess(token string) {
-	// sessions.Delete(token)
-}
-
 func CloseSess(token string, code ...uint8) {
 	sessMux.Lock()
 	defer sessMux.Unlock()

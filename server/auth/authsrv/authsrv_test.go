@@ -5,11 +5,11 @@ import (
 	"path"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
-	"github.com/ivpusic/grpool"
-	"github.com/stretchr/testify/assert"
+	"github.com/wsczx/remlink/pkg/utils"
 )
 
 // 初始化测试用的数据库和 IP 配置，并注册清理函数
@@ -48,7 +48,7 @@ func preTestData(t *testing.T) {
 	t.Cleanup(func() {
 		_ = dbdata.Stop()
 		dbdata.UserActLogIns.Pool.Release()
-		dbdata.UserActLogIns.Pool = grpool.NewPool(1, 100)
+		dbdata.UserActLogIns.Pool = utils.NewWorkerPool(1, 100)
 	})
 }
 

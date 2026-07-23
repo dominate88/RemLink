@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/wsczx/remlink/base"
 	"github.com/miekg/dns"
+	"github.com/wsczx/remlink/base"
 )
 
 // 管理 FakeDNS 和 FakeIP 功能
@@ -57,7 +57,7 @@ func (e *fakeIPEntry) GetRefreshAt() time.Time {
 	}
 	return time.Time{}
 }
-func (e *fakeIPEntry) SetRefreshAt(t time.Time)  { e.RefreshAt.Store(t.UnixNano()) }
+func (e *fakeIPEntry) SetRefreshAt(t time.Time) { e.RefreshAt.Store(t.UnixNano()) }
 
 type fakeIPPool struct {
 	IPNet     *net.IPNet
@@ -622,4 +622,3 @@ func (m *FakeDNSManager) cleanupExpiredDNSCache() {
 	}
 	m.dnsCacheMu.Unlock()
 }
-

@@ -113,9 +113,9 @@ type SettingPortalDashboard struct {
 	CardsVisible        string `json:"cards_visible"`        // 仪表盘各卡片显隐（JSON 对象 {区块名:bool}），缺省视为显示
 	ThemeColor          string `json:"theme_color"`          // 主题主色（十六进制，如 #2f7cff），为空时前端回退默认
 	CustomCss           string `json:"custom_css"`           // 自定义 CSS（注入 <style>），为空时不注入
-	ClientGuide         string `json:"client_guide"`          // 客户端连接指引（JSON 数组 [{name,steps:[html...]}]），为空时前端回退默认 5 平台
-	ClientGuideEnabled   int    `json:"client_guide_enabled"`  // 客户端连接指引开关：0 未配置（默认关闭）/ 1 显示 / 2 关闭
-	ClientDownloadHtml  string `json:"client_download_html"`  // 客户端下载内容（HTML），为空时回退默认下载页
+	ClientGuide         string `json:"client_guide"`         // 客户端连接指引（JSON 数组 [{name,steps:[html...]}]），为空时前端回退默认 5 平台
+	ClientGuideEnabled  int    `json:"client_guide_enabled"` // 客户端连接指引开关：0 未配置（默认关闭）/ 1 显示 / 2 关闭
+	ClientDownloadHtml  string `json:"client_download_html"` // 客户端下载内容（HTML），为空时回退默认下载页
 }
 
 // 证书独立存储，避免每次修改普通配置时序列化 PEM 大字段
@@ -150,21 +150,6 @@ func SettingSessAdd(sess *xorm.Session, data any) error {
 	}
 	s := &Setting{Name: name, Data: v}
 	_, err = sess.InsertOne(s)
-	return err
-}
-
-func SettingSet(data any) error {
-	name := StructName(data)
-	v, err := json.Marshal(data)
-	if err != nil {
-		return fmt.Errorf("marshal %s: %w", name, err)
-	}
-	exist := &Setting{}
-	err = One("name", name, exist)
-	if err != nil {
-		return err
-	}
-	_, err = xdb.ID(exist.Id).Cols("Data").Update(&Setting{Id: exist.Id, Data: v})
 	return err
 }
 
@@ -223,22 +208,6 @@ func SettingGetAuditLog() (SettingAuditLog, error) {
 		return SettingGetAuditLogDefault(), nil
 	}
 	return data, err
-}
-
-func SettingGetOrCreateAuditLog() (SettingAuditLog, error) {
-	data := SettingAuditLog{}
-	err := SettingGet(&data)
-	if err == nil {
-		return data, nil
-	}
-	if !CheckErrNotFound(err) {
-		return data, err
-	}
-	auditLog := SettingGetAuditLogDefault()
-	if err := SettingSave(auditLog); err != nil {
-		return data, fmt.Errorf("创建默认审计日志设置失败: %w", err)
-	}
-	return auditLog, nil
 }
 
 func SettingGetAuditLogDefault() SettingAuditLog {
@@ -318,22 +287,6 @@ func SettingGetProfile() (SettingProfile, error) {
 		return SettingProfile{Content: base.DefaultProfileXML}, nil
 	}
 	return data, err
-}
-
-func SettingGetOrCreateProfile() (SettingProfile, error) {
-	data := SettingProfile{}
-	err := SettingGet(&data)
-	if err == nil {
-		return data, nil
-	}
-	if !CheckErrNotFound(err) {
-		return data, err
-	}
-	data.Content = base.DefaultProfileXML
-	if err := SettingSave(&data); err != nil {
-		return data, fmt.Errorf("创建默认 Profile 失败: %w", err)
-	}
-	return data, nil
 }
 
 func SettingSetProfile(content string) error {

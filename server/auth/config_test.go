@@ -7,10 +7,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// mockSSOAuth 模拟一个 SSO 认证器，用于验证 SSO 与凭据步骤互斥校验
+// 模拟一个 SSO 认证器，用于验证 SSO 与凭据步骤互斥校验
 type mockSSOAuth struct{}
 
-func (mockSSOAuth) Name() string                               { return "mock_sso" }
+func (mockSSOAuth) Name() string                              { return "mock_sso" }
 func (mockSSOAuth) Authenticate(*Context) (StepResult, error) { return StepPass, nil }
 func (mockSSOAuth) Challenge() *ChallengeInfo                 { return &ChallengeInfo{Type: ChallengeSSO} }
 

@@ -7,15 +7,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
-	"github.com/stretchr/testify/assert"
 )
-
-// ============================================================
-// 辅助函数
-// ============================================================
 
 // 创建 WebAuth 测试会话，返回 state（即 sessionID）
 func createWebAuthSession(_ *testing.T, groupName string) string {
@@ -32,10 +28,6 @@ func createWebAuthSession(_ *testing.T, groupName string) string {
 	SaveAuthSession(state, pending)
 	return state
 }
-
-// ============================================================
-// WebAuth 辅助 endpoints
-// ============================================================
 
 func TestWebAuthSPLogin_Valid(t *testing.T) {
 	base.Test()
@@ -80,10 +72,6 @@ func TestWebAuthSPLogin_EmptyState(t *testing.T) {
 	ast := assert.New(t)
 	ast.Equal(http.StatusBadRequest, w.Code)
 }
-
-// ============================================================
-// WebAuthStart
-// ============================================================
 
 func TestWebAuthStart_Success(t *testing.T) {
 	base.Test()
@@ -171,10 +159,6 @@ func TestWebAuthStart_Disabled(t *testing.T) {
 	ast := assert.New(t)
 	ast.Equal(http.StatusNotFound, w.Code)
 }
-
-// ============================================================
-// WebAuthSelectGroup
-// ============================================================
 
 func TestWebAuthSelectGroup_Success(t *testing.T) {
 	base.Test()
@@ -286,10 +270,6 @@ func TestWebAuthSelectGroup_EmptyBody(t *testing.T) {
 	ast.Equal("error", resp["status"])
 }
 
-// ============================================================
-// WebAuthStep
-// ============================================================
-
 func TestWebAuthStep_InvalidState(t *testing.T) {
 	base.Test()
 
@@ -321,10 +301,6 @@ func TestWebAuthStep_EmptyState(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&resp)
 	ast.Equal("error", resp["status"])
 }
-
-// ============================================================
-// WebAuthComplete
-// ============================================================
 
 func TestWebAuthComplete_InvalidState(t *testing.T) {
 	base.Test()

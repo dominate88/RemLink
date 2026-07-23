@@ -10,7 +10,6 @@ import (
 
 	"github.com/skip2/go-qrcode"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/xlzd/gotp"
 )
@@ -36,8 +35,7 @@ var (
 	// Used for flags.
 	runSrv bool
 
-	linkViper *viper.Viper
-	rootCmd   *cobra.Command
+	rootCmd *cobra.Command
 )
 
 // Execute executes the root command.
@@ -66,7 +64,6 @@ func execute() {
 }
 
 func initCmd() {
-	linkViper = viper.New()
 	rootCmd = &cobra.Command{
 		Use:   "remlink",
 		Short: "RemLink Secure Remote Access Gateway",
@@ -81,8 +78,6 @@ func initCmd() {
 		},
 	}
 
-	linkViper.SetEnvPrefix("link")
-
 	// 依据 ServerConfig 字段 + configMetas 注册命令行参数和默认值
 	registerFlagsFromConfig()
 
@@ -92,10 +87,6 @@ func initCmd() {
 	rootCmd.Flags().BoolVarP(&EnableFakeDNSFlag, "enable-fakedns", "", false, "开启 FakeDNS 功能在管理界面的可见性")
 	rootCmd.Flags().MarkHidden("enable-fakedns")
 	rootCmd.AddCommand(initToolCmd())
-
-	cobra.OnInitialize(func() {
-		linkViper.AutomaticEnv()
-	})
 }
 
 // 遍历 ServerConfig 字段，结合 configMetas 元数据注册 cobra flags
@@ -123,9 +114,6 @@ func registerFlagsFromConfig() {
 		case reflect.Bool:
 			rootCmd.Flags().BoolP(name, "", meta.defaultVal == "true", usage)
 		}
-
-		linkViper.BindPFlag(name, rootCmd.Flags().Lookup(name))
-		linkViper.BindEnv(name)
 	}
 }
 
@@ -140,7 +128,7 @@ func initToolCmd() *cobra.Command {
 	toolCmd.Flags().BoolVarP(&secret, "secret", "s", false, "generate a random jwt secret")
 	toolCmd.Flags().StringVarP(&passwd, "passwd", "p", "", "convert the password plaintext")
 	toolCmd.Flags().BoolVarP(&otp, "otp", "o", false, "generate a random otp secret")
-	toolCmd.Flags().BoolVarP(&debug, "debug", "d", false, "list the config viper.Debug() info")
+	toolCmd.Flags().BoolVarP(&debug, "debug", "d", false, "list the config metadata")
 
 	toolCmd.Run = func(cmd *cobra.Command, args []string) {
 		runSrv = false
@@ -163,7 +151,7 @@ func initToolCmd() *cobra.Command {
 			pass, _ := utils.PasswordHash(passwd)
 			fmt.Printf("Passwd: %s\n", pass)
 		case debug:
-			// linkViper.Debug()
+			// 配置元数据打印见 execute()
 		default:
 			fmt.Println("Using [remlink tool -h] for help")
 		}
@@ -175,4 +163,27 @@ func initToolCmd() *cobra.Command {
 func printVersion() {
 	fmt.Printf("%s v%s build on %s [%s, %s] date:%s commit_id(%s)\n",
 		APP_NAME, APP_VER, runtime.Version(), runtime.GOOS, runtime.GOARCH, BuildDate, CommitId)
+}
+
+// 生成 LINK_<NAME> 形式的环境变量名
+func envKeyOf(name string) string {
+	return "LINK_" + strings.ToUpper(strings.ReplaceAll(name, ".", "_"))
+}
+
+// 返回字段的原始字符串值与是否被用户显式设置
+// 取值优先级：flag(已变更) > 环境变量 > flag 默认值
+func readConfigRaw(name string) (raw string, explicit bool) {
+	if f := rootCmd.Flags().Lookup(name); f != nil {
+		if f.Changed {
+			return f.Value.String(), true
+		}
+		if v, ok := os.LookupEnv(envKeyOf(name)); ok {
+			return v, true
+		}
+		return f.DefValue, false
+	}
+	if v, ok := os.LookupEnv(envKeyOf(name)); ok {
+		return v, true
+	}
+	return "", false
 }

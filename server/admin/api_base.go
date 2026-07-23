@@ -11,13 +11,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gorilla/mux"
+	"github.com/skip2/go-qrcode"
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/auth/authsrv"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
 	"github.com/wsczx/remlink/pkg/utils"
-	"github.com/gorilla/mux"
-	"github.com/skip2/go-qrcode"
 	"github.com/xlzd/gotp"
 )
 

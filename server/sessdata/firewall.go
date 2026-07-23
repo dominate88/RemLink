@@ -6,11 +6,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/wsczx/remlink/base"
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/google/nftables"
 	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
+	"github.com/wsczx/remlink/base"
 )
 
 const (

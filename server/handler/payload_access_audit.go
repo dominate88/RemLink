@@ -6,12 +6,11 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/songgao/water/waterutil"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
 	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/wsczx/remlink/sessdata"
-	"github.com/ivpusic/grpool"
-	"github.com/songgao/water/waterutil"
 )
 
 const (
@@ -28,7 +27,7 @@ var (
 
 // 分析审计日志
 type AuditPayload struct {
-	Pool       *grpool.Pool
+	Pool       *utils.WorkerPool
 	IpAuditMap utils.IMaps
 }
 
@@ -73,7 +72,7 @@ func logAuditBatch() {
 		return
 	}
 	auditPayload = &AuditPayload{
-		Pool:       grpool.NewPool(10, 10240),
+		Pool:       utils.NewWorkerPool(10, 10240),
 		IpAuditMap: utils.NewMap("cmap", 0),
 	}
 	logBatch = &LogBatch{

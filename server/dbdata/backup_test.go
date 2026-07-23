@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wsczx/remlink/base"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wsczx/remlink/base"
 )
 
 // 清理测试产生的备份文件和 db.json。
@@ -160,10 +160,10 @@ func TestCreateBackup_Config(t *testing.T) {
 	ast.Equal(currentBackupVersion, data.Version)
 	ast.Equal("config", data.Type)
 	ast.NotNil(data.Config)
-	ast.Empty(data.Config.JwtSecret)   // 敏感字段已清空
+	ast.Empty(data.Config.JwtSecret) // 敏感字段已清空
 	ast.Empty(data.Config.AdminPass)
 	ast.Empty(data.Config.AdminOtp)
-	ast.Nil(data.Tables)              // config 备份无表数据
+	ast.Nil(data.Tables) // config 备份无表数据
 }
 
 func TestCreateBackup_Full(t *testing.T) {

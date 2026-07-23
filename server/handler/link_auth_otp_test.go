@@ -11,12 +11,12 @@ import (
 	"path"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
 	"github.com/wsczx/remlink/pkg/security"
-	"github.com/ivpusic/grpool"
-	"github.com/stretchr/testify/assert"
+	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/xlzd/gotp"
 )
 
@@ -154,7 +154,7 @@ func TestLinkAuthOtp(t *testing.T) {
 	sessionID := "test-otp-session"
 	authSession := &AuthSession{
 		Ctx: &auth.Context{
-			Conn:    auth.ConnInfo{Username: username, GroupName: group, UserAgent: "test-agent"},
+			Conn:     auth.ConnInfo{Username: username, GroupName: group, UserAgent: "test-agent"},
 			UserInfo: &auth.UserInfo{OtpSecret: otpSecret},
 		},
 		UserActLog: &dbdata.UserActLog{
@@ -455,6 +455,6 @@ func closeIpdata() {
 	_ = dbdata.Stop()
 	// 释放异步日志 worker pool（UserActLogIns 使用 grpool 异步写 DB）
 	dbdata.UserActLogIns.Pool.Release()
-	dbdata.UserActLogIns.Pool = grpool.NewPool(1, 100)
+	dbdata.UserActLogIns.Pool = utils.NewWorkerPool(1, 100)
 	// DB 文件由 t.TempDir() 自动清理，无需手动 os.Remove
 }

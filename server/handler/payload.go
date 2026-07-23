@@ -1,10 +1,10 @@
 package handler
 
 import (
+	"github.com/songgao/water/waterutil"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
 	"github.com/wsczx/remlink/sessdata"
-	"github.com/songgao/water/waterutil"
 )
 
 func payloadIn(cSess *sessdata.ConnSession, pl *sessdata.Payload) bool {
