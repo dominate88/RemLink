@@ -96,7 +96,7 @@ make local  # 编译二进制（musl 静态链接 + UPX 压缩）
 - [x] DTLS-UDP 通道
 - [x] 兼容 AnyConnect / OpenConnect
 - [x] 基于 tun 设备的 nat 访问模式
-- [x] 基于 tun / macvtap 设备的桥接访问模式
+- [x] 基于 tun / tap / macvtap 设备的桥接访问模式
 - [x] 支持 [proxy protocol v1&v2](http://www.haproxy.org/download/2.2/doc/proxy-protocol.txt)
 - [x] nftables 后端（优先使用，自动回退 iptables）
 - [x] FakeDNS + FakeIP（域名规则匹配 + DNS 缓存加速）
@@ -143,8 +143,6 @@ make local  # 编译二进制（musl 静态链接 + UPX 压缩）
 - [x] 多服务配置区分
 - [x] 自适应响应式前端界面
 - [x] 支持 Docker 非特权模式
-
-- [ ] 基于 ipvtap 设备的桥接访问模式
 
 ## Config
 
@@ -270,7 +268,7 @@ make local  # 编译二进制（musl 静态链接 + UPX 压缩）
 
 > 以下参数必须设置其中之一
 
-网络模式选择，需要配置 `link_mode` 参数，如 `link_mode="tun"`,`link_mode="macvtap"` 等参数。
+网络模式选择，需要配置 `link_mode` 参数，如 `link_mode="tun"`、`link_mode="tap"`、`link_mode="macvtap"` 等参数。
 不同的参数需要对服务器做相应的设置。
 
 建议优先选择 tun 模式，其次选择 macvtap 模式，因客户端传输的是 IP 层数据，无须进行数据转换。 tap 模式是在用户态做的链路层到
@@ -316,7 +314,7 @@ systemctl disable firewalld.service
 # 假设remlink所在服务器的内网ip: 10.1.2.10
 
 # 首先关闭nat转发功能
-iptables_nat = false
+global_nat = false
 
 # 传统网络架构，在华三交换机添加以下静态路由规则
 ip route-static 192.168.90.0 255.255.255.0 10.1.2.10
@@ -332,59 +330,74 @@ https://cloud.tencent.com/document/product/216/62007
 
 3. 使用 AnyConnect 客户端连接即可
 
-#### 桥接设置
+#### tap / macvtap 桥接设置
 
-1. 设置配置文件
+桥接模式下客户端可获得与内网同段的真实 IP。RemLink 支持三种桥接方式：
 
-> arp_proxy 性能较高，设置相对比较简单，只需要配置相应的参数即可。
+- **arp_proxy（tun + 内核 proxy_arp）**：利用 Linux 内核 ARP 代理，无需混杂模式、无需网桥，手动开启 `proxy_arp` 即可。
+- **tap（用户态 ARP 代答）**：服务端用户态代答 ARP，需主网卡混杂模式并配置网桥。
+- **macvtap（内核态）**：基于内核 `macvtap` 模块，需主网卡混杂模式。
+
+> 网络限制：云环境下通常不能使用（无混杂模式，网卡 MAC 加白、802.1x 认证网络受限），请使用 tun 模式。
 >
-> 网络要求：需要网络支持 ARP 传输，可通过 ARP 宣告普通内网 IP。
->
-> 网络限制：云环境下不能使用，网卡mac加白环境不能使用，802.1x认证网络不能使用
->
-> 以下参数可以通过执行 `ip a` 查看
+> 内网网段参数可通过 `ip a` 查看。
 
+1.1 arp_proxy（tun + 内核 proxy_arp）
 
-1.1 arp_proxy
+利用 Linux 内核 `proxy_arp`：客户端 IP 配在 tun 接口，当 `ipv4_cidr` 与主网卡同网段、且主网卡开启 `proxy_arp` 时，内网机器对客户端 IP 的 ARP 请求会由内核代答（内核知道该 IP 路由走 tun），从而实现二层互通。无需混杂模式、无需网桥。
 
-```
-
-# file: /etc/sysctl.conf
-net.ipv4.conf.all.proxy_arp = 1
-
-#执行如下命令
+```shell
+# 开启内核 ARP 代理（写入 /etc/sysctl.conf 持久化）
 sysctl -w net.ipv4.conf.all.proxy_arp=1
 
-
-配置文件修改:
-
-# 首先关闭nat转发功能
-iptables_nat = false
-
+# 配置文件修改
+# 首先关闭 nat 转发功能
+global_nat = false
 
 link_mode = "tun"
 #内网主网卡名称
 ipv4_master = "eth0"
-#以下网段需要跟ipv4_master网卡设置成一样
+#以下网段需要跟 ipv4_master 网卡设置成一样
 ipv4_cidr = "10.1.2.0/24"
+#网关填主网卡自身 IP
 ipv4_gateway = "10.1.2.99"
 ipv4_start = "10.1.2.100"
 ipv4_end = "10.1.2.200"
-
 ```
 
-1.2 macvtap
+1.2 tap（用户态 ARP 代答）
 
-```
+服务端在用户态对客户端做 ARP 代答，需主网卡开启混杂模式并配置网桥（标准 Linux 网桥 `remlink0`）。不依赖 `macvtap` 内核模块，兼容性最好，适合需要二层广播 / 多播 / 非 IP 协议穿透、或环境不支持 `macvtap` 的场景。
 
-# 命令行执行 master网卡需要打开混杂模式
+```shell
+# 主网卡开启混杂模式
 ip link set dev eth0 promisc on
-
-#=====================#
 
 # 配置文件修改
 # 首先关闭nat转发功能
-iptables_nat = false
+global_nat = false
+
+link_mode = "tap"
+#内网主网卡名称
+ipv4_master = "eth0"
+#以下网段需要跟ipv4_master网卡设置成一样
+ipv4_cidr = "10.1.2.0/24"
+ipv4_gateway = "10.1.2.1"
+ipv4_start = "10.1.2.100"
+ipv4_end = "10.1.2.200"
+```
+
+1.3 macvtap（内核态）
+
+基于内核 `macvtap`（`macvlan`）模块，由内核直接桥接，性能优于 tap。注意：macvlan 的 vepa / private 模式会限制接口间或与宿主机互访，且部分容器 / 受限环境无法加载该模块；此类情况改用 tap。
+
+```shell
+# 主网卡开启混杂模式
+ip link set dev eth0 promisc on
+
+# 配置文件修改
+# 首先关闭nat转发功能
+global_nat = false
 
 link_mode = "macvtap"
 #内网主网卡名称
