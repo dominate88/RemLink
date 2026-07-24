@@ -33,6 +33,10 @@
     },
     beforeDestroy() {
       window.removeEventListener('resize', this.listenerResize)
+      if (this.chart) {
+        this.chart.dispose()
+        this.chart = null
+      }
     },
     watch: {
         chartData:{
@@ -47,7 +51,10 @@
         this.chart.resize()
       },
       initChart() {
-        this.chart = echarts.init(this.$el)
+        // 缓存实例，避免 watch 每次数据更新都重新 init 造成内存泄漏与控制台告警
+        if (!this.chart) {
+          this.chart = echarts.init(this.$el)
+        }
 
         let option = {
           color: ['#2D5CF6','#50B142'],
