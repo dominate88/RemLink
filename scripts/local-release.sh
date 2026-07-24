@@ -3,10 +3,13 @@
 #
 # 前置依赖（构建机需具备）：
 #   - docker（已 docker login，或设置环境变量 DOCKERHUB_TOKEN）
-#   - gh CLI（设置 GH_TOKEN，需对 wsczx/RemLink 与 wsczx/RemLink-private 有写权限）
+#   - gh CLI（已 gh auth login，或设置环境变量 GH_TOKEN/GITHUB_TOKEN
+#   - Gitee token（可选）：同步 Release 到 Gitee 镜像，
+#     供在线升级在 GitHub 不可达时回退下载；不配则跳过。
+#     示例：git config --global gitee.token <PAT>
 #
 # 用法：
-#   GH_TOKEN=xxx DOCKERHUB_TOKEN=xxx ./scripts/local-release.sh [-l]
+#   ./scripts/local-release.sh [-l]   # 需 gh 已登录 + docker 已登录（或分别用 GH_TOKEN / DOCKERHUB_TOKEN 环境变量覆盖）
 #   ARCH="linux/amd64" ./scripts/local-release.sh          # 仅 amd64
 #   ./scripts/local-release.sh -l                          # 同时打 latest 镜像标签
 set -euo pipefail
@@ -101,6 +104,43 @@ gh release create "v${VER}" -R "$REPO_PRIVATE" \
 gh release delete "v${VER}" -R "$REPO_PUBLIC" 2>/dev/null || true
 gh release create "v${VER}" -R "$REPO_PUBLIC" \
   -t "RemLink v${VER}" -n "$body" artifact-dist/*
+
+# 同步 Release 到 Gitee 镜像（可选）
+GITEE_TOKEN="${GITEE_TOKEN:-$(git config --get gitee.token 2>/dev/null || true)}"
+if [ -n "${GITEE_TOKEN:-}" ]; then
+  echo "==> 同步 Release 到 Gitee 镜像"
+  gitee_api="https://gitee.com/api/v5/repos/${REPO_PUBLIC}"
+
+  # 删除同名旧 release
+  old_id=$(curl -s "${gitee_api}/releases/tags/v${VER}?access_token=${GITEE_TOKEN}" \
+    | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2 || true)
+  if [ -n "$old_id" ]; then
+    curl -s -X DELETE "${gitee_api}/releases/${old_id}?access_token=${GITEE_TOKEN}" >/dev/null || true
+  fi
+
+  # 建 release（tag 不存在时 Gitee 会基于 target_commitish 自动打 tag）
+  resp=$(curl -s -X POST "${gitee_api}/releases" \
+    -d "access_token=${GITEE_TOKEN}" \
+    -d "target_commitish=main" \
+    --data-urlencode "tag_name=v${VER}" \
+    --data-urlencode "name=RemLink v${VER}" \
+    --data-urlencode "body=${body}")
+  release_id=$(echo "$resp" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2 || true)
+
+  if [ -z "$release_id" ]; then
+    echo "警告：Gitee release 创建失败，跳过镜像同步。响应: $resp"
+  else
+    shopt -s nullglob
+    for f in artifact-dist/*; do
+      echo "    上传 $(basename "$f") 到 Gitee..."
+      curl -sf -X POST "${gitee_api}/releases/${release_id}/attach_files?access_token=${GITEE_TOKEN}" \
+        -F "file=@${f}" >/dev/null || echo "警告：$(basename "$f") 上传 Gitee 失败"
+    done
+    echo "    Gitee: https://gitee.com/${REPO_PUBLIC}/releases/tag/v${VER}"
+  fi
+else
+  echo "提示：未配置 Gitee token（git config gitee.token 或 GITEE_TOKEN），跳过 Gitee 镜像同步（国内升级回退源将无此版本）"
+fi
 
 echo "==> 发布完成："
 echo "    私有: https://github.com/${REPO_PRIVATE}/releases/tag/v${VER}"

@@ -53,6 +53,7 @@ export default {
       brand: { footer: "" },
       system_warning_prompt_shown: false,
       system_warning_checking: false,
+      upgrade_checking: false,
     }
   },
   computed: {
@@ -147,6 +148,36 @@ export default {
       }
       return warning.code === code
     },
+    checkDailyUpgrade() {
+      // 每日最多检查一次；失败不记录，下次路由切换重试
+      const today = new Date().toISOString().slice(0, 10)
+      if (localStorage.getItem('upgrade-check-date') === today || this.upgrade_checking) {
+        return
+      }
+      this.upgrade_checking = true
+      axios.get('/set/upgrade/check').then(resp => {
+        localStorage.setItem('upgrade-check-date', today)
+        const data = resp.data.data
+        if (!data || !data.need_upgrade || !data.latest) {
+          return
+        }
+        this.$confirm(
+          `发现新版本 ${data.latest.version}（当前 ${data.current_version}），是否前往升级？`,
+          '版本更新',
+          {
+            confirmButtonText: '去升级',
+            cancelButtonText: '稍后',
+            type: 'info',
+          }
+        ).then(() => {
+          if (this.$route.path !== '/admin/set/system') {
+            this.$router.push('/admin/set/system')
+          }
+        }).catch(() => { })
+      }).catch(() => { }).finally(() => {
+        this.upgrade_checking = false
+      })
+    },
     normalizeWarning(warning, fallback) {
       if (typeof warning === 'string') {
         return {
@@ -173,6 +204,7 @@ export default {
           this.mobile_open = false
         }
         this.$nextTick(this.checkSystemWarnings)
+        this.$nextTick(this.checkDailyUpgrade)
       },
     },
   },
@@ -186,9 +218,12 @@ export default {
         applyBrandToDocument(this.brand)
       }
     }).catch(() => {})
+    // 页面长期不切路由时（跨天）也能触发每日检查
+    this._upgradeTimer = setInterval(this.checkDailyUpgrade, 60 * 60 * 1000)
   },
   beforeDestroy() {
     window.removeEventListener('resize', this.handleResize)
+    clearInterval(this._upgradeTimer)
   },
 }
 </script>

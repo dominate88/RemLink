@@ -26,6 +26,7 @@ type ReleaseInfo struct {
 	Version     string `json:"version"`
 	Body        string `json:"body"`
 	URL         string `json:"url"`
+	BackupURL   string `json:"backup_url,omitempty"` // 备用下载源（Gitee 镜像），主源失败时回退
 	Size        int64  `json:"size"`
 	PublishedAt string `json:"published_at"`
 }
@@ -63,13 +64,30 @@ var (
 	upgradeProgMux  sync.RWMutex
 )
 
-// 检查最新版本，返回 ReleaseInfo、是否需要更新
+// 检查最新版本，返回 ReleaseInfo、是否需要更新。
+// 依次尝试多个更新源（GitHub → Gitee 镜像）
 func CheckUpdate() (*ReleaseInfo, bool, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest",
-		upgradeRepoOwner, upgradeRepoName)
+	sources := []string{
+		fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", upgradeRepoOwner, upgradeRepoName),
+		fmt.Sprintf("https://gitee.com/api/v5/repos/%s/%s/releases/latest", upgradeRepoOwner, upgradeRepoName),
+	}
+	var lastErr error
+	for _, apiURL := range sources {
+		ri, need, err := getLatestRelease(apiURL)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		ri.BackupURL = swapReleaseHost(ri.URL)
+		return ri, need, nil
+	}
+	return nil, false, fmt.Errorf("所有更新源均不可用: %v", lastErr)
+}
 
+// 从指定 releases/latest API 获取最新版本信息
+func getLatestRelease(apiURL string) (*ReleaseInfo, bool, error) {
 	client := &http.Client{Timeout: 15 * time.Second}
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		return nil, false, fmt.Errorf("创建请求失败: %w", err)
 	}
@@ -78,20 +96,20 @@ func CheckUpdate() (*ReleaseInfo, bool, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, false, fmt.Errorf("访问 GitHub API 失败: %w", err)
+		return nil, false, fmt.Errorf("访问更新源失败: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, false, fmt.Errorf("GitHub API 返回状态码: %d", resp.StatusCode)
+		return nil, false, fmt.Errorf("更新源返回状态码: %d", resp.StatusCode)
 	}
 
 	var gr githubRelease
 	if err := json.NewDecoder(resp.Body).Decode(&gr); err != nil {
-		return nil, false, fmt.Errorf("解析 GitHub 返回数据失败: %w", err)
+		return nil, false, fmt.Errorf("解析更新源数据失败: %w", err)
 	}
 
-	// asset 格式: remlink-linux-{arch}
+	// asset 格式: remlink-{os}-{arch}
 	currentOS := runtime.GOOS
 	currentArch := runtime.GOARCH
 
@@ -120,8 +138,19 @@ func CheckUpdate() (*ReleaseInfo, bool, error) {
 		Size:        downloadAsset.Size,
 		PublishedAt: gr.PublishedAt,
 	}
-
 	return ri, needUpgrade, nil
+}
+
+// 在 GitHub 与 Gitee 发布资源地址间互转，作为备用下载源。
+func swapReleaseHost(url string) string {
+	switch {
+	case strings.Contains(url, "github.com"):
+		return strings.Replace(url, "github.com", "gitee.com", 1)
+	case strings.Contains(url, "gitee.com"):
+		return strings.Replace(url, "gitee.com", "github.com", 1)
+	default:
+		return ""
+	}
 }
 
 // 执行升级：下载 → 替换 → 重启
@@ -135,9 +164,13 @@ func DoUpgrade(info *ReleaseInfo, progressCh chan<- UpgradeProgress) {
 	upgradeRunning.Store(true)
 	defer func() { upgradeRunning.Store(false) }()
 
-	// 阶段1：下载
+	// 阶段1：下载（主源失败则回退备用源）
 	sendProgress(progressCh, "downloading", 0, 0, info.Size)
 	binFile, err := downloadBinary(info.URL, info.Size, progressCh)
+	if err != nil && info.BackupURL != "" {
+		Warn("主下载源失败，尝试备用源:", err)
+		binFile, err = downloadBinary(info.BackupURL, info.Size, progressCh)
+	}
 	if err != nil {
 		sendError(progressCh, "下载失败: "+err.Error())
 		return
