@@ -164,30 +164,31 @@ func (a *AuthFeishu) SaveUsers(g *Group) error {
 	return nil
 }
 
-// 同步所有飞书认证组的用户
+// 同步所有飞书认证源用户（按各飞书认证源的 sync_users 独立控制）
 func SyncFeishuUsers() {
-	if !base.GetCfg().SyncFeishuUsers {
-		return
-	}
 	groups, err := GetAllGroups()
 	if err != nil {
 		base.Error("获取所有组失败:", err)
 		return
 	}
 	for _, g := range groups {
-		if HasAuthType(g.AuthProfile, "feishu") {
-			authFs, err := ResolveFeishuConfig(&g)
-			if err != nil {
-				base.Error("解析飞书配置失败:", g.Name, err)
-				continue
-			}
-			go func(g Group, a *AuthFeishu) {
-				if err := a.SaveUsers(&g); err != nil {
-					base.Error("飞书用户同步失败", g.Name, err)
-				} else {
-					base.Info("飞书用户同步成功", g.Name)
-				}
-			}(g, authFs)
+		if !HasAuthType(g.AuthProfile, "feishu") {
+			continue
 		}
+		authFs, err := ResolveFeishuConfig(&g)
+		if err != nil {
+			base.Error("解析飞书配置失败:", g.Name, err)
+			continue
+		}
+		if !authFs.SyncUsers {
+			continue
+		}
+		go func(g Group, a *AuthFeishu) {
+			if err := a.SaveUsers(&g); err != nil {
+				base.Error("飞书用户同步失败", g.Name, err)
+			} else {
+				base.Info("飞书用户同步成功", g.Name)
+			}
+		}(g, authFs)
 	}
 }

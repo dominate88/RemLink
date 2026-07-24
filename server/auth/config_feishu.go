@@ -5,6 +5,7 @@ package auth
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ type FeishuConfig struct {
 	AppSecret          string `json:"app_secret"`
 	UseDefaultBrowser  bool   `json:"use_default_browser"`
 	AllowedDepartments string `json:"allowed_departments"`
+	SyncUsers          bool   `json:"sync_users"` // 定时自动同步用户
 }
 
 func (c *FeishuConfig) ValidateConfig() error {
@@ -25,8 +27,8 @@ func (c *FeishuConfig) ValidateConfig() error {
 		return fmt.Errorf("应用 Secret 不能为空")
 	}
 	if c.AllowedDepartments != "" {
-		parts := strings.Split(c.AllowedDepartments, ",")
-		for _, part := range parts {
+		parts := strings.SplitSeq(c.AllowedDepartments, ",")
+		for part := range parts {
 			part = strings.TrimSpace(part)
 			if part != "" {
 				if _, err := strconv.Atoi(part); err != nil {
@@ -44,8 +46,8 @@ func (c *FeishuConfig) ParseDepartments() []string {
 		return nil
 	}
 	var depts []string
-	parts := strings.Split(c.AllowedDepartments, ",")
-	for _, part := range parts {
+	parts := strings.SplitSeq(c.AllowedDepartments, ",")
+	for part := range parts {
 		part = strings.TrimSpace(part)
 		if part != "" {
 			depts = append(depts, part)
@@ -137,10 +139,8 @@ func (c *FeishuConfig) CheckUserDepartment(appAccessToken, userID string, allowe
 		return false, err
 	}
 	for _, userDept := range userInfo.Data.DepartmentIDs {
-		for _, allowedDept := range allowedDepts {
-			if userDept == allowedDept {
-				return true, nil
-			}
+		if slices.Contains(allowedDepts, userDept) {
+			return true, nil
 		}
 	}
 	return false, nil

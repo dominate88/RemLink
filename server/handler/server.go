@@ -161,10 +161,10 @@ func initRoute() http.Handler {
 	r.HandleFunc("/WXAuth/callback", WXAuthCallback).Methods(http.MethodGet)
 	// 添加飞书回调路由
 	r.HandleFunc("/FeishuAuth/callback", FeishuAuthCallback).Methods(http.MethodGet)
-	// 企业微信验证路由（运行时动态匹配文件名）
+	// 企业微信验证路由（运行时动态匹配文件名，遍历启用的 wxwork 认证源）
 	r.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
-		fn := base.GetCfg().WexinWorkVerifyFileName
-		return fn != "" && r.URL.Path == "/"+fn
+		_, ok := wxworkVerifyFileByPath(r.URL.Path)
+		return ok
 	}).HandlerFunc(SAMLTest).Methods(http.MethodGet)
 
 	// Profile 路由（运行时动态匹配文件名）

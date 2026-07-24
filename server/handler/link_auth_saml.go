@@ -237,10 +237,30 @@ func SAMLDone(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(samlSuccessHTML))
 }
 
-// 企业微信域名验证端点
+// 企业微信域名验证端点（对应 wxwork 认证源配置的 verify_file_content）
 func SAMLTest(w http.ResponseWriter, r *http.Request) {
-	content := base.GetCfg().WexinWorkVerifyFileContent
+	content, ok := wxworkVerifyFileByPath(r.URL.Path)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
 	w.Write([]byte(content))
+}
+
+// 根据请求路径匹配启用的 wxwork 认证源的验证文件
+func wxworkVerifyFileByPath(path string) (string, bool) {
+	for _, name := range dbdata.ProviderNamesByType("wxwork") {
+		cfg, err := dbdata.ResolveProviderConfig(name, "wxwork")
+		if err != nil {
+			continue
+		}
+		fn, _ := cfg["verify_file_name"].(string)
+		fc, _ := cfg["verify_file_content"].(string)
+		if fn != "" && path == "/"+fn {
+			return fc, true
+		}
+	}
+	return "", false
 }
 
 // 飞书 OAuth 登录入口已合并到 SAMLSPLogin（按 ssotype 参数分发），

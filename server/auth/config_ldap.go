@@ -32,6 +32,7 @@ type LDAPConfig struct {
 	MemberOf       string `json:"member_of"`
 	SyncUserStatus bool   `json:"sync_user_status"`
 	EnableOtp      bool   `json:"enable_otp"` // 同步用户时启用 OTP
+	SyncUsers      bool   `json:"sync_users"` // 定时自动同步用户
 }
 
 // 填充 LDAP 默认值

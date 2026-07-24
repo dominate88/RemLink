@@ -17,6 +17,9 @@ type WXWorkConfig struct {
 	UseDefaultBrowser  bool   `json:"use_default_browser"`
 	AllowedDepartments string `json:"allowed_departments"`
 	BlockedUserIDs     string `json:"blocked_userids"`
+	SyncUsers          bool   `json:"sync_users"`          // 定时自动同步用户
+	VerifyFileName     string `json:"verify_file_name"`    // 企微回调域名验证文件名
+	VerifyFileContent  string `json:"verify_file_content"` // 企微回调域名验证文件内容
 }
 
 func (c *WXWorkConfig) ValidateConfig() error {
@@ -56,8 +59,8 @@ func (c *WXWorkConfig) ParseDepartments() []int {
 		return nil
 	}
 	var depts []int
-	parts := strings.Split(c.AllowedDepartments, ",")
-	for _, part := range parts {
+	parts := strings.SplitSeq(c.AllowedDepartments, ",")
+	for part := range parts {
 		if id, err := strconv.Atoi(strings.TrimSpace(part)); err == nil && id > 0 {
 			depts = append(depts, id)
 		}

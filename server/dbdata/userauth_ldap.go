@@ -159,30 +159,31 @@ func (a *AuthLdap) SaveUsers(g *Group) error {
 	return nil
 }
 
-// 同步所有 LDAP 认证组的用户
+// 同步所有 LDAP 认证源用户（按各 LDAP 认证源的 sync_users 独立控制）
 func SyncLdapUsers() {
-	if !base.GetCfg().SyncLdapUsers {
-		return
-	}
 	groups, err := GetAllGroups()
 	if err != nil {
 		base.Error("获取所有组失败:", err)
 		return
 	}
 	for _, g := range groups {
-		if HasAuthType(g.AuthProfile, "ldap") {
-			authLdap, err := ResolveLdapConfig(&g)
-			if err != nil {
-				base.Error("解析LDAP配置失败:", g.Name, err)
-				continue
-			}
-			go func(g Group, authldap *AuthLdap) {
-				if err := authldap.SaveUsers(&g); err != nil {
-					base.Error("LDAP 自动同步失败", g.Name, err)
-				} else {
-					base.Info("LDAP用户同步成功", g.Name)
-				}
-			}(g, authLdap)
+		if !HasAuthType(g.AuthProfile, "ldap") {
+			continue
 		}
+		authLdap, err := ResolveLdapConfig(&g)
+		if err != nil {
+			base.Error("解析LDAP配置失败:", g.Name, err)
+			continue
+		}
+		if !authLdap.SyncUsers {
+			continue
+		}
+		go func(g Group, authldap *AuthLdap) {
+			if err := authldap.SaveUsers(&g); err != nil {
+				base.Error("LDAP 自动同步失败", g.Name, err)
+			} else {
+				base.Info("LDAP用户同步成功", g.Name)
+			}
+		}(g, authLdap)
 	}
 }

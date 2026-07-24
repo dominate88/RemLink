@@ -35,7 +35,7 @@
 
       <div class="provider-table-wrap">
         <el-table :data="tableData" stripe highlight-current-row style="width:100%" border
-          :header-cell-style="{ background:'var(--bg-header)', color:'var(--text-primary)', fontWeight:'600', fontSize:'13px' }">
+          :header-cell-style="{ background: 'var(--bg-header)', color: 'var(--text-primary)', fontWeight: '600', fontSize: '13px' }">
           <el-table-column prop="id" label="ID" width="65" align="center"></el-table-column>
           <el-table-column prop="name" label="名称" min-width="150">
             <template slot-scope="scope">
@@ -51,7 +51,8 @@
           </el-table-column>
           <el-table-column prop="status" label="状态" width="80" align="center">
             <template slot-scope="scope">
-              <span :class="scope.row.status === 1 ? 'status-dot-online' : 'status-dot-offline'" class="status-dot"></span>
+              <span :class="scope.row.status === 1 ? 'status-dot-online' : 'status-dot-offline'"
+                class="status-dot"></span>
               <span class="status-text" :class="scope.row.status === 1 ? 'text-success' : 'text-danger'">
                 {{ scope.row.status === 1 ? '启用' : '停用' }}
               </span>
@@ -70,7 +71,8 @@
                     v-if="scope.row.status === 1 && isTestable(scope.row.type)">测试登录</el-dropdown-item>
                   <el-dropdown-item command="sync" icon="el-icon-refresh"
                     v-if="isSyncable(scope.row.type)">同步用户</el-dropdown-item>
-                  <el-dropdown-item command="delete" icon="el-icon-delete" divided class="dropdown-danger">删除认证源</el-dropdown-item>
+                  <el-dropdown-item command="delete" icon="el-icon-delete" divided
+                    class="dropdown-danger">删除认证源</el-dropdown-item>
                 </el-dropdown-menu>
               </el-dropdown>
             </template>
@@ -79,24 +81,22 @@
       </div>
 
       <div class="pagination-wrap">
-        <el-pagination background layout="prev,pager,next" :pager-count="9"
-          @current-change="pageChange" :current-page="page" :total="count" />
+        <el-pagination background layout="prev,pager,next" :pager-count="9" @current-change="pageChange"
+          :current-page="page" :total="count" />
       </div>
     </el-card>
 
     <!-- 编辑弹窗 -->
-    <el-dialog :close-on-click-modal="false"
-      :title="ruleForm.id ? '编辑认证源' : '添加认证源'"
-      :visible.sync="editDialog" width="800px" top="3vh"
-      @close="closeDialog" class="provider-edit-dialog">
+    <el-dialog :close-on-click-modal="false" :title="ruleForm.id ? '编辑认证源' : '添加认证源'" :visible.sync="editDialog"
+      width="800px" top="3vh" @close="closeDialog" class="provider-edit-dialog">
       <el-form :model="ruleForm" :rules="rules" ref="ruleForm" label-width="90px" size="small">
         <div class="edit-basic-row">
           <el-form-item label="名称" prop="name" class="form-item-compact">
             <el-input v-model="ruleForm.name" :disabled="ruleForm.id > 0" placeholder="唯一名称，如 北京LDAP"></el-input>
           </el-form-item>
           <el-form-item label="类型" label-width="60px" class="form-item-compact">
-            <el-select v-model="ruleForm.type" :disabled="ruleForm.id > 0"
-              placeholder="选择认证类型" style="width:100%" @change="onTypeChange">
+            <el-select v-model="ruleForm.type" :disabled="ruleForm.id > 0" placeholder="选择认证类型" style="width:100%"
+              @change="onTypeChange">
               <el-option label="LDAP" value="ldap"></el-option>
               <el-option label="RADIUS" value="radius"></el-option>
               <el-option label="企业微信" value="wxwork"></el-option>
@@ -192,6 +192,16 @@
               </template>
               <el-switch v-model="configForm.enable_otp"></el-switch>
             </el-form-item>
+            <div class="section-title"><i class="el-icon-refresh"></i> 用户同步</div>
+            <el-form-item>
+              <template slot="label">
+                自动同步用户
+                <el-tooltip content="开启后定时从本 LDAP 认证源同步用户到本地" placement="top">
+                  <i class="el-icon-question help-icon"></i>
+                </el-tooltip>
+              </template>
+              <el-switch v-model="configForm.sync_users"></el-switch>
+            </el-form-item>
           </template>
 
           <!-- RADIUS -->
@@ -253,6 +263,16 @@
                 </el-form-item>
               </el-col>
             </el-row>
+            <div class="section-title"><i class="el-icon-refresh"></i> 用户同步</div>
+            <el-form-item>
+              <template slot="label">
+                自动同步用户
+                <el-tooltip content="开启后定时从本飞书认证源同步用户到本地" placement="top">
+                  <i class="el-icon-question help-icon"></i>
+                </el-tooltip>
+              </template>
+              <el-switch v-model="configForm.sync_users"></el-switch>
+            </el-form-item>
           </template>
 
           <!-- 企业微信 -->
@@ -306,6 +326,23 @@
               </template>
               <el-input v-model="configForm.blocked_userids" placeholder="逗号分隔，留空不限制"></el-input>
             </el-form-item>
+            <div class="section-title"><i class="el-icon-refresh"></i> 用户同步</div>
+            <el-form-item>
+              <template slot="label">
+                自动同步用户
+                <el-tooltip content="开启后定时从本企微认证源同步用户到本地" placement="top">
+                  <i class="el-icon-question help-icon"></i>
+                </el-tooltip>
+              </template>
+              <el-switch v-model="configForm.sync_users"></el-switch>
+            </el-form-item>
+            <div class="section-title"><i class="el-icon-document"></i> 回调域名验证</div>
+            <el-form-item label="验证文件名">
+              <el-input v-model="configForm.verify_file_name" placeholder="如 WW_verify_abc.txt"></el-input>
+            </el-form-item>
+            <el-form-item label="验证文件内容">
+              <el-input v-model="configForm.verify_file_content" placeholder="企微后台要求的校验文件内容"></el-input>
+            </el-form-item>
           </template>
         </div>
       </el-form>
@@ -315,7 +352,8 @@
           <el-button @click="openTestLoginDialog()" style="margin-right:10px">测试登录</el-button>
         </template>
         <template v-if="ruleForm.id && isSyncEnabled">
-          <el-button type="success" @click="openSyncUsersDialog()" :loading="syncLoading" style="margin-right:10px">同步用户</el-button>
+          <el-button type="success" @click="openSyncUsersDialog()" :loading="syncLoading"
+            style="margin-right:10px">同步用户</el-button>
         </template>
         <el-button @click="closeDialog">取消</el-button>
         <el-button type="primary" icon="el-icon-check" @click="submitForm">保存认证源</el-button>
@@ -367,12 +405,14 @@
 import axios from "axios";
 
 const configDefaults = {
-  ldap: { addr: "", tls: false, bind_name: "", bind_pwd: "", base_dn: "",
+  ldap: {
+    addr: "", tls: false, bind_name: "", bind_pwd: "", base_dn: "",
     object_class: "person", search_attr: "sAMAccountName",
-    member_of: "", sync_user_status: false, enable_otp: false },
+    member_of: "", sync_user_status: false, enable_otp: false, sync_users: false
+  },
   radius: { addr: "", secret: "", nasip: "" },
-  wxwork: { corp_id: "", agent_id: "", secret: "", use_default_browser: false, allowed_departments: "", blocked_userids: "" },
-  feishu: { app_id: "", app_secret: "", use_default_browser: false, allowed_departments: "" },
+  wxwork: { corp_id: "", agent_id: "", secret: "", use_default_browser: false, allowed_departments: "", blocked_userids: "", sync_users: false, verify_file_name: "", verify_file_content: "" },
+  feishu: { app_id: "", app_secret: "", use_default_browser: false, allowed_departments: "", sync_users: false },
 };
 
 const TYPE_LABELS = { ldap: 'LDAP', radius: 'RADIUS', wxwork: '企业微信', feishu: '飞书' };
@@ -451,7 +491,7 @@ export default {
           this.$confirm('确定要删除该认证源吗？', '删除确认', {
             confirmButtonText: '确定删除', cancelButtonText: '取消',
             type: 'warning', confirmButtonClass: 'el-button--danger',
-          }).then(() => this.handleDel(row)).catch(() => {});
+          }).then(() => this.handleDel(row)).catch(() => { });
           break;
       }
     },
@@ -540,7 +580,7 @@ export default {
         if (resp.data.code === 0 && resp.data.data && resp.data.data.datas) {
           this.groupNames = resp.data.data.datas;
         }
-      }).catch(() => {});
+      }).catch(() => { });
     },
     syncProviderUsers() {
       this.$refs['syncForm'].validate(valid => {
@@ -562,31 +602,92 @@ export default {
 
 <style scoped>
 /* ========== 页面整体 ========== */
-.provider-page { padding: 4px 0; }
+.provider-page {
+  padding: 4px 0;
+}
 
 /* Provider 页面统计卡片为 2 列 */
-.provider-page .stats-row { grid-template-columns: repeat(2, 1fr); }
+.provider-page .stats-row {
+  grid-template-columns: repeat(2, 1fr);
+}
 
 /* ========== 统计卡片 ========== */
-.stat-icon-total  { background: var(--color-primary-bg); color: var(--color-primary); }
-.stat-icon-active { background: var(--success-bg); color: var(--color-success); }
+.stat-icon-total {
+  background: var(--color-primary-bg);
+  color: var(--color-primary);
+}
+
+.stat-icon-active {
+  background: var(--success-bg);
+  color: var(--color-success);
+}
 
 /* 表格内 */
-.provider-name { font-weight: 600; color: var(--text-primary); font-size: 13px; }
-.status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
-.status-dot-online  { background: var(--color-success); box-shadow: 0 0 0 2px rgba(103,194,58,0.2); }
-.status-dot-offline { background: var(--color-danger); box-shadow: 0 0 0 2px rgba(245,108,108,0.2); }
-.status-text { font-size: 12px; vertical-align: middle; }
-.text-success { color: var(--color-success); font-weight: 500; }
-.text-danger  { color: var(--color-danger); font-weight: 500; }
+.provider-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+
+.status-dot-online {
+  background: var(--color-success);
+  box-shadow: 0 0 0 2px rgba(103, 194, 58, 0.2);
+}
+
+.status-dot-offline {
+  background: var(--color-danger);
+  box-shadow: 0 0 0 2px rgba(245, 108, 108, 0.2);
+}
+
+.status-text {
+  font-size: 12px;
+  vertical-align: middle;
+}
+
+.text-success {
+  color: var(--color-success);
+  font-weight: 500;
+}
+
+.text-danger {
+  color: var(--color-danger);
+  font-weight: 500;
+}
+
 .action-more-btn {
-  padding: 5px 10px; border-radius: 6px; font-size: 12px;
-  border: 1px solid var(--border-base); background: var(--bg-card); color: var(--text-regular);
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  border: 1px solid var(--border-base);
+  background: var(--bg-card);
+  color: var(--text-regular);
   transition: all 0.2s;
 }
-.action-more-btn:hover { color: var(--color-primary); border-color: var(--color-primary-light); background: var(--color-primary-bg); }
-.dropdown-danger { color: var(--color-danger) !important; }
-.pagination-wrap { display: flex; justify-content: flex-end; padding-top: 16px; }
+
+.action-more-btn:hover {
+  color: var(--color-primary);
+  border-color: var(--color-primary-light);
+  background: var(--color-primary-bg);
+}
+
+.dropdown-danger {
+  color: var(--color-danger) !important;
+}
+
+.pagination-wrap {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 16px;
+}
 
 /* 表格滚动容器 */
 .provider-table-wrap {
@@ -595,45 +696,119 @@ export default {
 }
 
 /* ========== 编辑弹窗 ========== */
-.provider-edit-dialog ::v-deep .el-dialog__body { padding: 16px 24px 10px; }
-.edit-basic-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; }
-.edit-basic-row .form-item-compact { margin-bottom: 14px; }
-.form-item-status { margin-bottom: 8px; }
-.dialog-footer { display: flex; justify-content: flex-end; gap: 10px; }
+.provider-edit-dialog ::v-deep .el-dialog__body {
+  padding: 16px 24px 10px;
+}
 
-.form-tip { font-size: 12px; color: var(--text-secondary); }
+.edit-basic-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 20px;
+}
+
+.edit-basic-row .form-item-compact {
+  margin-bottom: 14px;
+}
+
+.form-item-status {
+  margin-bottom: 8px;
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.form-tip {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 .form-tip-info {
-  display: flex; align-items: center; gap: 6px;
-  margin-top: 6px; padding: 6px 10px;
-  background: var(--info-bg); border-radius: 6px;
-  font-size: 12px; color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: var(--info-bg);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 /* 配置面板 */
 .config-panel {
-  margin-top: 4px; padding: 8px 16px 4px;
-  background: #f8fafc; border: 1px solid var(--border-color);
+  margin-top: 4px;
+  padding: 8px 16px 4px;
+  background: #f8fafc;
+  border: 1px solid var(--border-color);
   border-radius: 8px;
 }
-.config-panel ::v-deep .el-form-item { margin-bottom: 12px; }
-.config-panel ::v-deep .el-form-item__label { white-space: nowrap; }
+
+.config-panel ::v-deep .el-form-item {
+  margin-bottom: 12px;
+}
+
+.config-panel ::v-deep .el-form-item__label {
+  white-space: nowrap;
+}
 
 .section-title {
-  font-size: 13px; font-weight: 600; color: var(--text-primary);
-  margin: 16px 0 10px; padding-left: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 16px 0 10px;
+  padding-left: 4px;
   border-left: 3px solid var(--color-primary);
   overflow: hidden;
 }
-.section-title i { margin-right: 6px; color: var(--color-primary); font-size: 14px; }
-.section-title:first-child { margin-top: 0; }
-.section-warn { font-size: 12px; font-weight: 500; color: var(--color-warning); float: right; }
-.section-warn .el-icon-warning { margin-right: 3px; }
-.help-icon { color: var(--text-secondary); margin-left: 4px; cursor: pointer; font-size: 14px; vertical-align: -1px; }
-.help-icon:hover { color: var(--color-primary); }
+
+.section-title i {
+  margin-right: 6px;
+  color: var(--color-primary);
+  font-size: 14px;
+}
+
+.section-title:first-child {
+  margin-top: 0;
+}
+
+.section-warn {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-warning);
+  float: right;
+}
+
+.section-warn .el-icon-warning {
+  margin-right: 3px;
+}
+
+.help-icon {
+  color: var(--text-secondary);
+  margin-left: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  vertical-align: -1px;
+}
+
+.help-icon:hover {
+  color: var(--color-primary);
+}
 
 /* 响应式 */
-@media (max-width: 1200px) { .edit-basic-row { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 768px) { .edit-basic-row { grid-template-columns: 1fr; } }
+@media (max-width: 1200px) {
+  .edit-basic-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .edit-basic-row {
+    grid-template-columns: 1fr;
+  }
+}
 
 @media (max-width: 880px) {
   .provider-table-wrap ::v-deep .col-ops {
@@ -653,15 +828,19 @@ export default {
 .test-login-dialog {
   min-width: 360px;
 }
+
 .test-login-dialog .el-dialog__body {
   padding: 20px 24px 24px;
 }
+
 .test-login-dialog .el-form-item {
   margin-bottom: 16px;
 }
+
 .test-login-dialog .el-form-item:last-child {
   margin-bottom: 0;
 }
+
 .test-login-dialog .test-login-actions {
   display: flex;
   justify-content: flex-end;

@@ -96,13 +96,6 @@ type ServerConfig struct {
 	GlobalIPLockTime              int `json:"global_ip_lock_time"`
 	GlobalLockStateExpirationTime int `json:"global_lock_state_expiration_time"`
 
-	// 企微/LDAP
-	WexinWorkVerifyFileName    string `json:"weixin_work_verify_file_name"`
-	WexinWorkVerifyFileContent string `json:"weixin_work_verify_file_content"`
-	SyncLdapUsers              bool   `json:"sync_ldap_users"`
-	SyncWxworkUsers            bool   `json:"sync_wxwork_users"`
-	SyncFeishuUsers            bool   `json:"sync_feishu_users"`
-
 	// 门户设置
 	EnableUserPortal   bool   `json:"enable_user_portal"`
 	EnableWebAuth      bool   `json:"enable_web_auth"`
@@ -195,12 +188,6 @@ var configMetas = map[string]configMeta{
 	"global_ip_ban_reset_time":          {usage: "全局IP设置单位时间(秒)", group: "锁定策略", defaultVal: "1200"},
 	"global_ip_lock_time":               {usage: "全局IP锁定时间(秒)", group: "锁定策略", defaultVal: "300"},
 	"global_lock_state_expiration_time": {usage: "全局锁定状态的保存生命周期(秒),超过则删除记录", group: "锁定策略", defaultVal: "3600"},
-
-	"weixin_work_verify_file_name":    {usage: "企微验证文件名", group: "企微/LDAP"},
-	"weixin_work_verify_file_content": {usage: "企微验证文件内容", group: "企微/LDAP"},
-	"sync_ldap_users":                 {usage: "是否自动同步LDAP用户", group: "企微/LDAP"},
-	"sync_wxwork_users":               {usage: "是否自动同步企微用户", group: "企微/LDAP"},
-	"sync_feishu_users":               {usage: "是否自动同步飞书用户", group: "企微/LDAP"},
 
 	"enable_user_portal":    {usage: "开启用户门户，浏览器访问 VPN 服务地址时进入用户自助页面", group: "门户设置"},
 	"enable_web_auth":       {usage: "开启 Web 认证模式，客户端登录改为浏览器认证流程", group: "门户设置"},

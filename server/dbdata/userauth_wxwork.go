@@ -164,30 +164,31 @@ func (a *AuthWXwork) SaveUsers(g *Group) error {
 	return nil
 }
 
-// 同步所有企业微信认证组的用户
+// 同步所有企业微信认证源用户（按各企微认证源的 sync_users 独立控制）
 func SyncWXworkUsers() {
-	if !base.GetCfg().SyncWxworkUsers {
-		return
-	}
 	groups, err := GetAllGroups()
 	if err != nil {
 		base.Error("获取所有组失败:", err)
 		return
 	}
 	for _, g := range groups {
-		if HasAuthType(g.AuthProfile, "wxwork") {
-			authWx, err := ResolveWxworkConfig(&g)
-			if err != nil {
-				base.Error("解析企微配置失败:", g.Name, err)
-				continue
-			}
-			go func(g Group, a *AuthWXwork) {
-				if err := a.SaveUsers(&g); err != nil {
-					base.Error("企微用户同步失败", g.Name, err)
-				} else {
-					base.Info("企微用户同步成功", g.Name)
-				}
-			}(g, authWx)
+		if !HasAuthType(g.AuthProfile, "wxwork") {
+			continue
 		}
+		authWx, err := ResolveWxworkConfig(&g)
+		if err != nil {
+			base.Error("解析企微配置失败:", g.Name, err)
+			continue
+		}
+		if !authWx.SyncUsers {
+			continue
+		}
+		go func(g Group, a *AuthWXwork) {
+			if err := a.SaveUsers(&g); err != nil {
+				base.Error("企微用户同步失败", g.Name, err)
+			} else {
+				base.Info("企微用户同步成功", g.Name)
+			}
+		}(g, authWx)
 	}
 }

@@ -11,8 +11,7 @@
 
     <div class="notice-stack">
       <el-alert v-for="(w, idx) in system_warnings" :key="'warn-' + idx" :title="warningMessage(w)"
-        :type="warningLevel(w)" show-icon
-        :closable="false" style="margin-top:8px">
+        :type="warningLevel(w)" show-icon :closable="false" style="margin-top:8px">
       </el-alert>
     </div>
 
@@ -93,12 +92,13 @@
                 </div>
                 <div class="ipv4-config-footer">
                   <el-tag size="mini" type="warning">重启生效</el-tag>
-                  <el-button type="primary" size="mini" :loading="ipv4_saving"
-                    @click="saveIPv4Config">保存</el-button>
+                  <el-button type="primary" size="mini" :loading="ipv4_saving" @click="saveIPv4Config">保存</el-button>
                 </div>
               </div>
               <!-- 其他配置项（跳过 IPv4 四个字段） -->
-              <div v-for="item in grp.items.filter(i => ['ipv4_cidr','ipv4_gateway','ipv4_start','ipv4_end'].indexOf(i.name) < 0)" :key="item.name" class="config-item" :class="{'config-item-full': item.multiline}">
+              <div
+                v-for="item in grp.items.filter(i => ['ipv4_cidr', 'ipv4_gateway', 'ipv4_start', 'ipv4_end'].indexOf(i.name) < 0)"
+                :key="item.name" class="config-item" :class="{ 'config-item-full': item.multiline }">
                 <div class="config-item-info">
                   <div class="config-item-usage">{{ item.usage }}</div>
                   <div class="config-item-name">{{ item.name }}</div>
@@ -110,28 +110,31 @@
                   <el-input-number v-else-if="item.type === 'int'" v-model="item.edit_data"
                     :disabled="item.readonly || item.saving" size="mini" controls-position="right">
                   </el-input-number>
-                  <el-input v-else-if="item.multiline" v-model="item.edit_data" type="textarea"
-                    :rows="6" :disabled="item.readonly || item.saving" size="mini"
-                    placeholder="多个用逗号隔开或者每行一个,支持单IP和CIDR范围">
+                  <el-input v-else-if="item.multiline" v-model="item.edit_data" type="textarea" :rows="6"
+                    :disabled="item.readonly || item.saving" size="mini" placeholder="多个用逗号隔开或者每行一个,支持单IP和CIDR范围">
                   </el-input>
                   <div v-else-if="item.options && Object.keys(item.options).length > 2" style="width:100%">
-                    <el-select v-model="item.edit_data" :disabled="item.readonly || item.saving" size="mini" style="width:100%">
+                    <el-select v-model="item.edit_data" :disabled="item.readonly || item.saving" size="mini"
+                      style="width:100%">
                       <el-option v-for="(val, label) in item.options" :key="val" :label="label" :value="val">
                       </el-option>
                     </el-select>
-                    <div v-if="item.edit_data && !Object.values(item.options).includes(item.edit_data)" class="config-item-hint">
+                    <div v-if="item.edit_data && !Object.values(item.options).includes(item.edit_data)"
+                      class="config-item-hint">
                       主网卡设置错误，请选择正确的物理网卡
                     </div>
                   </div>
                   <el-radio-group v-else-if="item.options" v-model="item.edit_data"
                     :disabled="item.readonly || item.saving" size="mini" style="display:flex;width:100%">
-                    <el-radio-button v-for="(val, label) in item.options" :key="val" :label="val" style="flex:1;text-align:center">
+                    <el-radio-button v-for="(val, label) in item.options" :key="val" :label="val"
+                      style="flex:1;text-align:center">
                       {{ label }}
                     </el-radio-button>
                   </el-radio-group>
                   <el-input v-else v-model="item.edit_data" :type="item.sensitive ? 'password' : 'text'"
                     :placeholder="item.sensitive ? '留空表示不修改' : ''" :disabled="item.readonly || item.saving" size="mini">
-                    <i v-if="item.readonly" slot="prefix" class="el-icon-lock" style="color:var(--text-placeholder)"></i>
+                    <i v-if="item.readonly" slot="prefix" class="el-icon-lock"
+                      style="color:var(--text-placeholder)"></i>
                   </el-input>
                 </div>
                 <div class="config-item-effect">
@@ -199,7 +202,8 @@
           <el-table-column label="操作" width="160">
             <template slot-scope="scope">
               <el-button type="text" size="mini" @click="restoreBackup(scope.row)">还原</el-button>
-              <el-button type="text" size="mini" style="color:var(--color-danger)" @click="deleteBackup(scope.row)">删除</el-button>
+              <el-button type="text" size="mini" style="color:var(--color-danger)"
+                @click="deleteBackup(scope.row)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -479,7 +483,7 @@ export default {
         groups[g].push(item)
       })
       // 按固定顺序排列分组
-      var order = ['基础信息', '服务监听', '数据库', '虚拟网络', '连接控制', '日志/调试', '安全/认证', '防暴破', '锁定策略', '企微/LDAP', '门户设置']
+      var order = ['基础信息', '服务监听', '数据库', '虚拟网络', '连接控制', '日志/调试', '安全/认证', '防暴破', '锁定策略', '门户设置']
       var result = []
       order.forEach(name => {
         if (groups[name]) {
@@ -551,7 +555,7 @@ export default {
         });
         // 同步 IPv4 字段到合并编辑区
         var ipv4Names = ['ipv4_cidr', 'ipv4_gateway', 'ipv4_start', 'ipv4_end']
-        this.soft_data.forEach(function(item) {
+        this.soft_data.forEach(function (item) {
           if (ipv4Names.indexOf(item.name) >= 0) {
             this.ipv4_edit[item.name] = item.data
           }
@@ -895,6 +899,7 @@ export default {
   border-radius: var(--card-radius);
   border: 1px solid var(--border-color-light);
 }
+
 /* IPv4 网络配置合并卡片 */
 .ipv4-config-card {
   border: 1px solid var(--color-primary-light);
@@ -903,21 +908,25 @@ export default {
   margin-bottom: 10px;
   background: var(--color-primary-bg);
 }
+
 .ipv4-config-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
+
 .ipv4-config-item {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
+
 .ipv4-config-item label {
   font-size: 12px;
   color: var(--text-regular);
   font-weight: 500;
 }
+
 .ipv4-config-footer {
   display: flex;
   justify-content: flex-end;
@@ -925,9 +934,11 @@ export default {
   gap: 10px;
   margin-top: 10px;
 }
+
 .soft-tabs {
   min-width: 0;
 }
+
 .soft-tabs ::v-deep .el-tabs__content {
   padding: 16px 20px;
   overflow-x: auto;
@@ -973,15 +984,37 @@ export default {
   text-align: center;
   transition: box-shadow 0.2s;
 }
+
 .summary-icon-wrapper {
-  width: 36px; height: 36px; border-radius: 10px;
-  display: inline-flex; align-items: center; justify-content: center;
-  font-size: 18px; margin-bottom: 8px;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  margin-bottom: 8px;
 }
-.summary-icon-group     { background: var(--color-primary-bg) !important; color: var(--color-primary) !important; }
-.summary-icon-item      { background: var(--success-bg) !important; color: var(--color-success) !important; }
-.summary-icon-restart   { background: var(--warning-bg) !important; color: var(--color-warning) !important; }
-.summary-icon-immediate { background: var(--danger-bg) !important; color: var(--color-danger) !important; }
+
+.summary-icon-group {
+  background: var(--color-primary-bg) !important;
+  color: var(--color-primary) !important;
+}
+
+.summary-icon-item {
+  background: var(--success-bg) !important;
+  color: var(--color-success) !important;
+}
+
+.summary-icon-restart {
+  background: var(--warning-bg) !important;
+  color: var(--color-warning) !important;
+}
+
+.summary-icon-immediate {
+  background: var(--danger-bg) !important;
+  color: var(--color-danger) !important;
+}
 
 .summary-item:hover {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
@@ -1068,7 +1101,7 @@ export default {
 }
 
 /* 修复：el-collapse 默认 overflow:hidden 会裁剪溢出内容（含保存按钮） */
-.group-collapse >>> .el-collapse-item.is-active > .el-collapse-item__wrap {
+.group-collapse>>>.el-collapse-item.is-active>.el-collapse-item__wrap {
   overflow: visible;
 }
 
@@ -1112,6 +1145,7 @@ export default {
   border-color: var(--text-placeholder);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
+
 .config-item-full {
   align-items: flex-start;
 }
@@ -1130,6 +1164,7 @@ export default {
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
+  line-clamp: 2;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   word-break: break-all;
