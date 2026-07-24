@@ -159,7 +159,13 @@ export default {
         ip_map: 0,
       },
       groupNames:[],
-      statsReqId: 0,
+      // 每张图各自维护最新请求序号，避免并发拉取时相互顶掉响应
+      statsReqId: {
+        online: 0,
+        network: 0,
+        cpu: 0,
+        mem: 0,
+      },
       lineChart: {
         online: {
             title: '用户在线数',
@@ -243,10 +249,10 @@ export default {
         if (!scope) {
             scope = "rt"
         }
-        const reqId = ++this.statsReqId
+        const reqId = ++this.statsReqId[action]
         let getData = {params:{"action": action, "scope": scope}}
         axios.get('/statsinfo/list', getData).then(resp => {
-            if (reqId !== this.statsReqId) return;
+            if (reqId !== this.statsReqId[action]) return;
             var data = resp.data.data
             if (! data.datas) return ;
             data.action = action
@@ -281,7 +287,7 @@ export default {
             }
             chartData.xdata["在线人数"][i] = xnum
         }
-        if (data.scope == "rt" && chooseGroup == "") {
+        if (data.scope == "rt" && chooseGroup == "" && datas.length > 0) {
             this.counts.online = datas[datas.length - 1].num
         }
         this.lineChart[data.action] = chartData
