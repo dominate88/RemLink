@@ -27,6 +27,7 @@ type ConnSession struct {
 	Sess                *Session
 	MasterSecret        string        // dtls协议的 master_secret
 	IpAddr              net.IP        // 分配的ip地址
+	IpAddr6             net.IP        // 分配的 IPv6 地址（连通优先版，单 Ipv6CIDR 池；nil 表示纯 v4）
 	IpPool              *ipPoolConfig // 组自定义 IP 池
 	LocalIp             net.IP
 	MacHw               net.HardwareAddr // 客户端mac地址,从Session取出
@@ -208,6 +209,14 @@ func (s *Session) NewConn() *ConnSession {
 		LimitClient(username, true)
 		return nil
 	}
+	// IPv6 地址（连通优先：单全局 Ipv6CIDR 池；分配失败则降级为纯 v4）
+	var ip6 net.IP
+	if base.GetCfg().Ipv6CIDR != "" {
+		ip6 = acquireIpV6(username, macAddr, uniqueMac)
+		if ip6 == nil {
+			base.Warn("IPv6 地址池分配失败，客户端将以纯 v4 接入:", username)
+		}
+	}
 	// 查询user信息
 	user := &dbdata.User{}
 	dbdata.One("username", username, user) // 外部用户可能不存在于本地 DB
@@ -219,6 +228,7 @@ func (s *Session) NewConn() *ConnSession {
 		Username:       username,
 		Mtu:            user.Mtu,
 		IpAddr:         ip,
+		IpAddr6:        ip6,
 		IpPool:         ipPool,
 		closeOnce:      sync.Once{},
 		CloseChan:      make(chan struct{}),
@@ -240,14 +250,14 @@ func (s *Session) NewConn() *ConnSession {
 	cSess.Policy = dbdata.ApplyPolicy(username, group)
 	if cSess.Policy == nil {
 		base.Error("策略加载失败，拒绝连接:", username, group.Name)
-		ReleaseIp(ip, macAddr)
+		ReleaseIp(ip, ip6, macAddr)
 		LimitClient(username, true)
 		return nil
 	}
 
 	if exceeded, used := dbdata.QuotaExceeded(username, cSess.Policy); exceeded {
 		base.Warn("流量配额已超，拒绝连接:", username, "used:", used, "quota:", cSess.Policy.TrafficQuota)
-		ReleaseIp(ip, macAddr)
+		ReleaseIp(ip, ip6, macAddr)
 		LimitClient(username, true)
 		return nil
 	}
@@ -289,7 +299,7 @@ func (cs *ConnSession) Close() {
 			dSess.Close()
 		}
 
-		ReleaseIp(cs.IpAddr, cs.Sess.MacAddr)
+		ReleaseIp(cs.IpAddr, cs.IpAddr6, cs.Sess.MacAddr)
 		LimitClient(cs.Username, true)
 		cs.rateWg.Wait() // 确保 ratePeriod 退出后再结算，避免流量丢失
 		cs.settleTraffic()

@@ -18,6 +18,10 @@ const (
 	nftPostRoutingChain = "REMLINK_GLOBAL_NAT_POSTROUTING"
 	nftForwardChain     = "REMLINK_GLOBAL_NAT_FORWARD"
 
+	nftGlobalNatTable6   = "REMLINK_GLOBAL_NAT6"
+	nftPostRoutingChain6 = "REMLINK_GLOBAL_NAT6_POSTROUTING"
+	nftForwardChain6     = "REMLINK_GLOBAL_NAT6_FORWARD"
+
 	nftTableName             = "REMLINK_FAKEIP"
 	nftDnatMapName           = "REMLINK_FAKEIP_DNATMAP"
 	nftFakeIPPreRoutingChain = "REMLINK_FAKEIP_PREROUTING"
@@ -30,7 +34,8 @@ type Firewall interface {
 	CreateChains(vpnCIDR, fakeIPRange string) error                   // 创建自定义链
 	AddNatRule(fakeIP, realIP string) error                           // 添加 DNAT 规则（回包由 conntrack 自动反向）
 	DelNatRule(fakeIP, realIP string) error                           // 删除 DNAT 规则
-	SetupGlobalNAT(vpnCIDR, masterDev string, inContainer bool) error // 设置全局 NAT 规则
+	SetupGlobalNAT(vpnCIDR, masterDev string, inContainer bool) error              // 设置全局 NAT 规则
+	SetupGlobalNAT6(vpnCIDR6, masterDev string, inContainer bool, useNat66 bool) error // 设置全局 IPv6 NAT/转发规则
 	AddGroupNAT(groupCIDR, masterDev string, inContainer bool) error  // 为组自定义 CIDR 添加 NAT 规则
 	CleanupFakeIP() error                                             // 清理所有fakeIP规则
 	CleanupGlobal() error                                             // 清理全局NAT规则
@@ -132,13 +137,21 @@ func (i *IPT) SetupGlobalNAT(vpnCIDR, masterDev string, inContainer bool) error 
 		return err
 	}
 
-	// FORWARD 规则
-	forwardRule := []string{"-j", "ACCEPT"}
-	if !inContainer {
-		// 添加注释
-		forwardRule = append(forwardRule, "-m", "comment", "--comment", "RemLink")
+	// FORWARD 规则：有状态放行（回包 established/related + 来自 VPN 网段的出站），
+	// 对齐 NFT 已有的有状态设计，避免无条件 `-j ACCEPT` 把客户端暴露给外部入站
+	forwardRules := [][]string{
+		{"-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT"},
+		{"-s", vpnCIDR, "-j", "ACCEPT"},
 	}
-	return i.ipt.InsertUnique("filter", "FORWARD", 1, forwardRule...)
+	for _, fr := range forwardRules {
+		if !inContainer {
+			fr = append(fr, "-m", "comment", "--comment", "RemLink")
+		}
+		if err := i.ipt.InsertUnique("filter", "FORWARD", 1, fr...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 func (i *IPT) AddGroupNAT(groupCIDR, masterDev string, inContainer bool) error {
 	// 组自定义 CIDR 添加 MASQUERADE 规则
@@ -147,6 +160,41 @@ func (i *IPT) AddGroupNAT(groupCIDR, masterDev string, inContainer bool) error {
 		natRule = append(natRule, "-m", "comment", "--comment", "RemLink")
 	}
 	return i.ipt.InsertUnique("nat", "POSTROUTING", 1, natRule...)
+}
+
+// SetupGlobalNAT6 设置全局 IPv6 NAT/转发规则。
+// 始终下发 stateful FORWARD（established/related 回包 + 来自 VPN v6 CIDR 的出站）；
+// 仅当 useNat66（即全局 GlobalNat 开）才追加 POSTROUTING MASQUERADE。
+// 注意：IPT 严禁复刻 v4 的无条件 `-j ACCEPT`，否则纯路由(GUA)时客户端 v6 会被公网入站暴露。
+func (i *IPT) SetupGlobalNAT6(vpnCIDR6, masterDev string, inContainer bool, useNat66 bool) error {
+	ip6, err := iptables.NewWithProtocol(iptables.ProtocolIPv6)
+	if err != nil {
+		return err
+	}
+
+	if useNat66 {
+		natRule := []string{"-s", vpnCIDR6, "-o", masterDev, "-j", "MASQUERADE"}
+		if !inContainer {
+			natRule = append(natRule, "-m", "comment", "--comment", "RemLink")
+		}
+		if err := ip6.InsertUnique("nat", "POSTROUTING", 1, natRule...); err != nil {
+			return err
+		}
+	}
+
+	forwardRules := [][]string{
+		{"-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT"},
+		{"-s", vpnCIDR6, "-j", "ACCEPT"},
+	}
+	for _, fr := range forwardRules {
+		if !inContainer {
+			fr = append(fr, "-m", "comment", "--comment", "RemLink")
+		}
+		if err := ip6.InsertUnique("filter", "FORWARD", 1, fr...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (i *IPT) CreateChains(vpnCIDR, fakeIPRange string) error {
@@ -215,6 +263,28 @@ func (i *IPT) CleanupGlobal() error {
 			parts := strings.Fields(rule)
 			if len(parts) > 2 {
 				i.ipt.Delete("filter", "FORWARD", parts[2:]...)
+			}
+		}
+	}
+
+	// 清理 IPv6 全局 NAT 规则
+	if ip6, err := iptables.NewWithProtocol(iptables.ProtocolIPv6); err == nil {
+		if natRules6, err := ip6.List("nat", "POSTROUTING"); err == nil {
+			for _, rule := range natRules6 {
+				if strings.Contains(rule, "RemLink") {
+					if parts := strings.Fields(rule); len(parts) > 2 {
+						_ = ip6.Delete("nat", "POSTROUTING", parts[2:]...)
+					}
+				}
+			}
+		}
+		if fwdRules6, err := ip6.List("filter", "FORWARD"); err == nil {
+			for _, rule := range fwdRules6 {
+				if strings.Contains(rule, "RemLink") {
+					if parts := strings.Fields(rule); len(parts) > 2 {
+						_ = ip6.Delete("filter", "FORWARD", parts[2:]...)
+					}
+				}
 			}
 		}
 	}
@@ -357,6 +427,137 @@ func (n *NFT) AddGroupNAT(groupCIDR, masterDev string, inContainer bool) error {
 	})
 
 	return n.conn.Flush()
+}
+
+// 设置全局 IPv6 NAT/转发规则。始终下发 stateful FORWARD（established/related 回包 + 来自 VPN v6 CIDR 的出站）；
+// 仅当 useNat66（即全局 GlobalNat 开）追加 POSTROUTING MASQUERADE。纯路由(GUA)因此也受 stateful 保护。
+func (n *NFT) SetupGlobalNAT6(vpnCIDR6, masterDev string, inContainer bool, useNat66 bool) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	globalNatTable6 := n.conn.AddTable(&nftables.Table{
+		Family: nftables.TableFamilyIPv6,
+		Name:   nftGlobalNatTable6,
+	})
+
+	_, ipNet, err := net.ParseCIDR(vpnCIDR6)
+	if err != nil {
+		return fmt.Errorf("invalid vpnCIDR6: %v", err)
+	}
+	ones, _ := ipNet.Mask.Size()
+	prefixMask := net.CIDRMask(ones, 128)
+
+	if useNat66 {
+		postrouting := n.conn.AddChain(&nftables.Chain{
+			Name:     nftPostRoutingChain6,
+			Table:    globalNatTable6,
+			Type:     nftables.ChainTypeNAT,
+			Hooknum:  nftables.ChainHookPostrouting,
+			Priority: nftables.ChainPriorityNATSource,
+		})
+		n.conn.AddRule(&nftables.Rule{
+			Table: globalNatTable6,
+			Chain: postrouting,
+			Exprs: n.MasqueradeExprs6(ipNet, prefixMask, masterDev),
+		})
+	}
+
+	forwardChain := n.conn.AddChain(&nftables.Chain{
+		Name:     nftForwardChain6,
+		Table:    globalNatTable6,
+		Type:     nftables.ChainTypeFilter,
+		Hooknum:  nftables.ChainHookForward,
+		Priority: nftables.ChainPriorityMangle,
+	})
+	// 回程流量（established/related）
+	n.conn.AddRule(&nftables.Rule{
+		Table: globalNatTable6,
+		Chain: forwardChain,
+		Exprs: []expr.Any{
+			&expr.Ct{Key: expr.CtKeySTATE, Register: 1},
+			&expr.Bitwise{
+				SourceRegister: 1,
+				DestRegister:   1,
+				Len:            4,
+				Mask:           binaryutil.NativeEndian.PutUint32(6),
+				Xor:            binaryutil.NativeEndian.PutUint32(0),
+			},
+			&expr.Cmp{
+				Op:       expr.CmpOpNeq,
+				Register: 1,
+				Data:     []byte{0, 0, 0, 0},
+			},
+			&expr.Verdict{Kind: expr.VerdictAccept},
+		},
+	})
+	// 来自 VPN v6 CIDR 的出站转发流量
+	n.conn.AddRule(&nftables.Rule{
+		Table: globalNatTable6,
+		Chain: forwardChain,
+		Exprs: n.ForwardAcceptExprs6(ipNet, prefixMask),
+	})
+
+	if err := n.conn.Flush(); err != nil {
+		return fmt.Errorf("flush nftables v6 failed: %v", err)
+	}
+	base.Info("nftables: Setup Global NAT6 and Forward rules, nat66=", useNat66)
+	return nil
+}
+
+// MASQUERADE 规则表达式（IPv6，匹配源 CIDR + 出站接口）
+func (n *NFT) MasqueradeExprs6(ipNet *net.IPNet, prefixMask net.IPMask, masterDev string) []expr.Any {
+	return []expr.Any{
+		&expr.Payload{
+			DestRegister: 1,
+			Base:         expr.PayloadBaseNetworkHeader,
+			Offset:       8,
+			Len:          16,
+		},
+		&expr.Bitwise{
+			SourceRegister: 1,
+			DestRegister:   1,
+			Len:            16,
+			Mask:           prefixMask,
+			Xor:            net.IPv6zero.To16(),
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ipNet.IP.To16(),
+		},
+		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 2},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 2,
+			Data:     ifname(masterDev),
+		},
+		&expr.Masq{},
+	}
+}
+
+// FORWARD ACCEPT 规则的表达式（IPv6，匹配源 CIDR）
+func (n *NFT) ForwardAcceptExprs6(ipNet *net.IPNet, prefixMask net.IPMask) []expr.Any {
+	return []expr.Any{
+		&expr.Payload{
+			DestRegister: 1,
+			Base:         expr.PayloadBaseNetworkHeader,
+			Offset:       8,
+			Len:          16,
+		},
+		&expr.Bitwise{
+			SourceRegister: 1,
+			DestRegister:   1,
+			Len:            16,
+			Mask:           prefixMask,
+			Xor:            net.IPv6zero.To16(),
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ipNet.IP.To16(),
+		},
+		&expr.Verdict{Kind: expr.VerdictAccept},
+	}
 }
 
 // MASQUERADE 规则表达式（匹配源 CIDR + 出站接口）
@@ -537,8 +738,9 @@ func (n *NFT) CleanupGlobal() error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	// 清理全局 NAT 表
+	// 清理全局 NAT 表（IPv4 + IPv6）
 	n.conn.DelTable(&nftables.Table{Name: nftGlobalNatTable, Family: nftables.TableFamilyIPv4})
+	n.conn.DelTable(&nftables.Table{Name: nftGlobalNatTable6, Family: nftables.TableFamilyIPv6})
 	return n.conn.Flush()
 }
 

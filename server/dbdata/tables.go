@@ -53,8 +53,8 @@ type UserActLog struct {
 	Id              int       `json:"id" xorm:"pk autoincr not null"`
 	Username        string    `json:"username" xorm:"varchar(60)"`
 	GroupName       string    `json:"group_name" xorm:"varchar(60)"`
-	IpAddr          string    `json:"ip_addr" xorm:"varchar(32)"`
-	RemoteAddr      string    `json:"remote_addr" xorm:"varchar(42)"`
+	IpAddr          string    `json:"ip_addr" xorm:"varchar(64)"`
+	RemoteAddr      string    `json:"remote_addr" xorm:"varchar(64)"`
 	Os              uint8     `json:"os" xorm:"not null default 0 Int"`
 	Client          uint8     `json:"client" xorm:"not null default 0 Int"`
 	Version         string    `json:"version" xorm:"varchar(15)"`
@@ -79,7 +79,7 @@ type AdminOpLog struct {
 	OpType    string    `json:"op_type" xorm:"varchar(60) not null"`               // 操作类型：用户管理/用户组管理/策略管理/证书管理/系统设置等
 	OpTarget  string    `json:"op_target" xorm:"varchar(255) not null default ''"` // 操作目标（用户名/组名/策略名等）
 	Detail    string    `json:"detail" xorm:"varchar(512) not null default ''"`    // 操作详情
-	ClientIp  string    `json:"client_ip" xorm:"varchar(42) not null default ''"`  // 管理员操作时IP
+	ClientIp  string    `json:"client_ip" xorm:"varchar(64) not null default ''"`  // 管理员操作时IP
 	CreatedAt time.Time `json:"created_at" xorm:"DateTime created"`
 }
 

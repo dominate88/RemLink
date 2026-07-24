@@ -77,6 +77,10 @@ func payloadOutDtls(cSess *sessdata.ConnSession, dSess *sessdata.DtlsSession, pl
 
 // Acl规则校验
 func checkLinkAcl(rp *dbdata.Policy, pl *sessdata.Payload) bool {
+	// 连通优先：v6 流量不做 ACL 匹配，直接放行（v6 精细 ACL 留 v2）
+	if (pl.Data[0]&0xF0)>>4 != 4 {
+		return true
+	}
 	if pl.LType == sessdata.LTypeIPData && pl.PType == 0x00 && len(rp.LinkAcl) > 0 {
 	} else {
 		return true

@@ -46,6 +46,7 @@ type ServerConfig struct {
 	Ipv4Gateway    string `json:"ipv4_gateway"`
 	Ipv4Start      string `json:"ipv4_start"`
 	Ipv4End        string `json:"ipv4_end"`
+	Ipv6CIDR       string `json:"ipv6_cidr"`
 	IpLease        int    `json:"ip_lease"`
 	GlobalNat      bool   `json:"global_nat"`
 	FirewallDriver string `json:"firewall_driver"`
@@ -144,6 +145,7 @@ var configMetas = map[string]configMeta{
 	"ipv4_gateway":    {usage: "ipv4_gateway", group: "虚拟网络", defaultVal: "192.168.90.1", restart: true},
 	"ipv4_start":      {usage: "IPV4开始地址", group: "虚拟网络", defaultVal: "192.168.90.100", restart: true},
 	"ipv4_end":        {usage: "IPV4结束", group: "虚拟网络", defaultVal: "192.168.90.200", restart: true},
+	"ipv6_cidr":       {usage: "IPv6地址池CIDR(如 2001:db8:1::/64，前缀须<128)；为空则纯v4", group: "虚拟网络", restart: true},
 	"ip_lease":        {usage: "IP租期(秒)", group: "虚拟网络", defaultVal: "86400"},
 	"global_nat":      {usage: "是否自动添加全局NAT", group: "虚拟网络", defaultVal: "true", restart: true},
 	"firewall_driver": {usage: "防火墙后端", group: "虚拟网络", defaultVal: "auto", restart: true, options: map[string]string{"自动选择": "auto", "nftables": "nftables", "iptables": "iptables"}},

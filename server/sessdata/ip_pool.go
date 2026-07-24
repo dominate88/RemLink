@@ -2,6 +2,7 @@ package sessdata
 
 import (
 	"fmt"
+	"math/big"
 	"net"
 	"sync"
 	"time"
@@ -32,6 +33,13 @@ type ipPoolConfig struct {
 	IpLongMax   uint32
 	loopCurIp   uint32        // 每池独立的循环游标
 	loopFarIp   *dbdata.IpMap // 每池独立的最早登录记录
+
+	// IPv6 全局地址池（单 Ipv6CIDR 自动分配，/128 每客户端）
+	Ipv6IPNet   *net.IPNet
+	Ipv6Gateway net.IP
+	ipv6Start   *big.Int
+	ipv6End     *big.Int
+	ipv6Cursor  *big.Int
 }
 
 func GetGroupIpPool(group *dbdata.Group) *ipPoolConfig {
@@ -97,6 +105,38 @@ func initIpPool() error {
 
 	IpPool.loopCurIp = IpPool.IpLongMin
 
+	// IPv6 全局地址池（单 Ipv6CIDR 自动分配；gw=网络+1, start=网络+2, end=网段末）
+	if cidr := base.GetCfg().Ipv6CIDR; cidr != "" {
+		// IPv6 要求链路 MTU ≥ 1280，低于则自动上调并告警
+		if m := base.GetCfg().Mtu; m > 0 && m < 1280 {
+			base.Warn("IPv6 要求链路 MTU ≥ 1280，当前 Mtu=", m, " 已自动上调到 1280")
+			base.GetCfg().Mtu = 1280
+		}
+		_, v6Net, err6 := net.ParseCIDR(cidr)
+		if err6 != nil {
+			return fmt.Errorf("IPv6 CIDR 配置错误(%s): %v", cidr, err6)
+		}
+		ones, bits := v6Net.Mask.Size()
+		if bits != 128 || ones >= 128 {
+			return fmt.Errorf("IPv6 CIDR 前缀须 < 128 才有分配空间: %s", cidr)
+		}
+		network := v6Net.IP.Mask(v6Net.Mask)
+		networkBig := ipToBig(network)
+		gwBig := new(big.Int).Add(networkBig, big.NewInt(1))
+		startBig := new(big.Int).Add(networkBig, big.NewInt(2))
+		hosts := new(big.Int).Lsh(big.NewInt(1), uint(128-ones))
+		endBig := new(big.Int).Add(networkBig, new(big.Int).Sub(hosts, big.NewInt(1)))
+
+		IpPool.Ipv6IPNet = v6Net
+		IpPool.Ipv6Gateway = bigToIP(gwBig)
+		IpPool.ipv6Start = startBig
+		IpPool.ipv6End = endBig
+		IpPool.ipv6Cursor = new(big.Int).Set(startBig)
+		base.Info("IPv6 地址池初始化: 网络=", network.String(),
+			" 网关=", IpPool.Ipv6Gateway.String(),
+			" 范围=", startBig.String(), "-", endBig.String())
+	}
+
 	// 网络地址零值
 	// zero := binary.BigEndian.Uint32(ip.Mask(mask))
 	// 广播地址
@@ -106,6 +146,106 @@ func initIpPool() error {
 	// 获取IpLease数据
 	// go cronIpLease()
 
+	return nil
+}
+
+// IPv6 地址 <-> big.Int 转换（128 位，网络字节序）
+func ipToBig(ip net.IP) *big.Int {
+	return new(big.Int).SetBytes(ip.To16())
+}
+
+func bigToIP(b *big.Int) net.IP {
+	buf := b.Bytes()
+	ip := make(net.IP, 16)
+	copy(ip[16-len(buf):], buf)
+	return ip
+}
+
+// 获取 IPv6 动态地址（全局单池，向后兼容：未配置 Ipv6CIDR 返回 nil）
+func acquireIpV6(username, macAddr string, uniqueMac bool) net.IP {
+	if IpPool.Ipv6IPNet == nil {
+		return nil
+	}
+	ipPoolMux.Lock()
+	defer ipPoolMux.Unlock()
+	return loopIpV6(username, macAddr, uniqueMac)
+}
+
+func loopIpV6(username, macAddr string, uniqueMac bool) net.IP {
+	start := IpPool.ipv6Start
+	end := IpPool.ipv6End
+	if start == nil || end == nil {
+		return nil
+	}
+	tNow := time.Now()
+	leaseTime := time.Now().Add(-1 * time.Duration(base.GetCfg().IpLease) * time.Second)
+
+	cursor := IpPool.ipv6Cursor
+	if cursor.Cmp(start) < 0 || cursor.Cmp(end) > 0 {
+		cursor = new(big.Int).Set(start)
+	}
+
+	// 两段扫描：cursor->end 与 start->cursor-1
+	segs := [][2]*big.Int{
+		{cursor, end},
+		{start, new(big.Int).Sub(cursor, big.NewInt(1))},
+	}
+	for _, seg := range segs {
+		lo, hi := seg[0], seg[1]
+		if lo == nil || hi == nil || lo.Cmp(hi) > 0 {
+			continue
+		}
+		cur := new(big.Int).Set(lo)
+		for cur.Cmp(hi) <= 0 {
+			ip := bigToIP(cur)
+			ipStr := ip.String()
+			// 内存去重（活跃连接）
+			if _, ok := ipActive[ipStr]; ok {
+				cur.Add(cur, big.NewInt(1))
+				continue
+			}
+			// 该 v6 是否已被其它客户端占用（跨重启用 ip_addr6 列查）
+			m6 := &dbdata.IpMap{}
+			if err := dbdata.One("ip_addr6", ipStr, m6); err == nil {
+				// 已占用：非本客户端或已过期则跳过；本客户端未过期则直接复用
+				if m6.MacAddr != macAddr || m6.LastLogin.Before(leaseTime) {
+					cur.Add(cur, big.NewInt(1))
+					continue
+				}
+				ipActive[ipStr] = true
+				IpPool.ipv6Cursor = new(big.Int).Add(cur, big.NewInt(1))
+				return ip
+			} else if !dbdata.CheckErrNotFound(err) {
+				base.Error("查询 v6 ip_map 失败:", err)
+				return nil
+			}
+			// 空闲：写入本客户端的 ip_map 行（与 v4 同一行，按 mac_addr 定位，避免触发 mac_addr 唯一约束）
+			row := &dbdata.IpMap{}
+			e2 := dbdata.One("mac_addr", macAddr, row)
+			if e2 != nil && !dbdata.CheckErrNotFound(e2) {
+				base.Error("查询 v6 所属 ip_map 行失败:", e2)
+				return nil
+			}
+			if dbdata.CheckErrNotFound(e2) {
+				// 理论上 v4 先分配，此行已存在；此处防御性新建（IpAddr 留空，仅存 v6）
+				row = &dbdata.IpMap{IpAddr: "", MacAddr: macAddr, UniqueMac: uniqueMac, Username: username, LastLogin: tNow, IpAddr6: ipStr}
+				if err := dbdata.Add(row); err != nil {
+					base.Error("IP池 v6 Add 失败:", err)
+				}
+			} else {
+				row.IpAddr6 = ipStr
+				row.Username = username
+				row.LastLogin = tNow
+				if err := dbdata.Set(row); err != nil {
+					base.Error("IP池 v6 Set 失败:", err)
+				}
+			}
+			ipActive[ipStr] = true
+			IpPool.ipv6Cursor = new(big.Int).Add(cur, big.NewInt(1))
+			return ip
+		}
+	}
+	base.Warn("no ipv6 available, please see ip_map table row", username, macAddr)
 	return nil
 }
 
@@ -379,19 +519,32 @@ func loopLong(start, end uint32, username, macAddr string, uniqueMac bool, ipRan
 	return 0, nil
 }
 
-// 回收ip
-func ReleaseIp(ip net.IP, macAddr string) {
+// 回收ip（v4 + 可选 v6）
+func ReleaseIp(ip net.IP, ip6 net.IP, macAddr string) {
 	ipPoolMux.Lock()
 	defer ipPoolMux.Unlock()
 
-	delete(ipActive, ip.String())
-
-	mi := &dbdata.IpMap{}
-	err := dbdata.One("ip_addr", ip.String(), mi)
-	if err == nil {
-		mi.LastLogin = time.Now()
-		if err = dbdata.Set(mi); err != nil {
-			base.Error("IP池 ReleaseIp Set 失败:", err)
+	if ip != nil {
+		delete(ipActive, ip.String())
+		mi := &dbdata.IpMap{}
+		err := dbdata.One("ip_addr", ip.String(), mi)
+		if err == nil {
+			mi.LastLogin = time.Now()
+			if err = dbdata.Set(mi); err != nil {
+				base.Error("IP池 ReleaseIp Set 失败:", err)
+			}
+		}
+	}
+	if ip6 != nil {
+		delete(ipActive, ip6.String())
+		mi6 := &dbdata.IpMap{}
+		err6 := dbdata.One("mac_addr", macAddr, mi6)
+		if err6 == nil {
+			mi6.IpAddr6 = ""
+			mi6.LastLogin = time.Now()
+			if err6 = dbdata.Set(mi6); err6 != nil {
+				base.Error("IP池 ReleaseIp v6 Set 失败:", err6)
+			}
 		}
 	}
 }

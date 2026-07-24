@@ -33,6 +33,7 @@ func preData(tmpDir string) {
 		c.Ipv4Gateway = "192.168.3.1"
 		c.Ipv4Start = "192.168.3.100"
 		c.Ipv4End = "192.168.3.150"
+		c.Ipv6CIDR = "2001:db8:3::/120"
 		c.MaxClient = 100
 		c.MaxUserClient = 3
 		c.IpLease = 5
@@ -81,7 +82,7 @@ func TestIpPool(t *testing.T) {
 	}
 
 	// 回收
-	ReleaseIp(net.IPv4(192, 168, 3, 140), getTestMacAddr(140))
+	ReleaseIp(net.IPv4(192, 168, 3, 140), nil, getTestMacAddr(140))
 	time.Sleep(time.Second * 6)
 
 	// 从头循环获取可用ip
@@ -94,8 +95,60 @@ func TestIpPool(t *testing.T) {
 
 	// 回收全部
 	for i := 100; i <= 150; i++ {
-		ReleaseIp(net.IPv4(192, 168, 3, byte(i)), getTestMacAddr(i))
+		ReleaseIp(net.IPv4(192, 168, 3, byte(i)), nil, getTestMacAddr(i))
 	}
+}
+
+func TestIpv6Pool(t *testing.T) {
+	assert := assert.New(t)
+	tmp := t.TempDir()
+	preData(tmp)
+	defer cleardata(tmp)
+
+	// 重置 v6 池游标与活跃表，保证干净起步
+	ipActive = map[string]bool{}
+	_ = initIpPool()
+
+	// 分配若干 v6 地址
+	const n = 50
+	var ips []net.IP
+	for i := 0; i < n; i++ {
+		ip := acquireIpV6(getTestUser(3000+i), getTestMacAddr(3000+i), true)
+		assert.NotNil(ip)
+		assert.Equal(16, len(ip)) // 128 位
+		ips = append(ips, ip)
+	}
+
+	// 全部应在 Ipv6CIDR(2001:db8:3::/120) 网段内
+	_, v6Net, _ := net.ParseCIDR("2001:db8:3::/120")
+	for _, ip := range ips {
+		assert.True(v6Net.Contains(ip), "v6 地址不在池网段内: %s", ip)
+	}
+
+	// 释放后过租期再次分配应仍在池内（轮询游标继续，半满池不保证返回同一地址；回绕后才复用）
+	ReleaseIp(nil, ips[0], getTestMacAddr(3000))
+	time.Sleep(time.Second * 6)
+	ip2 := acquireIpV6(getTestUser(3999), getTestMacAddr(3999), true)
+	assert.NotNil(ip2)
+	assert.True(v6Net.Contains(ip2), "复用分配的 v6 地址应在池网段内: %s", ip2)
+
+	// 回收全部，避免影响其他用例
+	for i := 0; i < n; i++ {
+		ReleaseIp(nil, ips[i], getTestMacAddr(3000+i))
+	}
+	ReleaseIp(nil, ip2, getTestMacAddr(3999))
+}
+
+// 启用 IPv6 时若配置 MTU<1280，initIpPool 应自动上调到 1280
+func TestIpv6MtuFloor(t *testing.T) {
+	assert := assert.New(t)
+	tmp := t.TempDir()
+	preData(tmp)
+	defer cleardata(tmp)
+
+	base.GetCfg().Mtu = 1000
+	assert.NoError(initIpPool())
+	assert.Equal(1280, base.GetCfg().Mtu, "启用 IPv6 且 MTU<1280 时应被自动上调到 1280")
 }
 func TestGroupIpPoolIsolation(t *testing.T) {
 	assert := assert.New(t)

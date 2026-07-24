@@ -126,9 +126,28 @@ func LinkMacvtap(cSess *sessdata.ConnSession) error {
 		base.Error(err)
 		return err
 	}
-	err = sysctlSet(fmt.Sprintf("net.ipv6.conf.%s.disable_ipv6", ifName), "1")
-	if err != nil {
-		base.Warn(err)
+	// 未分配 v6 地址时禁用 v6，避免内核链路本地地址干扰；双栈时显式启用
+	if cSess.IpAddr6 == nil {
+		err = sysctlSet(fmt.Sprintf("net.ipv6.conf.%s.disable_ipv6", ifName), "1")
+		if err != nil {
+			base.Warn(err)
+		}
+	} else {
+		// 双栈：显式启用接口的 IPv6，否则新接口继承 disable_ipv6=1 会导致 v6 数据面 EACCES
+		if err = sysctlSet(fmt.Sprintf("net.ipv6.conf.%s.disable_ipv6", ifName), "0"); err != nil {
+			base.Warn(err)
+		}
+		// 将 v6 网关地址赋到 macvtap 接口，供客户端解析网关 MAC 与服务器侧路由。
+		// macvtap 与主网卡同处二层广播域，内核在本接口应答 NDP；每个 lvtapN 独立接口可各自持有 /128 网关地址。
+		v6GwAddr := &netlink.Addr{
+			IPNet: &net.IPNet{
+				IP:   sessdata.IpPool.Ipv6Gateway,
+				Mask: net.CIDRMask(128, 128),
+			},
+		}
+		if err = netlink.AddrReplace(link, v6GwAddr); err != nil {
+			base.Warn("assign v6 gateway to vtap failed: ", err)
+		}
 	}
 
 	return createVtap(cSess, ifName)

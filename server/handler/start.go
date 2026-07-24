@@ -32,6 +32,20 @@ func Start() {
 		base.Fatal("请执行 sysctl -w net.ipv4.ip_forward=1 开启IP转发")
 	}
 
+	// IPv6 双栈：开启 IPv6 转发；同时把 egress 接口 accept_ra 设为 2，避免打开转发后内核默认关闭 RA，导致 SLAAC/默认路由丢失。
+	if base.GetCfg().Ipv6CIDR != "" {
+		if err := sysctlSet("net.ipv6.conf."+base.GetCfg().Ipv4Master+".accept_ra", "2"); err != nil {
+			base.Warn(err)
+		}
+		if err := sysctlSet("net.ipv6.conf.all.forwarding", "1"); err != nil {
+			base.Warn(err)
+		}
+		val, err := sysctlGet("net.ipv6.conf.all.forwarding")
+		if err != nil || val != "1" {
+			base.Fatal("请执行 sysctl -w net.ipv6.conf.all.forwarding=1 开启IPv6转发")
+		}
+	}
+
 	switch base.GetCfg().LinkMode {
 	case base.LinkModeTUN:
 		checkTun()

@@ -67,6 +67,12 @@ func checkTun() {
 		if err := fw.SetupGlobalNAT(base.GetCfg().Ipv4CIDR, base.GetCfg().Ipv4Master, base.InContainer); err != nil {
 			base.Error("设置NAT转发失败:", err, ", 请在web后台更新配置后重启服务")
 		}
+		// IPv6 双栈：始终下发 stateful FORWARD；GlobalNat 开时追加 NAT66（MASQUERADE 带 conntrack，安全基线）
+		if base.GetCfg().Ipv6CIDR != "" {
+			if err := fw.SetupGlobalNAT6(base.GetCfg().Ipv6CIDR, base.GetCfg().Ipv4Master, base.InContainer, base.GetCfg().GlobalNat); err != nil {
+				base.Error("设置 IPv6 NAT/转发失败:", err, ", 请在web后台更新配置后重启服务")
+			}
+		}
 	}
 }
 
@@ -131,11 +137,37 @@ func LinkTun(cSess *sessdata.ConnSession) error {
 		return err
 	}
 
+	// IPv6 双栈：客户端 /128，网关 /128（点对点）；v6 地址池为全局单池，网关取全局池
+	if cSess.IpAddr6 != nil {
+		// 部分环境（容器/默认 sysctl）新接口继承 disable_ipv6=1，必须先启用，
+		// 否则给 TUN 加 v6 地址会返回 EACCES（permission denied）
+		if err = sysctlSet(fmt.Sprintf("net.ipv6.conf.%s.disable_ipv6", ifce.Name()), "0"); err != nil {
+			base.Warn("enable ipv6 on tun failed: ", err)
+		}
+		v6Addr := &netlink.Addr{
+			IPNet: &net.IPNet{
+				IP:   sessdata.IpPool.Ipv6Gateway,
+				Mask: net.CIDRMask(128, 128),
+			},
+			Peer: &net.IPNet{
+				IP:   cSess.IpAddr6,
+				Mask: net.CIDRMask(128, 128),
+			},
+		}
+		if err = netlink.AddrAdd(link, v6Addr); err != nil {
+			base.Error(err)
+			_ = ifce.Close()
+			return err
+		}
+	}
+
 	// 设置组NAT
 	setGroupNAT(cSess)
-	err = sysctlSet(fmt.Sprintf("net.ipv6.conf.%s.disable_ipv6", ifce.Name()), "1")
-	if err != nil {
-		base.Warn(err)
+	// 仅纯 v4 时禁用 TUN 接口的 IPv6，避免无地址的 v6 流量；启用 v6 双栈时不禁用
+	if cSess.IpAddr6 == nil {
+		if err = sysctlSet(fmt.Sprintf("net.ipv6.conf.%s.disable_ipv6", ifce.Name()), "1"); err != nil {
+			base.Warn(err)
+		}
 	}
 
 	go tunRead(ifce, cSess)

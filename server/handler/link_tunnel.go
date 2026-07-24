@@ -124,6 +124,12 @@ func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 	HttpSetHeader(w, "X-CSTP-Protocol", "Copyright (c) 2004 Cisco Systems, Inc.")
 	HttpSetHeader(w, "X-CSTP-Address", cSess.IpAddr.String())          // 分配的ip地址
 	HttpSetHeader(w, "X-CSTP-Netmask", cSess.IpPool.Ipv4Mask.String()) // 子网掩码
+	// IPv6 双栈（连通优先版）：仅当分配了 v6 地址时下发
+	if cSess.IpAddr6 != nil {
+		HttpSetHeader(w, "X-CSTP-Address-IP6", cSess.IpAddr6.String())
+		HttpSetHeader(w, "X-CSTP-Netmask-IP6", "128")
+		HttpSetHeader(w, "X-DTLS-Address-IP6", cSess.IpAddr6.String()) // 信息性；DTLS 仍走 v4 接入
+	}
 	HttpSetHeader(w, "X-CSTP-Hostname", hn)                            // 机器名称
 	HttpSetHeader(w, "X-CSTP-Base-MTU", cstpBaseMtu)
 	// 客户端dns的默认搜索域
@@ -159,11 +165,20 @@ func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 		if strings.ToLower(v.Val) == dbdata.ALL {
 			continue
 		}
-		HttpAddHeader(w, "X-CSTP-Split-Include", v.IpMask)
+		// IPv6 路由下发到 -IP6 头（CIDR 格式）；v4 维持原 IpMask 下发
+		if _, ipNet, err := net.ParseCIDR(v.Val); err == nil && ipNet.IP.To4() == nil {
+			HttpAddHeader(w, "X-CSTP-Split-Include-IP6", ipNet.String())
+		} else {
+			HttpAddHeader(w, "X-CSTP-Split-Include", v.IpMask)
+		}
 	}
 	// 不允许的路由
 	for _, v := range rp.RouteExclude {
-		HttpAddHeader(w, "X-CSTP-Split-Exclude", v.IpMask)
+		if _, ipNet, err := net.ParseCIDR(v.Val); err == nil && ipNet.IP.To4() == nil {
+			HttpAddHeader(w, "X-CSTP-Split-Exclude-IP6", ipNet.String())
+		} else {
+			HttpAddHeader(w, "X-CSTP-Split-Exclude", v.IpMask)
+		}
 	}
 	// 排除出口ip路由(出口ip不加密传输)
 	if base.GetCfg().ExcludeExportIp && exportIp4 != "" {

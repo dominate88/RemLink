@@ -672,6 +672,10 @@ export default {
       this.aclEditDialog = false;
     },
     isValidCIDR(input) {
+      // IPv6 CIDR：含冒号即按 v6 处理，仅做基本格式校验（不做网络位归一建议）
+      if (input.indexOf(":") !== -1) {
+        return this.isValidCIDR6(input);
+      }
       const cidrRegex = /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)\/([12]?\d|3[0-2])$/;
       if (!cidrRegex.test(input)) {
         return { valid: false, suggestion: null };
@@ -691,6 +695,50 @@ export default {
           const suggestedIP = networkIPParts.join('.');
           return { valid: false, suggestion: `${suggestedIP}/${mask}` };
         }
+      }
+      return { valid: true, suggestion: null };
+    },
+    // IPv6 CIDR 校验：形如 2001:db8::/64，前缀 0-128；支持 :: 缩写与末段内嵌 IPv4
+    isValidCIDR6(input) {
+      const parts = input.split("/");
+      if (parts.length !== 2) {
+        return { valid: false, suggestion: null };
+      }
+      const prefix = parseInt(parts[1], 10);
+      if (isNaN(prefix) || prefix < 0 || prefix > 128 || !/^\d+$/.test(parts[1])) {
+        return { valid: false, suggestion: null };
+      }
+      const addr = parts[0];
+      const dbl = addr.split("::");
+      if (dbl.length > 2) {
+        return { valid: false, suggestion: null };
+      }
+      const isHextet = h => /^[0-9a-fA-F]{1,4}$/.test(h);
+      const isV4 = s => /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/.test(s);
+      const countGroups = seg => {
+        if (seg === "") return 0;
+        const gs = seg.split(":");
+        let n = 0;
+        for (let i = 0; i < gs.length; i++) {
+          const g = gs[i];
+          if (g === "") return -1;
+          if (i === gs.length - 1 && isV4(g)) { n += 2; continue; }
+          if (!isHextet(g)) return -1;
+          n += 1;
+        }
+        return n;
+      };
+      if (dbl.length === 2) {
+        const l = countGroups(dbl[0]);
+        const r = countGroups(dbl[1]);
+        if (l < 0 || r < 0 || l + r > 7) {
+          return { valid: false, suggestion: null };
+        }
+        return { valid: true, suggestion: null };
+      }
+      const total = countGroups(addr);
+      if (total !== 8) {
+        return { valid: false, suggestion: null };
       }
       return { valid: true, suggestion: null };
     },

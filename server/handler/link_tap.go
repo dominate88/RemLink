@@ -13,6 +13,7 @@ import (
 	"github.com/vishvananda/netlink"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/pkg/arpdis"
+	"github.com/wsczx/remlink/pkg/ndpdis"
 	"github.com/wsczx/remlink/sessdata"
 )
 
@@ -117,9 +118,34 @@ func LinkTap(cSess *sessdata.ConnSession) error {
 		return err
 	}
 
-	err = sysctlSet(fmt.Sprintf("net.ipv6.conf.%s.disable_ipv6", ifce.Name()), "1")
-	if err != nil {
-		base.Warn(err)
+	// 未分配 v6 地址时禁用 v6，避免内核链路本地地址干扰；双栈时保持开启
+	if cSess.IpAddr6 == nil {
+		err = sysctlSet(fmt.Sprintf("net.ipv6.conf.%s.disable_ipv6", ifce.Name()), "1")
+		if err != nil {
+			base.Warn(err)
+		}
+	}
+
+	// IPv6 双栈：将 v6 网关地址赋到桥，供客户端解析网关 MAC 与服务器侧路由。
+	// 桥为持久设备，每次建链用 AddrReplace 幂等（避免重复建链时地址已存在报错）。
+	if cSess.IpAddr6 != nil {
+		// 部分环境新接口继承 disable_ipv6=1，必须先启用桥与 tap 接口的 IPv6，
+		// 否则 AddrReplace v6 网关地址会返回 EACCES（permission denied）
+		if err = sysctlSet(fmt.Sprintf("net.ipv6.conf.%s.disable_ipv6", bridge.Attrs().Name), "0"); err != nil {
+			base.Warn("enable ipv6 on bridge failed: ", err)
+		}
+		if err = sysctlSet(fmt.Sprintf("net.ipv6.conf.%s.disable_ipv6", ifce.Name()), "0"); err != nil {
+			base.Warn("enable ipv6 on tap failed: ", err)
+		}
+		v6GwAddr := &netlink.Addr{
+			IPNet: &net.IPNet{
+				IP:   sessdata.IpPool.Ipv6Gateway,
+				Mask: net.CIDRMask(128, 128),
+			},
+		}
+		if err = netlink.AddrReplace(bridge, v6GwAddr); err != nil {
+			base.Warn("assign v6 gateway to bridge failed: ", err)
+		}
 	}
 
 	go allTapRead(ifce, cSess)
@@ -128,8 +154,15 @@ func LinkTap(cSess *sessdata.ConnSession) error {
 }
 
 func allTapWrite(ifce LinkDriver, cSess *sessdata.ConnSession) {
+	// 注册 v6 地址→客户端MAC，供 NDP 代答和池内互访寻址
+	if cSess.IpAddr6 != nil {
+		ndpdis.Add(cSess.IpAddr6, cSess.MacHw)
+	}
 	defer func() {
 		base.Debug("LinkTap return", cSess.IpAddr)
+		if cSess.IpAddr6 != nil {
+			ndpdis.Delete(cSess.IpAddr6)
+		}
 		cSess.Close()
 		ifce.Close()
 	}()
@@ -158,14 +191,32 @@ func allTapWrite(ifce LinkDriver, cSess *sessdata.ConnSession) {
 			frame = frame[:len(pl.Data)]
 
 		case sessdata.LTypeIPData: // 需要转换成 Ethernet 数据
+			if waterutil.IsIPv6(pl.Data) {
+				if cSess.IpAddr6 == nil || len(pl.Data) < 40 {
+					continue
+				}
+				// 校验源地址为本会话分配的 v6 地址，防伪造
+				if !net.IP(pl.Data[8:24]).Equal(cSess.IpAddr6) {
+					continue
+				}
+				ipDst6 := net.IP(pl.Data[24:40])
+				dstHw = gatewayHw
+				if ipDst6[0] == 0xff {
+					// 组播地址按 RFC2464 映射以太网组播MAC 33:33:xxxx
+					dstHw = net.HardwareAddr{0x33, 0x33, ipDst6[12], ipDst6[13], ipDst6[14], ipDst6[15]}
+				} else if sessdata.IpPool.Ipv6IPNet.Contains(ipDst6) {
+					if hw := ndpdis.Lookup(ipDst6); hw != nil {
+						dstHw = hw
+					}
+				}
+				frame.Prepare(dstHw, cSess.MacHw, ethernet.NotTagged, ethernet.IPv6, len(pl.Data))
+				copy(frame[12+2:], pl.Data)
+				break
+			}
+
 			ipSrc := waterutil.IPv4Source(pl.Data)
 			if !ipSrc.Equal(cSess.IpAddr) {
 				// 非分配给客户端ip，直接丢弃
-				continue
-			}
-
-			if waterutil.IsIPv6(pl.Data) {
-				// 过滤掉IPv6的数据
 				continue
 			}
 
@@ -224,7 +275,68 @@ func allTapRead(ifce LinkDriver, cSess *sessdata.ConnSession) {
 		default:
 			continue
 		case ethernet.IPv6:
-			continue
+			if cSess.IpAddr6 == nil {
+				continue
+			}
+			data = frame.Payload()
+			if len(data) < 40 {
+				continue
+			}
+
+			// NS(邻居请求) 代答（类比 ARP 代理）：目标为网关、本会话、或池内其他客户端地址时分别代答
+			// data[6]=NextHeader(58=ICMPv6) data[40]=ICMPv6 Type(135=NS)
+			if data[6] == 58 && len(data) > 40 && data[40] == 135 {
+				packet := gopacket.NewPacket(frame, layers.LayerTypeEthernet, gopacket.NoCopy)
+				nsLayer := packet.Layer(layers.LayerTypeICMPv6NeighborSolicitation)
+				if nsLayer == nil {
+					continue
+				}
+				ns := nsLayer.(*layers.ICMPv6NeighborSolicitation)
+				ethLayer := packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet)
+				ip6Layer := packet.Layer(layers.LayerTypeIPv6).(*layers.IPv6)
+				if ip6Layer.SrcIP.IsUnspecified() {
+					// DAD 探测(源为::)不代答，/128 池分配不存在地址冲突
+					continue
+				}
+				// 决定代答 MAC：本会话地址→本 MAC；网关→gatewayHw；池内其他客户端→查 ndpdis
+				var replyMac net.HardwareAddr
+				switch {
+				case cSess.IpAddr6.Equal(ns.TargetAddress):
+					replyMac = cSess.MacHw
+				case sessdata.IpPool.Ipv6Gateway != nil && sessdata.IpPool.Ipv6Gateway.Equal(ns.TargetAddress):
+					replyMac = gatewayHw
+				default:
+					replyMac = ndpdis.Lookup(ns.TargetAddress)
+				}
+				if replyMac == nil {
+					continue
+				}
+				data, err = ndpdis.NewNAReply(ns.TargetAddress, replyMac, ip6Layer.SrcIP, ethLayer.SrcMAC)
+				if err != nil {
+					base.Error(err)
+					return
+				}
+				pl := getPayload()
+				pl.LType = sessdata.LTypeEthernet
+				copy(pl.Data, data)
+				pl.Data = pl.Data[:len(data)]
+				if payloadIn(cSess, pl) {
+					return
+				}
+				continue
+			}
+
+			// 普通 v6 数据：仅投递目的为本会话地址的包
+			if !net.IP(data[24:40]).Equal(cSess.IpAddr6) {
+				continue
+			}
+			pl := getPayload()
+			copy(pl.Data, data)
+			pl.Data = pl.Data[:len(data)]
+			if payloadOut(cSess, pl) {
+				return
+			}
+
 		case ethernet.IPv4:
 			// 发送IP数据
 			data = frame.Payload()

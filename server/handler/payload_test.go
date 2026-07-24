@@ -1,9 +1,12 @@
 package handler
 
 import (
+	"net"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/sessdata"
 )
 
 var (
@@ -73,4 +76,28 @@ func TestNewHttpParser(t *testing.T) {
 	proto, hostname = httpNewParser(data)
 	ast.Equal(hostname, httpHost)
 	ast.Equal(int(proto), acc_proto_http)
+}
+
+// v6 包经 checkLinkAcl 不被误丢（连通优先：v6 直接放行，不做 ACL 匹配）
+func TestCheckLinkAclV6Guard(t *testing.T) {
+	ast := assert.New(t)
+	// 一条 deny-all 规则，确保 len(LinkAcl)>0 会进入 v4 匹配分支
+	_, denyNet, _ := net.ParseCIDR("0.0.0.0/0")
+	rp := &dbdata.Policy{
+		LinkAcl: []dbdata.GroupLinkAcl{
+			{Action: dbdata.Deny, Protocol: dbdata.ALL, Val: "0.0.0.0/0", IpNet: denyNet},
+		},
+	}
+
+	// v6 数据包：首字节 0x60（version=6），40 字节最小 IPv6 头
+	v6Data := make([]byte, 40)
+	v6Data[0] = 0x60
+	v6pl := &sessdata.Payload{LType: sessdata.LTypeIPData, PType: 0x00, Data: v6Data}
+	ast.True(checkLinkAcl(rp, v6pl), "v6 包应被守卫放行，而非误丢")
+
+	// 对照：同策略下 v4 包命中 deny-all 应被丢弃，证明守卫是 v6 放行的关键
+	v4Data := make([]byte, 40)
+	v4Data[0] = 0x45 // version=4, ihl=5
+	v4pl := &sessdata.Payload{LType: sessdata.LTypeIPData, PType: 0x00, Data: v4Data}
+	ast.False(checkLinkAcl(rp, v4pl), "v4 包命中 deny-all 应被丢弃")
 }

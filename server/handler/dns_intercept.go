@@ -168,6 +168,11 @@ func restoreFakeIP(cSess *sessdata.ConnSession, pl *sessdata.Payload) bool {
 		return false
 	}
 
+	// 连通优先：v6 包不做 FakeIP 还原（v6 FakeIP 留 v2），直接放行，避免误读 v6 头丢包
+	if (pl.Data[0]&0xF0)>>4 != 4 {
+		return false
+	}
+
 	ipDst := waterutil.IPv4Destination(pl.Data)
 	if !cSess.FakeDNS.IsFakeIP(ipDst) {
 		return false
