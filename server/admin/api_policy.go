@@ -112,7 +112,7 @@ func PolicyDetail(w http.ResponseWriter, r *http.Request) {
 
 // 新增或更新策略配置
 func PolicySet(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<23) // 8MB
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		RespError(w, RespInternalErr, err)

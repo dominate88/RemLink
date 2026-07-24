@@ -116,8 +116,8 @@ type Policy struct {
 	// FakeDNS 配置
 	EnableFakeDNS   bool   `json:"enable_fakedns" xorm:"Bool"`
 	FakeDNSUpstream string `json:"fake_dns_upstream" xorm:"varchar(20)"`
-	FakeDNSInclude  string `json:"fake_dns_include" xorm:"Text"`
-	FakeDNSExclude  string `json:"fake_dns_exclude" xorm:"Text"`
+	FakeDNSInclude  string `json:"fake_dns_include" xorm:"LongText"`
+	FakeDNSExclude  string `json:"fake_dns_exclude" xorm:"LongText"`
 	// 运行时计算字段（不持久化，加载后由 AddFakeDNSRules 预处理）
 	FakeDNSIncludeSet map[string]struct{} `json:"-" xorm:"-"`
 	FakeDNSExcludeSet map[string]struct{} `json:"-" xorm:"-"`
