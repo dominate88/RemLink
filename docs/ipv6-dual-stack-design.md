@@ -1,8 +1,9 @@
 # RemLink IPv6 双栈改造 — 连通优先版定稿设计
 
-> 状态：定稿（待评审后进入实现）
+> 状态：定稿（v1 已实现；v2 策略补全已实现于 `ipv6-v1` 分支，见 `ipv6-dual-stack-future.md`）
 > 范围：仅服务端改动；客户端走标准 AnyConnect / OpenConnect 头，无需改客户端
 > 基线决策：TUN + TAP + macvtap 三模式全做；客户端 v6 地址池分配 `/128`；单 `Ipv6CIDR` 自动分配；单一 `GlobalNat` 开关对称管 v4+v6；v6 策略**连通优先**（不做 v6 版 FakeDNS / ACL / 审计）；**v6 默认 NAT66** 作为安全基线
+> v2 更新（2026-07-25）：v6 策略层已全部补齐——v6 精细 ACL 匹配、v6 访问审计、v6 FakeDNS(AAAA)+v6 DNAT、v6 DNS 拦截、组级独立 v6 出网隔离（`Group.ClientCidr6` + `AddGroupNAT6` + 前端配置）；`Ipv6CIDR` 为空仍完全维持纯 v4 行为。
 
 ---
 
@@ -202,11 +203,16 @@ func restoreFakeIP(cSess *sessdata.ConnSession, pl *sessdata.Payload) bool {
 
 ---
 
-## 12. 已知限制（v2 待办）
+## 12. 已知限制（v2 状态追踪）
 
-1. v6 精细 ACL 匹配（当前放行）。
-2. v6 FakeDNS / AAAA 解析 / v6 DNAT（当前 AAAA 回空，4a）。
-3. v6 审计字段细化（当前不审计）。
-4. v6 DNS 拦截（当前不拦截，透传）。
-5. 服务端 v6 接入监听（CSTP/DTLS over v6）—— 本轮明确不做。
-6. 组级 v6 出网隔离：v1 因单全局 `Ipv6CIDR` 池无解耦基础，`AddGroupNAT6` 延后；未来需 `Group.ClientCidr6` 字段 + 多 CIDR 池支持。
+> 下列条目为 v1 设计时的「v2 待办」。截至 `ipv6-v1` 分支，1–4 与 6 均已在 v2 落地（见 `docs/ipv6-dual-stack-future.md`），仅 5 为**本轮明确不做**。
+
+- [x] ~~v6 精细 ACL 匹配（当前放行）~~ → 已完成：`checkLinkAcl` 复用 `LinkAcl` 的 `*net.IPNet`，ICMPv6 按 ICMP 处理。
+- [x] ~~v6 FakeDNS / AAAA 解析 / v6 DNAT~~ → 已完成：v6 FakeIP 段固定 `2001:db8::/32`（RFC3849），`ResolveDomainAAAA` + `interceptDNS` AAAA 回 v6 fakeIP + 防火墙 v6 DNAT 靠 map 查表。
+- [x] ~~v6 审计字段细化（当前不审计）~~ → 已完成：`AccessAudit.Src/Dst varchar(60)` 记录 v6 五元组。
+- [x] ~~v6 DNS 拦截（当前不拦截，透传）~~ → 已完成：去掉 v6 早退，`interceptDNS` 接管 AAAA。
+- [ ] 服务端 v6 接入监听（CSTP/DTLS over v6）—— **本轮明确不做**（DTLS 传输仍 v4 接入，`DTLS-Address-IP6` 仅信息性下发）。
+- [x] ~~组级 v6 出网隔离~~ → 已完成：`Group.ClientCidr6` 字段 + `AddGroupNAT6` 接口，组池优先、回退全局 `Ipv6CIDR`。
+
+### 12.1 本轮新增修复（MTU 下限）
+- IPv6 要求链路 MTU ≥ 1280。原仅 `initIpPool` 强制**全局** `base.GetCfg().Mtu ≥ 1280`，但用户级 `user.Mtu` 覆盖（非 0）会绕过 `SetMtu`、且客户端显式请求低 MTU 也会被接受，导致 v6 PMTU 黑洞。已在两处补 1280 下限保护（`session.go` 会话创建处 + `SetMtu`），仅 v6 开启时生效，纯 v4 字节级不变。

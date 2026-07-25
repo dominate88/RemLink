@@ -11,7 +11,26 @@
 - 新增：在线升级支持 Gitee 镜像备用源，GitHub 不可达时自动回退版本检查与下载
 - 优化：原「软件配置」中的企微回调验证文件、LDAP/企微/飞书自动同步开关，移至各自认证源配置窗口，支持每源独立控制自动同步。**升级后请在各认证源配置中重新填写以下字段（旧全局值不再自动迁移，需手动配置）：LDAP / 企业微信 / 飞书的「自动同步用户」开关，以及企业微信的「验证文件名」「验证文件内容」**
 
+- 新增：IPv6 双栈 V2 —— v6 精细 ACL 匹配：开启策略 ACL 后，v6 流量按目的地址/端口级二次过滤（与 v4 同机制），不再"过路由即全放"
+- 新增：IPv6 双栈 V2 —— v6 访问审计：记录 v6 流量的源/目的地址、协议与端口，与 v4 审计同口径（存储 varchar(60) 已够用）
+- 新增：IPv6 双栈 V2 —— v6 FakeDNS（AAAA）：命中 FakeDNS 规则的域名在 v6 下返回 v6 假地址并做 v6 DNAT 还原（此前 AAAA 被回空），开启 FakeDNS 的组实现真正的 v6 双栈域名分流
+- 新增：IPv6 双栈 V2 —— v6 DNS 拦截：v6 DNS 报文支持解析与改写（广告/域名策略覆盖 v6），此前 v6 DNS 透传真实结果
+- 新增：IPv6 双栈 V2 —— 组级独立 v6 出网隔离：组配置新增「IPv6 网段」（前端，前缀须小于 128），每组独立 v6 CIDR 分别 NAT66/stateful FORWARD 出网，避免所有组共用一段 v6 出网；留空则复用全局 v6 池
+- 新增：FakeDNS 配置新增「DNS 层优先 v6」开关（per-policy，位于 FakeDNS 配置页）：开启后命中 FakeDNS 规则的域名优先回 AAAA（v6 假地址），对 A 查询返回 NODATA 引导双栈应用走 v6（仅双栈开启时有效）
+- 变更：v6 FakeIP 假地址段固定为常量 `2001:db8::/32`（RFC3849 文档前缀，等价于 v4 的 100.64.0.0/10），不再可配置；移除了 FakeDNSv6Range 配置项与 LINK_FAKE_DNS_V6_RANGE 环境变量，与 v4 行为保持一致
+
 ### 修复
+
+- 修复：开启 FakeDNS 且双栈时漏发 v6 FakeIP 段路由（X-CSTP-Split-Include-IP6），导致客户端未将 v6 假地址段路由进隧道、v6 DNAT 收不到包
+- 修复：IPv6 FakeDNS 转发失败（ping 解析到 v6 假地址 `2001:db8::2` 超时）——根因是 `checkLinkAcl` 对目的地址做 ACL 校验时，fakeIP 段 `2001:db8::/32` 不在 ACL 放行范围内（v4 因 `100.64.0.0/10` 与 VPN 池重叠才侥幸通过）。fakeIP 是 FakeDNS 接管域名的占位地址、真实目的由内核 PREROUTING DNAT 才确定，不能用占位地址做 ACL 拦截；现对目的为 fakeIP（v4/v6 双池）的包跳过 LinkAcl，与 DNS 端口豁免逻辑一致
+- 修复：开启 FakeDNS「DNS 层优先 v6」后转发失效——原实现无条件抑制 A 查询（NODATA）却可能在 v6 映射尚未建立时就回 v6 假地址；当上游 DNS 过滤/不支持 AAAA（如境内 114 对境外域名抑制 AAAA，返回负响应）时 v6 映射永远建不起来，又丢了 v4 路径，导致双栈应用全黑洞。现改为与 v4 对齐的「乐观分配」：AAAA 查询直接回 v6 假地址、映射异步补全（首包丢弃后客户端重传恢复，与 v4 fakeIP 一致），不再依赖串行读循环上的同步探测（该探测易受上游抖动/超时影响，导致整条隧道拿不到 v6）；对 A 查询仅在「该域名上游 AAAA 已确认可达」时才抑制 A 引导走 v6，否则回 v4 fakeIP 由客户端 Happy Eyeballs 竞争 v6，避免无谓黑洞
+- 修复：IPv6 双栈客户端 v6 不通（表现为「本地 IPv6 地址丢失 / 拿不到 v6」）——根因是 IPv6 转发是 per-interface 的（不同于 IPv4 的 `net.ipv4.ip_forward` 全局单一开关）：原 `start.go` 仅设 `net.ipv6.conf.all.forwarding=1`（只影响已存在接口），客户端连接时新建的 TUN/TAP/macvtap 接口从 `default.forwarding` 继承（默认 0），导致新建接口转发未开启、v6 包转不出去。现补设 `net.ipv6.conf.default.forwarding=1`，并在 tun/tap（桥+tap 两接口）/vtap 接口创建后显式设 `net.ipv6.conf.<iface>.forwarding=1`，使 v6 像 v4 一样自动生效，无需手动改 sysctl 文件
+- 修复：部分主机装系统时全局禁用了 IPv6（`disable_ipv6=1`，连 link-local 都没有），导致双栈开启后出网网卡拿不到运营商 v6 地址、v6 完全不工作。现双栈开启时自动解除禁用（`net.ipv6.conf.{all,default,<egress>}.disable_ipv6=0`）
+- 修复：FakeDNS AAAA 解析失败无负缓存——改为乐观分配 v6 fakeIP 后，异步 AAAA 解析失败（上游过滤/不支持 AAAA 或网络不可达）会写入负缓存（上游明确无 AAAA 缓存 60s、网络错误缓存 10s）：命中负缓存的 AAAA 查询回 NODATA 引导走 v4，且「DNS 层优先 v6」不再抑制该域名的 A 查询；命中正缓存（AAAA 可达）才在优先 v6 下抑制 A。避免对确认无 AAAA 的域名反复探测，也避免把建不起映射的 v6 fakeIP 交给客户端造成黑洞
+- 修复：IPv6 双栈下链路 MTU 未对用户级 Mtu 覆盖（非 0 绕过 SetMtu）及客户端显式低 MTU 请求做下限保护，可能低于 1280 触发 v6 PMTU 黑洞。现双栈开启时强制链路 MTU ≥ 1280（纯 v4 字节级不变）
+- 修复：「DNS 层优先 v6」关闭时 AAAA 查询仍乐观回 v6 假地址，客户端在 v4/v6 间竞速导致部分网站走 v4、部分走 v6。现关闭时 AAAA 回 NODATA 强制走 v4 fakeIP（开启时维持乐观回 v6 假地址）
+- 修复：「DNS 层优先 v6」关闭时仍下发 v6 FakeIP 段路由（X-CSTP-Split-Include-IP6），与 v6 fakeIP 分配行为不一致（AAAA 已回 NODATA 却推路由，且该 /32 超网罩住真实 v6 池），可能导致 IPv6 隧道表现为失效。现仅双栈开启且「DNS 层优先 v6」开启时才下发 v6 FakeIP 段路由
+- 修复：FakeDNS 配置页「DNS 层优先 v6」开关因说明文字过长与开关并排拥挤、提行不美观；现说明文字换行到开关下方
 
 - 安全：IPT 模式下 FORWARD 链由无条件放行收紧为有状态放行（仅放行 VPN 网段出站及其 established/related 回包），与 nftables 行为一致，避免客户端被外部主动入站访问
 - 修复：TAP / macvtap 模式下 IPv6 实际不可用——服务端未将 v6 网关地址赋到桥 `remlink0`（TAP），且未对网关及池内其他客户端地址做 NDP 代答（macvtap 因主机隔离无法经内核应答网关 NS）。现 TAP 将 v6 网关 /128 赋到桥、allTapRead 的 NS 代答覆盖网关 / 本会话 / 池内其他客户端三种目标，TAP 与 macvtap 的 v6 数据面完整打通
@@ -20,10 +39,11 @@
 - 修复：AnyConnect 客户端认证失败时一律提示「用户名或密码错误」的问题；现按失败类型返回准确错误信息（证书失败、单点登录失败、动态码失败等不再被误报为密码错误）
 - 修复：无法使用DTLS建立连接的Bug
 - 修复：启用 FakeDNS 且域名列表较大时，保存策略报错的Bug
-- 修复：仪表盘实时图表只有「内存使用率」能刷新，在线数 / 网络吞吐 / CPU 三张图不显示实时数据的Bug（并发请求共用同一去重序号导致响应被误丢弃）
+- 修复：仪表盘实时图表只有「内存使用率」能刷新，在线数 / 网络吞吐 / CPU 三张图不显示实时数据的Bug
 - 修复：仪表盘刚启动实时队列为空时 `formatOnline` 访问空数据导致报错弹窗；折线图组件重复 `echarts.init` 不释放实例导致内存泄漏
 
 ### 优化
+
 - 优化：强制改密表单统一样式
 - 优化：软件配置页面
 - 优化：门户刷新动画
