@@ -128,7 +128,6 @@ func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 	if cSess.IpAddr6 != nil {
 		HttpSetHeader(w, "X-CSTP-Address-IP6", cSess.IpAddr6.String())
 		HttpSetHeader(w, "X-CSTP-Netmask-IP6", "128")
-		HttpSetHeader(w, "X-DTLS-Address-IP6", cSess.IpAddr6.String()) // 信息性；DTLS 仍走 v4 接入
 	}
 	HttpSetHeader(w, "X-CSTP-Hostname", hn) // 机器名称
 	HttpSetHeader(w, "X-CSTP-Base-MTU", cstpBaseMtu)
@@ -188,7 +187,12 @@ func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 	if rp.EnableFakeDNS {
 		// 确保 FakeDNS 上游 DNS 服务器可达
 		if rp.FakeDNSUpstream != "" {
-			HttpAddHeader(w, "X-CSTP-Split-Include", rp.FakeDNSUpstream+"/255.255.255.255")
+			// 上游可能是 v4 或 v6 地址，掩码须对应 /32 或 /128
+			mask := "/255.255.255.255"
+			if up := net.ParseIP(rp.FakeDNSUpstream); up != nil && up.To4() == nil {
+				mask = "/128"
+			}
+			HttpAddHeader(w, "X-CSTP-Split-Include", rp.FakeDNSUpstream+mask)
 		}
 		_, ipNet, err := net.ParseCIDR(sessdata.DefaultFakeIPRange)
 		if err == nil {

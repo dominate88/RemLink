@@ -362,10 +362,25 @@ func FormatListenAddr(addr string) string {
 	return ":" + addr
 }
 
+// 将绑定地址的 v4 通配写法 0.0.0.0:port 修复成:port，双栈监听（同时接受 v4/v6 客户端）。
+func fixListenAddr(addr string) string {
+	if addr == "" {
+		return addr
+	}
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	if host == "0.0.0.0" {
+		return ":" + port
+	}
+	return addr
+}
+
 func formatConfigAddrs(cfg *ServerConfig) {
-	cfg.ServerAddr = FormatListenAddr(cfg.ServerAddr)
-	cfg.ServerDTLSAddr = FormatListenAddr(cfg.ServerDTLSAddr)
-	cfg.AdminAddr = FormatListenAddr(cfg.AdminAddr)
+	cfg.ServerAddr = fixListenAddr(FormatListenAddr(cfg.ServerAddr))
+	cfg.ServerDTLSAddr = fixListenAddr(FormatListenAddr(cfg.ServerDTLSAddr))
+	cfg.AdminAddr = fixListenAddr(FormatListenAddr(cfg.AdminAddr))
 	cfg.AdvertiseDTLSAddr = FormatListenAddr(cfg.AdvertiseDTLSAddr)
 }
 
