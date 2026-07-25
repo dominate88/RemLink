@@ -45,7 +45,7 @@ func checkTun() {
 	}
 	if base.GetCfg().GlobalNat {
 		// 校验主网卡是否存在
-		masterDev := base.GetCfg().Ipv4Master
+		masterDev := base.GetCfg().MasterDev
 		if _, err := netlink.LinkByName(masterDev); err != nil {
 			ifaces := utils.GetPhysicalInterfaces()
 			base.Warn("========================================")
@@ -64,12 +64,12 @@ func checkTun() {
 			base.CheckModOrLoad("iptable_filter")
 			base.CheckModOrLoad("iptable_nat")
 		}
-		if err := fw.SetupGlobalNAT(base.GetCfg().Ipv4CIDR, base.GetCfg().Ipv4Master, base.InContainer); err != nil {
+		if err := fw.SetupGlobalNAT(base.GetCfg().Ipv4CIDR, base.GetCfg().MasterDev, base.InContainer); err != nil {
 			base.Error("设置NAT转发失败:", err, ", 请在web后台更新配置后重启服务")
 		}
 		// IPv6 双栈：始终下发 stateful FORWARD；GlobalNat 开时追加 NAT66（MASQUERADE 带 conntrack，安全基线）
 		if base.GetCfg().Ipv6CIDR != "" {
-			if err := fw.SetupGlobalNAT6(base.GetCfg().Ipv6CIDR, base.GetCfg().Ipv4Master, base.InContainer, base.GetCfg().GlobalNat); err != nil {
+			if err := fw.SetupGlobalNAT6(base.GetCfg().Ipv6CIDR, base.GetCfg().MasterDev, base.InContainer, base.GetCfg().GlobalNat); err != nil {
 				base.Error("设置 IPv6 NAT/转发失败:", err, ", 请在web后台更新配置后重启服务")
 			}
 		}
@@ -251,7 +251,7 @@ func setGroupNAT(cSess *sessdata.ConnSession) {
 	cidr := cSess.IpPool.Ipv4IPNet.String()
 	// 已添加过则跳过（失败不 Store，允许下次连接重试）
 	if _, loaded := groupNatCIDRs.Load(cidr); !loaded {
-		if err := fw.AddGroupNAT(cidr, base.GetCfg().Ipv4Master, base.InContainer); err != nil {
+		if err := fw.AddGroupNAT(cidr, base.GetCfg().MasterDev, base.InContainer); err != nil {
 			base.Warn("组", cSess.Group.Name, "设置NAT失败:", err)
 		} else {
 			groupNatCIDRs.Store(cidr, true)
@@ -263,7 +263,7 @@ func setGroupNAT(cSess *sessdata.ConnSession) {
 	if cSess.IpPool.Ipv6IPNet != nil {
 		cidr6 := cSess.IpPool.Ipv6IPNet.String()
 		if _, loaded := groupNatCIDRs.Load(cidr6); !loaded {
-			if err := fw.AddGroupNAT6(cidr6, base.GetCfg().Ipv4Master, base.InContainer, base.GetCfg().GlobalNat); err != nil {
+			if err := fw.AddGroupNAT6(cidr6, base.GetCfg().MasterDev, base.InContainer, base.GetCfg().GlobalNat); err != nil {
 				base.Warn("组", cSess.Group.Name, "设置 IPv6 NAT 失败:", err)
 			} else {
 				groupNatCIDRs.Store(cidr6, true)

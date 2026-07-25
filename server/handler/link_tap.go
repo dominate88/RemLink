@@ -155,6 +155,9 @@ func LinkTap(cSess *sessdata.ConnSession) error {
 		}
 	}
 
+	// 设置组NAT
+	setGroupNAT(cSess)
+
 	go allTapRead(ifce, cSess)
 	go allTapWrite(ifce, cSess)
 	return nil

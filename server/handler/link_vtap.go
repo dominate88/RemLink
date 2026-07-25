@@ -36,12 +36,12 @@ func checkMacvtap() {
 	base.CheckModOrLoad("macvtap")
 
 	_setGateway()
-	_checkTapIp(base.GetCfg().Ipv4Master)
+	_checkTapIp(base.GetCfg().MasterDev)
 
 	ifName := "remlinkMacvtap"
 
 	// 开启主网卡混杂模式
-	masterLink, err := netlink.LinkByName(base.GetCfg().Ipv4Master)
+	masterLink, err := netlink.LinkByName(base.GetCfg().MasterDev)
 	if err != nil {
 		base.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func LinkMacvtap(cSess *sessdata.ConnSession) error {
 
 	alias := utils.ParseName(cSess.Group.Name + "." + cSess.Username)
 	// 创建 macvtap 网卡
-	masterLink, err := netlink.LinkByName(base.GetCfg().Ipv4Master)
+	masterLink, err := netlink.LinkByName(base.GetCfg().MasterDev)
 	if err != nil {
 		base.Error(err)
 		return err
@@ -153,6 +153,9 @@ func LinkMacvtap(cSess *sessdata.ConnSession) error {
 			base.Warn("assign v6 gateway to vtap failed: ", err)
 		}
 	}
+
+	// 设置组NAT
+	setGroupNAT(cSess)
 
 	return createVtap(cSess, ifName)
 }

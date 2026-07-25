@@ -140,7 +140,8 @@ func checkLinkAcl(rp *dbdata.Policy, pl *sessdata.Payload) bool {
 			ipProto = waterutil.IPProtocol(info.Proto)
 		}
 	default:
-		return true // 非 IPv4/IPv6，放行
+		// 非 IPv4/IPv6 的畸形包：安全默认拒绝
+		return false
 	}
 
 	// 优先放行 dns 端口

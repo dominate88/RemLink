@@ -42,10 +42,10 @@ func Start() {
 		if err := sysctlSet("net.ipv6.conf.default.disable_ipv6", "0"); err != nil {
 			base.Warn(err)
 		}
-		if err := sysctlSet("net.ipv6.conf."+base.GetCfg().Ipv4Master+".disable_ipv6", "0"); err != nil {
+		if err := sysctlSet("net.ipv6.conf."+base.GetCfg().MasterDev+".disable_ipv6", "0"); err != nil {
 			base.Warn(err)
 		}
-		if err := sysctlSet("net.ipv6.conf."+base.GetCfg().Ipv4Master+".accept_ra", "2"); err != nil {
+		if err := sysctlSet("net.ipv6.conf."+base.GetCfg().MasterDev+".accept_ra", "2"); err != nil {
 			base.Warn(err)
 		}
 		// 注意：IPv6 forwarding 是 per-interface 的（不像 IPv4 的 net.ipv4.ip_forward 是全局单一开关）。

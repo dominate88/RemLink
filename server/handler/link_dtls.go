@@ -87,6 +87,11 @@ func LinkDtls(conn net.Conn, cSess *sessdata.ConnSession) {
 				base.Error("dtls decompress error", err, n)
 				continue
 			}
+			if nn <= 0 || nn+1 > BufferSize {
+				putByte(dst)
+				base.Error("dtls decompress invalid len:", cSess.Username, nn)
+				continue
+			}
 			pl.Data = append(pl.Data[:1], (*dst)[:nn]...)
 			putByte(dst)
 			n = nn + 1

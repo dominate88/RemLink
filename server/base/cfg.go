@@ -236,6 +236,10 @@ func (m *ConfigManager) initCfg() {
 		name := typ.Field(i).Tag.Get("json")
 		value := ref.Field(i)
 		raw, explicit := readConfigRaw(name)
+		// 兼容旧配置键 ipv4_master（重命名为 master_dev 前的环境变量/命令行覆盖）
+		if raw == "" && name == "master_dev" {
+			raw, explicit = readConfigRaw("ipv4_master")
+		}
 		switch value.Kind() {
 		case reflect.String:
 			value.SetString(raw)
@@ -468,9 +472,9 @@ func (m *ConfigManager) Warnings() []SystemWarning {
 		})
 	}
 	if cfg.GlobalNat {
-		if _, err := net.InterfaceByName(cfg.Ipv4Master); err != nil {
+		if _, err := net.InterfaceByName(cfg.MasterDev); err != nil {
 			ifaces := utils.GetPhysicalInterfaces()
-			msg := "NAT配置错误：主网卡未正确配置，NAT转发规则无法生效，请在软件配置中修改 ipv4_master"
+			msg := "NAT配置错误：主网卡未正确配置，NAT转发规则无法生效，请在软件配置中修改 master_dev"
 			if len(ifaces) > 0 {
 				msg += fmt.Sprintf("（可用物理网卡: %s）", strings.Join(ifaces, ", "))
 			}

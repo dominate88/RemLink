@@ -1,5 +1,7 @@
 package base
 
+import "encoding/json"
+
 const (
 	LinkModeTUN     = "tun"
 	LinkModeTAP     = "tap"
@@ -41,7 +43,7 @@ type ServerConfig struct {
 
 	// 虚拟网络
 	LinkMode       string `json:"link_mode"`
-	Ipv4Master     string `json:"ipv4_master"`
+	MasterDev      string `json:"master_dev"`
 	Ipv4CIDR       string `json:"ipv4_cidr"`
 	Ipv4Gateway    string `json:"ipv4_gateway"`
 	Ipv4Start      string `json:"ipv4_start"`
@@ -140,7 +142,7 @@ var configMetas = map[string]configMeta{
 	"show_sql":  {usage: "显示sql语句，用于调试", group: "数据库"},
 
 	"link_mode":       {usage: "虚拟网络类型", group: "虚拟网络", defaultVal: "tun", restart: true, options: map[string]string{"TUN": "tun", "TAP": "tap", "MACVTAP": "macvtap"}},
-	"ipv4_master":     {usage: "ipv4主网卡名称", group: "虚拟网络", defaultVal: "eth0", restart: true},
+	"master_dev":      {usage: "NAT出网主网卡名称", group: "虚拟网络", defaultVal: "eth0", restart: true},
 	"ipv4_cidr":       {usage: "ip地址网段", group: "虚拟网络", defaultVal: "192.168.90.0/24", restart: true},
 	"ipv4_gateway":    {usage: "ipv4_gateway", group: "虚拟网络", defaultVal: "192.168.90.1", restart: true},
 	"ipv4_start":      {usage: "IPV4开始地址", group: "虚拟网络", defaultVal: "192.168.90.100", restart: true},
@@ -196,6 +198,28 @@ var configMetas = map[string]configMeta{
 	"web_auth_browser_mode": {usage: "Web 认证浏览器模式", group: "门户设置", defaultVal: "external", options: map[string]string{"内置": "internal", "系统": "external"}},
 
 	"show_fakedns": {usage: "在管理界面显示 FakeDNS 功能入口", group: "高级功能可见性", defaultVal: "false"},
+}
+
+// UnmarshalJSON 兼容旧配置键 ipv4_master（重命名为 master_dev 之前）。
+// 旧部署升级后，持久化配置(DB)与备份中仍可能含 ipv4_master，需回退到 MasterDev，
+// 否则该字段为空、回退默认 eth0，会导致 NAT 出网网卡错误、转发失效。
+func (c *ServerConfig) UnmarshalJSON(b []byte) error {
+	type alias ServerConfig
+	if err := json.Unmarshal(b, (*alias)(c)); err != nil {
+		return err
+	}
+	if c.MasterDev == "" {
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(b, &raw); err == nil {
+			if v, ok := raw["ipv4_master"]; ok {
+				var s string
+				if json.Unmarshal(v, &s) == nil && s != "" {
+					c.MasterDev = s
+				}
+			}
+		}
+	}
+	return nil
 }
 
 const DefaultProfileXML = `<?xml version="1.0" encoding="UTF-8"?>
