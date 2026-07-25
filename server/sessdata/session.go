@@ -209,10 +209,10 @@ func (s *Session) NewConn() *ConnSession {
 		LimitClient(username, true)
 		return nil
 	}
-	// IPv6 地址（连通优先：单全局 Ipv6CIDR 池；分配失败则降级为纯 v4）
+	// IPv6 地址（组配置了 v6 段则从组池分配，否则全局 Ipv6CIDR 池；分配失败则降级为纯 v4）
 	var ip6 net.IP
 	if base.GetCfg().Ipv6CIDR != "" {
-		ip6 = acquireIpV6(username, macAddr, uniqueMac)
+		ip6 = acquireIpV6(username, macAddr, uniqueMac, ipPool)
 		if ip6 == nil {
 			base.Warn("IPv6 地址池分配失败，客户端将以纯 v4 接入:", username)
 		}
@@ -237,6 +237,13 @@ func (s *Session) NewConn() *ConnSession {
 		PayloadOutDtls: make(chan *Payload, 256),
 		dSess:          &atomic.Value{},
 	}
+	// IPv6 要求链路 MTU ≥ 1280，否则触发 v6 PMTU 黑洞（见 ipv6-dual-stack-design.md §4）。
+	// 用户级 Mtu 覆盖（非 0）会绕过下方 link_tunnel 的 SetMtu，故此处单独强制下限。
+	if base.GetCfg().Ipv6CIDR != "" && cSess.Mtu != 0 && cSess.Mtu < 1280 {
+		base.Warn("用户级 Mtu=", cSess.Mtu, " 低于 IPv6 要求下限 1280，已自动上调到 1280 (user=", username, ")")
+		cSess.Mtu = 1280
+	}
+
 	cSess.LastDataTime.Store(time.Now().Unix())
 
 	dSess := &DtlsSession{
@@ -416,11 +423,25 @@ func (cs *ConnSession) SetMtu(mtu string) {
 
 	mi, err := strconv.Atoi(mtu)
 	if err != nil || mi < 100 {
+		enforceMtuFloorV6(cs)
 		return
 	}
 
 	if mi < MaxMtu {
 		cs.Mtu = mi
+	}
+	enforceMtuFloorV6(cs)
+}
+
+// enforceMtuFloorV6 在双栈开启时保证链路 MTU 不低于 IPv6 要求的 1280。
+// 纯 v4 时返回 0 下限，保持字节级不变（客户端可请求更低 MTU）。
+func enforceMtuFloorV6(cs *ConnSession) {
+	if base.GetCfg().Ipv6CIDR == "" {
+		return
+	}
+	if cs.Mtu < 1280 {
+		base.Warn("链路 MTU=", cs.Mtu, " 低于 IPv6 要求下限 1280，已自动上调到 1280")
+		cs.Mtu = 1280
 	}
 }
 

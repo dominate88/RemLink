@@ -20,6 +20,7 @@ type Group struct {
 	ClientStart   string `json:"client_start" xorm:"varchar(32)"`   // 起始IP
 	ClientEnd     string `json:"client_end" xorm:"varchar(32)"`     // 结束IP
 	ClientGateway string `json:"client_gateway" xorm:"varchar(32)"` // 网关地址
+	ClientCidr6   string `json:"client_cidr6" xorm:"varchar(64)"`   // IPv6 网段（单 CIDR 自动分配，需启用独立IP段；空=使用全局 v6 池）
 
 	CreatedAt time.Time `json:"created_at" xorm:"DateTime created"`
 	UpdatedAt time.Time `json:"updated_at" xorm:"DateTime updated"`
@@ -118,6 +119,7 @@ type Policy struct {
 	FakeDNSUpstream string `json:"fake_dns_upstream" xorm:"varchar(20)"`
 	FakeDNSInclude  string `json:"fake_dns_include" xorm:"LongText"`
 	FakeDNSExclude  string `json:"fake_dns_exclude" xorm:"LongText"`
+	PreferIPv6      bool   `json:"prefer_ipv6" xorm:"Bool"` // DNS 层优先 IPv6：FakeDNS 命中域名时引导双栈应用走 v6（仅双栈开启生效）
 	// 运行时计算字段（不持久化，加载后由 AddFakeDNSRules 预处理）
 	FakeDNSIncludeSet map[string]struct{} `json:"-" xorm:"-"`
 	FakeDNSExcludeSet map[string]struct{} `json:"-" xorm:"-"`

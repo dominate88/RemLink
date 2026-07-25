@@ -144,9 +144,13 @@ func LinkTun(cSess *sessdata.ConnSession) error {
 		if err = sysctlSet(fmt.Sprintf("net.ipv6.conf.%s.disable_ipv6", ifce.Name()), "0"); err != nil {
 			base.Warn("enable ipv6 on tun failed: ", err)
 		}
+		// 显式开启该 TUN 接口的 IPv6 转发（新建接口从 default.forwarding 继承，可能仍为 0，导致 v6 转发不生效）
+		if err = sysctlSet(fmt.Sprintf("net.ipv6.conf.%s.forwarding", ifce.Name()), "1"); err != nil {
+			base.Warn("enable ipv6 forwarding on tun failed: ", err)
+		}
 		v6Addr := &netlink.Addr{
 			IPNet: &net.IPNet{
-				IP:   sessdata.IpPool.Ipv6Gateway,
+				IP:   cSess.IpPool.V6Gateway(),
 				Mask: net.CIDRMask(128, 128),
 			},
 			Peer: &net.IPNet{
@@ -239,20 +243,32 @@ func setGroupNAT(cSess *sessdata.ConnSession) {
 	if cSess.IpPool == sessdata.IpPool {
 		return
 	}
-	cidr := cSess.IpPool.Ipv4IPNet.String()
-	// 已添加过则跳过
-	if _, loaded := groupNatCIDRs.Load(cidr); loaded {
-		return
-	}
-
 	fw := sessdata.GetFirewall()
 	if fw == nil {
 		return
 	}
-	if err := fw.AddGroupNAT(cidr, base.GetCfg().Ipv4Master, base.InContainer); err != nil {
-		base.Warn("组", cSess.Group.Name, "设置NAT失败:", err)
-		return // 允许下次连接重试
+
+	cidr := cSess.IpPool.Ipv4IPNet.String()
+	// 已添加过则跳过（失败不 Store，允许下次连接重试）
+	if _, loaded := groupNatCIDRs.Load(cidr); !loaded {
+		if err := fw.AddGroupNAT(cidr, base.GetCfg().Ipv4Master, base.InContainer); err != nil {
+			base.Warn("组", cSess.Group.Name, "设置NAT失败:", err)
+		} else {
+			groupNatCIDRs.Store(cidr, true)
+			base.Info("为组", cSess.Group.Name, "动态添加NAT规则:", cidr)
+		}
 	}
-	groupNatCIDRs.Store(cidr, true)
-	base.Info("为组", cSess.Group.Name, "动态添加NAT规则:", cidr)
+
+	// 组配置了独立 v6 段时按组下发 NAT66/stateful FORWARD
+	if cSess.IpPool.Ipv6IPNet != nil {
+		cidr6 := cSess.IpPool.Ipv6IPNet.String()
+		if _, loaded := groupNatCIDRs.Load(cidr6); !loaded {
+			if err := fw.AddGroupNAT6(cidr6, base.GetCfg().Ipv4Master, base.InContainer, base.GetCfg().GlobalNat); err != nil {
+				base.Warn("组", cSess.Group.Name, "设置 IPv6 NAT 失败:", err)
+			} else {
+				groupNatCIDRs.Store(cidr6, true)
+				base.Info("为组", cSess.Group.Name, "动态添加 IPv6 NAT 规则:", cidr6)
+			}
+		}
+	}
 }

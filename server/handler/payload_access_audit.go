@@ -3,6 +3,7 @@ package handler
 import (
 	"crypto/md5"
 	"encoding/binary"
+	"net"
 	"runtime/debug"
 	"time"
 
@@ -122,7 +123,39 @@ func logAudit(userName, groupName string, pl *sessdata.Payload) {
 		return
 	}
 
-	ipProto := waterutil.IPv4Protocol(pl.Data)
+	// 按 IP 版本提取五元组（v4/v6 统一审计口径；v6 复用 parseV6Header）
+	var ipProto waterutil.IPProtocol
+	var ipSrc, ipDst net.IP
+	var ipPort uint16
+
+	switch (pl.Data[0] & 0xF0) >> 4 {
+	case 4:
+		ipProto = waterutil.IPv4Protocol(pl.Data)
+		ipSrc = waterutil.IPv4Source(pl.Data)
+		ipDst = waterutil.IPv4Destination(pl.Data)
+		ipPl := waterutil.IPv4Payload(pl.Data)
+		if len(ipPl) < 4 {
+			base.Error("ipPl len < 4", ipPl, pl.Data)
+			return
+		}
+		_ = (uint16(ipPl[0]) << 8) | uint16(ipPl[1]) // srcPort: 审计不记录
+		ipPort = (uint16(ipPl[2]) << 8) | uint16(ipPl[3])
+	case 6:
+		info, ok := parseV6Header(pl.Data)
+		if !ok {
+			return // 无法解析的 v6 包不审计（安全跳过）
+		}
+		ipProto = waterutil.IPProtocol(info.Proto)
+		ipSrc = info.Src
+		ipDst = info.Dst
+		if info.Proto != 6 && info.Proto != 17 {
+			return // 非 TCP/UDP 不审计（与 v4 一致）
+		}
+		ipPort = info.DstPort
+	default:
+		return
+	}
+
 	// 访问协议
 	var accessProto uint8
 	// 只统计 tcp和udp 的访问
@@ -134,16 +167,6 @@ func logAudit(userName, groupName string, pl *sessdata.Payload) {
 	default:
 		return
 	}
-	// IP报文只包含头部信息时, 则打印LOG，并退出
-	ipPl := waterutil.IPv4Payload(pl.Data)
-	if len(ipPl) < 4 {
-		base.Error("ipPl len < 4", ipPl, pl.Data)
-		return
-	}
-	_ = (uint16(ipPl[0]) << 8) | uint16(ipPl[1]) // srcPort: drop, not useful for audit
-	ipPort := (uint16(ipPl[2]) << 8) | uint16(ipPl[3])
-	ipSrc := waterutil.IPv4Source(pl.Data)
-	ipDst := waterutil.IPv4Destination(pl.Data)
 	b := getByte51()
 	// key格式 16字节源IP地址 + 16字节目的IP地址 + 2字节目的端口 + 1字节协议类型 + 16字节域名MD5
 	key := *b
@@ -155,7 +178,8 @@ func logAudit(userName, groupName string, pl *sessdata.Payload) {
 
 	info := ""
 	nu := utils.NowSec().Unix()
-	if ipProto == waterutil.TCP {
+	// HTTPS/HTTP 域名提取仅对 v4 生效；v6 包记源/目的/协议/端口即可（1.3 范围，避免用 v4 helper 误读 v6 头）
+	if ipProto == waterutil.TCP && (pl.Data[0]&0xF0)>>4 == 4 {
 		tcpPlData := waterutil.IPv4Payload(pl.Data)
 		// 24 (ACK PSH)
 		if len(tcpPlData) < 14 || tcpPlData[13] != 24 {

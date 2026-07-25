@@ -1,12 +1,14 @@
 package sessdata
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/wsczx/remlink/base"
 )
@@ -35,9 +37,12 @@ func (m *mockFirewall) SetupGlobalNAT(vpnCIDR, masterDev string, inContainer boo
 func (m *mockFirewall) SetupGlobalNAT6(vpnCIDR6, masterDev string, inContainer bool, useNat66 bool) error {
 	return nil
 }
-func (m *mockFirewall) AddGroupNAT(groupCIDR, masterDev string, inContainer bool) error  { return nil }
-func (m *mockFirewall) CleanupFakeIP() error                                             { return nil }
-func (m *mockFirewall) CleanupGlobal() error                                             { return nil }
+func (m *mockFirewall) AddGroupNAT(groupCIDR, masterDev string, inContainer bool) error { return nil }
+func (m *mockFirewall) AddGroupNAT6(groupCIDR6, masterDev string, inContainer bool, useNat66 bool) error {
+	return nil
+}
+func (m *mockFirewall) CleanupFakeIP() error  { return nil }
+func (m *mockFirewall) CleanupGlobal() error { return nil }
 
 func (m *mockFirewall) AddNatRule(fakeIP, realIP string) error {
 	m.mu.Lock()
@@ -70,12 +75,14 @@ func (e *mockError) Error() string { return e.msg }
 // 创建测试用 FakeDNSManager（不初始化防火墙单例）
 func newTestManager(t *testing.T) *FakeDNSManager {
 	m := &FakeDNSManager{
-		active:     make(map[string]*fakeIPEntry),
-		domainToIP: make(map[string]string),
-		ipToRealIP: make(map[string]string),
-		dnsCache:   make(map[string]*dnsCache),
-		stopChan:   make(chan struct{}),
-		fw:         newMockFirewall(),
+		active:       make(map[string]*fakeIPEntry),
+		activeV6:     make(map[string]*fakeIPEntry),
+		domainToIP:   make(map[string]string),
+		domainToIPV6: make(map[string]string),
+		ipToRealIP:   make(map[string]string),
+		dnsCache:     make(map[string]*dnsCache),
+		stopChan:     make(chan struct{}),
+		fw:           newMockFirewall(),
 	}
 	_, ipNet, err := net.ParseCIDR("100.64.0.0/10")
 	assert.Nil(t, err)
@@ -318,8 +325,8 @@ func TestUpdateAccess(t *testing.T) {
 	old := m.active[fakeIP.String()].GetLastAccess()
 	time.Sleep(10 * time.Millisecond)
 	m.UpdateAccess(fakeIP.String())
-	new := m.active[fakeIP.String()].GetLastAccess()
-	assert.True(t, new.After(old))
+	newTime := m.active[fakeIP.String()].GetLastAccess()
+	assert.True(t, newTime.After(old))
 }
 
 func TestUpdateAccess_NotExists(t *testing.T) {
@@ -530,4 +537,148 @@ func TestAddMapping_ConcurrentSameFakeIP(t *testing.T) {
 	wg.Wait()
 
 	assert.Equal(t, "1.2.3.4", m.GetRealIP(fakeIP.String()))
+}
+
+// ========== AcquireFakeIPv6（V2） ==========
+
+func TestAcquireFakeIPv6_NewDomain(t *testing.T) {
+	m := newTestManager(t)
+	assert.Nil(t, m.initV6Pool("fd00::/112"))
+	ip := m.AcquireFakeIPv6("example.com")
+	assert.NotNil(t, ip)
+	assert.Equal(t, 16, len(ip)) // 128 位
+	assert.True(t, m.IsFakeIP(ip))
+	assert.Equal(t, "example.com", m.GetDomain(ip.String()))
+}
+
+func TestAcquireFakeIPv6_SameDomainReturnsSameIP(t *testing.T) {
+	m := newTestManager(t)
+	assert.Nil(t, m.initV6Pool("fd00::/112"))
+	ip1 := m.AcquireFakeIPv6("example.com")
+	ip2 := m.AcquireFakeIPv6("example.com")
+	assert.Equal(t, ip1.String(), ip2.String())
+}
+
+func TestAcquireFakeIPv6_DifferentDomainsGetDifferentIPs(t *testing.T) {
+	m := newTestManager(t)
+	assert.Nil(t, m.initV6Pool("fd00::/112"))
+	ip1 := m.AcquireFakeIPv6("a.example.com")
+	ip2 := m.AcquireFakeIPv6("b.example.com")
+	assert.NotEqual(t, ip1.String(), ip2.String())
+}
+
+func TestAcquireFakeIPv6_AllInRange(t *testing.T) {
+	m := newTestManager(t)
+	assert.Nil(t, m.initV6Pool("fd00::/112"))
+	_, v6Net, _ := net.ParseCIDR("fd00::/112")
+	for i := 0; i < 20; i++ {
+		ip := m.AcquireFakeIPv6(fmt.Sprintf("d%d.example.com", i))
+		assert.NotNil(t, ip)
+		assert.True(t, v6Net.Contains(ip), "v6 fakeIP not in range: %s", ip)
+	}
+}
+
+func TestAcquireFakeIPv6_PoolNil(t *testing.T) {
+	m := newTestManager(t) // 未初始化 v6 池
+	assert.Nil(t, m.AcquireFakeIPv6("example.com"))
+}
+
+func TestAcquireFakeIPv6_AddMapping(t *testing.T) {
+	m := newTestManager(t)
+	assert.Nil(t, m.initV6Pool("fd00::/112"))
+	fakeIP := m.AcquireFakeIPv6("example.com")
+	assert.Nil(t, m.AddMapping(fakeIP.String(), "2001:db8::1", "example.com"))
+	assert.Equal(t, "2001:db8::1", m.GetRealIP(fakeIP.String()))
+	assert.True(t, m.IsFakeIP(fakeIP))
+}
+
+// startTestAAAAServer 起一个本地 UDP DNS 服务器，对 example.com 的 AAAA 查询返回 aaaaIP；
+// nodata=true 时返回空 Answer（模拟上游过滤 AAAA 的负响应），用于验证回退逻辑。
+func startTestAAAAServer(t *testing.T, aaaaIP string, nodata bool) string {
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	assert.Nil(t, err)
+	addr := pc.LocalAddr().String()
+	srv := &dns.Server{PacketConn: pc}
+	dns.HandleFunc("example.com.", func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		if nodata {
+			// 返回 NOERROR + 空 Answer（上游过滤 AAAA 的负响应）
+			_ = w.WriteMsg(m)
+			return
+		}
+		for _, q := range r.Question {
+			if q.Qtype == dns.TypeAAAA && aaaaIP != "" {
+				m.Answer = append(m.Answer, &dns.AAAA{
+					Hdr:  dns.RR_Header{Name: q.Name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: 60},
+					AAAA: net.ParseIP(aaaaIP),
+				})
+			}
+		}
+		_ = w.WriteMsg(m)
+	})
+	go func() { _ = srv.ActivateAndServe() }()
+	t.Cleanup(func() { _ = srv.Shutdown() })
+	return addr
+}
+
+// TestPreferV6Optimistic 验证「DNS 层 IPv6 优先」乐观分配：双栈开启时 AcquireFakeIPv6 立即分配
+// v6 fakeIP（不依赖同步探测）；ResolveAndMapping 异步解析 AAAA 并写入映射，随后 IsAAAAPositive 为真。
+func TestPreferV6Optimistic(t *testing.T) {
+	m := newTestManager(t)
+	assert.Nil(t, m.initV6Pool("fd00::/112"))
+	upstream := startTestAAAAServer(t, "2001:db8::1", false)
+	ip := m.AcquireFakeIPv6("example.com")
+	assert.NotNil(t, ip)
+	assert.Equal(t, 16, len(ip))
+	// 同一域名应返回同一 v6 fakeIP（幂等）
+	assert.Equal(t, ip.String(), m.AcquireFakeIPv6("example.com").String())
+	assert.Equal(t, "example.com", m.GetDomain(ip.String()))
+	assert.True(t, m.IsFakeIP(ip))
+	// 异步解析并建映射
+	m.ResolveAndMapping(ip.String(), "example.com", upstream)
+	assert.Eventually(t, func() bool {
+		return m.GetRealIP(ip.String()) == "2001:db8::1"
+	}, 3*time.Second, 20*time.Millisecond)
+	assert.True(t, m.IsAAAAPositive("example.com", upstream))
+}
+
+// TestPreferV6_AAAAFilteredNegative 验证上游过滤/不支持 AAAA 时，异步解析回填负缓存：
+// IsAAAANegative 为真、无映射、不黑洞。
+func TestPreferV6_AAAAFilteredNegative(t *testing.T) {
+	m := newTestManager(t)
+	assert.Nil(t, m.initV6Pool("fd00::/112"))
+	upstream := startTestAAAAServer(t, "", true) // 返回空 Answer（负响应）
+	ip := m.AcquireFakeIPv6("example.com")
+	assert.NotNil(t, ip)
+	m.ResolveAndMapping(ip.String(), "example.com", upstream)
+	assert.Eventually(t, func() bool {
+		return m.IsAAAANegative("example.com", upstream)
+	}, 3*time.Second, 20*time.Millisecond)
+	assert.Equal(t, "", m.GetRealIP(ip.String()))
+}
+
+func TestPreferV6_NoV6Pool(t *testing.T) {
+	m := newTestManager(t) // 未初始化 v6 池（等价于未开双栈）
+	assert.False(t, m.IsV6Enabled())
+	assert.Nil(t, m.AcquireFakeIPv6("example.com"))
+}
+
+func TestIsFakeIP_V6Range(t *testing.T) {
+	m := newTestManager(t)
+	assert.Nil(t, m.initV6Pool("fd00::/112"))
+	// 在 v6 假地址池内
+	assert.True(t, m.IsFakeIP(net.ParseIP("fd00::5")))
+	// 不在 v6 池、也不在 v4 池（100.64.0.0/10）之外，应判否
+	assert.False(t, m.IsFakeIP(net.ParseIP("2001:db8::5")))
+}
+
+func TestResolveAndMapping_V6AAAA(t *testing.T) {
+	m := newTestManager(t)
+	assert.Nil(t, m.initV6Pool("fd00::/112"))
+	fakeIP := m.AcquireFakeIPv6("example.com")
+	// 异步解析键带 |AAAA，与 v4 互不阻塞
+	m.ResolveAndMapping(fakeIP.String(), "example.com", "8.8.8.8:53")
+	_, loaded := m.resolving.Load("example.com|AAAA")
+	assert.True(t, loaded)
 }

@@ -137,9 +137,16 @@ func LinkTap(cSess *sessdata.ConnSession) error {
 		if err = sysctlSet(fmt.Sprintf("net.ipv6.conf.%s.disable_ipv6", ifce.Name()), "0"); err != nil {
 			base.Warn("enable ipv6 on tap failed: ", err)
 		}
+		// 显式开启桥与 tap 接口的 IPv6 转发（新建接口从 default.forwarding 继承，可能仍为 0，导致 v6 转发不生效）
+		if err = sysctlSet(fmt.Sprintf("net.ipv6.conf.%s.forwarding", bridge.Attrs().Name), "1"); err != nil {
+			base.Warn("enable ipv6 forwarding on bridge failed: ", err)
+		}
+		if err = sysctlSet(fmt.Sprintf("net.ipv6.conf.%s.forwarding", ifce.Name()), "1"); err != nil {
+			base.Warn("enable ipv6 forwarding on tap failed: ", err)
+		}
 		v6GwAddr := &netlink.Addr{
 			IPNet: &net.IPNet{
-				IP:   sessdata.IpPool.Ipv6Gateway,
+				IP:   cSess.IpPool.V6Gateway(),
 				Mask: net.CIDRMask(128, 128),
 			},
 		}
@@ -303,7 +310,7 @@ func allTapRead(ifce LinkDriver, cSess *sessdata.ConnSession) {
 				switch {
 				case cSess.IpAddr6.Equal(ns.TargetAddress):
 					replyMac = cSess.MacHw
-				case sessdata.IpPool.Ipv6Gateway != nil && sessdata.IpPool.Ipv6Gateway.Equal(ns.TargetAddress):
+				case cSess.IpPool.V6Gateway() != nil && cSess.IpPool.V6Gateway().Equal(ns.TargetAddress):
 					replyMac = gatewayHw
 				default:
 					replyMac = ndpdis.Lookup(ns.TargetAddress)

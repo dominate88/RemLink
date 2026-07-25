@@ -45,7 +45,7 @@ type ipPoolConfig struct {
 func GetGroupIpPool(group *dbdata.Group) *ipPoolConfig {
 	// 优先使用组级别配置
 	if group != nil && group.ClientCidr != "" && group.ClientStart != "" && group.ClientEnd != "" && group.ClientGateway != "" {
-		cacheKey := group.ClientCidr + "|" + group.ClientStart + "|" + group.ClientEnd + "|" + group.ClientGateway
+		cacheKey := group.ClientCidr + "|" + group.ClientStart + "|" + group.ClientEnd + "|" + group.ClientGateway + "|" + group.ClientCidr6
 
 		groupPoolMux.Lock()
 		defer groupPoolMux.Unlock()
@@ -70,6 +70,12 @@ func GetGroupIpPool(group *dbdata.Group) *ipPoolConfig {
 					IpLongMax:   utils.Ip2long(end),
 				}
 				p.loopCurIp = p.IpLongMin
+				// 组级 v6 段：受全局 Ipv6CIDR 总开关约束，未开总开关则忽略组 v6
+				if group.ClientCidr6 != "" && base.GetCfg().Ipv6CIDR != "" {
+					if err6 := p.initV6(group.ClientCidr6); err6 != nil {
+						base.Warn("组", group.Name, "IPv6网段配置无效，该组使用全局 v6 池:", err6)
+					}
+				}
 				groupPoolCache[cacheKey] = p
 				return p
 			}
@@ -81,8 +87,37 @@ func GetGroupIpPool(group *dbdata.Group) *ipPoolConfig {
 	return IpPool
 }
 
-func initIpPool() error {
+// 按单 CIDR 自动分配规则初始化池的 v6 字段（gw=网络+1, start=网络+2, end=网段末）
+func (p *ipPoolConfig) initV6(cidr string) error {
+	_, v6Net, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return err
+	}
+	ones, bits := v6Net.Mask.Size()
+	if bits != 128 || ones >= 128 {
+		return fmt.Errorf("IPv6 CIDR 前缀须 < 128 才有分配空间: %s", cidr)
+	}
+	network := v6Net.IP.Mask(v6Net.Mask)
+	networkBig := ipToBig(network)
+	hosts := new(big.Int).Lsh(big.NewInt(1), uint(128-ones))
 
+	p.Ipv6IPNet = v6Net
+	p.Ipv6Gateway = bigToIP(new(big.Int).Add(networkBig, big.NewInt(1)))
+	p.ipv6Start = new(big.Int).Add(networkBig, big.NewInt(2))
+	p.ipv6End = new(big.Int).Add(networkBig, new(big.Int).Sub(hosts, big.NewInt(1)))
+	p.ipv6Cursor = new(big.Int).Set(p.ipv6Start)
+	return nil
+}
+
+// 返回本池的 v6 网关；组池未配置 v6 段时回退全局池（客户端 v6 从全局池分配）
+func (p *ipPoolConfig) V6Gateway() net.IP {
+	if p != nil && p.Ipv6Gateway != nil {
+		return p.Ipv6Gateway
+	}
+	return IpPool.Ipv6Gateway
+}
+
+func initIpPool() error {
 	// 地址处理
 	_, ipNet, err := net.ParseCIDR(base.GetCfg().Ipv4CIDR)
 	if err != nil {
@@ -112,29 +147,12 @@ func initIpPool() error {
 			base.Warn("IPv6 要求链路 MTU ≥ 1280，当前 Mtu=", m, " 已自动上调到 1280")
 			base.GetCfg().Mtu = 1280
 		}
-		_, v6Net, err6 := net.ParseCIDR(cidr)
-		if err6 != nil {
+		if err6 := IpPool.initV6(cidr); err6 != nil {
 			return fmt.Errorf("IPv6 CIDR 配置错误(%s): %v", cidr, err6)
 		}
-		ones, bits := v6Net.Mask.Size()
-		if bits != 128 || ones >= 128 {
-			return fmt.Errorf("IPv6 CIDR 前缀须 < 128 才有分配空间: %s", cidr)
-		}
-		network := v6Net.IP.Mask(v6Net.Mask)
-		networkBig := ipToBig(network)
-		gwBig := new(big.Int).Add(networkBig, big.NewInt(1))
-		startBig := new(big.Int).Add(networkBig, big.NewInt(2))
-		hosts := new(big.Int).Lsh(big.NewInt(1), uint(128-ones))
-		endBig := new(big.Int).Add(networkBig, new(big.Int).Sub(hosts, big.NewInt(1)))
-
-		IpPool.Ipv6IPNet = v6Net
-		IpPool.Ipv6Gateway = bigToIP(gwBig)
-		IpPool.ipv6Start = startBig
-		IpPool.ipv6End = endBig
-		IpPool.ipv6Cursor = new(big.Int).Set(startBig)
-		base.Info("IPv6 地址池初始化: 网络=", network.String(),
+		base.Info("IPv6 地址池初始化: 网络=", IpPool.Ipv6IPNet.IP.String(),
 			" 网关=", IpPool.Ipv6Gateway.String(),
-			" 范围=", startBig.String(), "-", endBig.String())
+			" 范围=", IpPool.ipv6Start.String(), "-", IpPool.ipv6End.String())
 	}
 
 	// 网络地址零值
@@ -161,26 +179,30 @@ func bigToIP(b *big.Int) net.IP {
 	return ip
 }
 
-// 获取 IPv6 动态地址（全局单池，向后兼容：未配置 Ipv6CIDR 返回 nil）
-func acquireIpV6(username, macAddr string, uniqueMac bool) net.IP {
-	if IpPool.Ipv6IPNet == nil {
+// 获取 IPv6 动态地址；pool 为组池（未配组 v6 段则回退全局池）。
+// 向后兼容：全局未配置 Ipv6CIDR 且组无 v6 段时返回 nil
+func acquireIpV6(username, macAddr string, uniqueMac bool, pool *ipPoolConfig) net.IP {
+	if pool == nil || pool.Ipv6IPNet == nil {
+		pool = IpPool // 组池无 v6 字段时回退全局
+	}
+	if pool.Ipv6IPNet == nil {
 		return nil
 	}
 	ipPoolMux.Lock()
 	defer ipPoolMux.Unlock()
-	return loopIpV6(username, macAddr, uniqueMac)
+	return loopIpV6(username, macAddr, uniqueMac, pool)
 }
 
-func loopIpV6(username, macAddr string, uniqueMac bool) net.IP {
-	start := IpPool.ipv6Start
-	end := IpPool.ipv6End
+func loopIpV6(username, macAddr string, uniqueMac bool, pool *ipPoolConfig) net.IP {
+	start := pool.ipv6Start
+	end := pool.ipv6End
 	if start == nil || end == nil {
 		return nil
 	}
 	tNow := time.Now()
 	leaseTime := time.Now().Add(-1 * time.Duration(base.GetCfg().IpLease) * time.Second)
 
-	cursor := IpPool.ipv6Cursor
+	cursor := pool.ipv6Cursor
 	if cursor.Cmp(start) < 0 || cursor.Cmp(end) > 0 {
 		cursor = new(big.Int).Set(start)
 	}
@@ -213,7 +235,7 @@ func loopIpV6(username, macAddr string, uniqueMac bool) net.IP {
 					continue
 				}
 				ipActive[ipStr] = true
-				IpPool.ipv6Cursor = new(big.Int).Add(cur, big.NewInt(1))
+				pool.ipv6Cursor = new(big.Int).Add(cur, big.NewInt(1))
 				return ip
 			} else if !dbdata.CheckErrNotFound(err) {
 				base.Error("查询 v6 ip_map 失败:", err)
@@ -241,7 +263,7 @@ func loopIpV6(username, macAddr string, uniqueMac bool) net.IP {
 				}
 			}
 			ipActive[ipStr] = true
-			IpPool.ipv6Cursor = new(big.Int).Add(cur, big.NewInt(1))
+			pool.ipv6Cursor = new(big.Int).Add(cur, big.NewInt(1))
 			return ip
 		}
 	}

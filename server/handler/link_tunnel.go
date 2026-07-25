@@ -124,13 +124,13 @@ func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 	HttpSetHeader(w, "X-CSTP-Protocol", "Copyright (c) 2004 Cisco Systems, Inc.")
 	HttpSetHeader(w, "X-CSTP-Address", cSess.IpAddr.String())          // 分配的ip地址
 	HttpSetHeader(w, "X-CSTP-Netmask", cSess.IpPool.Ipv4Mask.String()) // 子网掩码
-	// IPv6 双栈（连通优先版）：仅当分配了 v6 地址时下发
+	// IPv6 双栈：仅当分配了 v6 地址时下发
 	if cSess.IpAddr6 != nil {
 		HttpSetHeader(w, "X-CSTP-Address-IP6", cSess.IpAddr6.String())
 		HttpSetHeader(w, "X-CSTP-Netmask-IP6", "128")
 		HttpSetHeader(w, "X-DTLS-Address-IP6", cSess.IpAddr6.String()) // 信息性；DTLS 仍走 v4 接入
 	}
-	HttpSetHeader(w, "X-CSTP-Hostname", hn)                            // 机器名称
+	HttpSetHeader(w, "X-CSTP-Hostname", hn) // 机器名称
 	HttpSetHeader(w, "X-CSTP-Base-MTU", cstpBaseMtu)
 	// 客户端dns的默认搜索域
 	if base.GetCfg().DefaultDomain != "" {
@@ -195,6 +195,12 @@ func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 			mask := net.IP(ipNet.Mask)
 			ipMask := fmt.Sprintf("%s/%s", ipNet.IP, mask)
 			HttpAddHeader(w, "X-CSTP-Split-Include", ipMask)
+		}
+		// v6 FakeIP 段路由：仅「双栈开启 且 IPv6 优先开启」时下发
+		if base.GetCfg().Ipv6CIDR != "" && rp.PreferIPv6 {
+			if _, ipNet6, err6 := net.ParseCIDR(sessdata.DefaultFakeIPv6Range); err6 == nil {
+				HttpAddHeader(w, "X-CSTP-Split-Include-IP6", ipNet6.String())
+			}
 		}
 	}
 

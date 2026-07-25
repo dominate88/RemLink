@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/binary"
+	"net"
 	"strings"
 	"time"
 
@@ -27,34 +28,51 @@ func interceptDNS(cSess *sessdata.ConnSession, pl *sessdata.Payload) bool {
 		return false
 	}
 
-	// 检查 IP 版本
-	ipVersion := (pl.Data[0] & 0xF0) >> 4
-	if ipVersion != 4 {
-		return false // 不是 IPv4,静默丢弃
-	}
-
-	ipHeaderLen := int(pl.Data[0]&0x0F) * 4
-	// 验证 IHL 值的合法性(5-15,对应 20-60 字节)
-	if ipHeaderLen < 20 || ipHeaderLen > 60 {
-		if ipHeaderLen != 0 {
-			base.Debug("Invalid IP header length:", ipHeaderLen, "bytes, dropping")
+	// 按传输层 IP 版本提取目的地址/端口/DNS 载荷（v6 DNS 报文同样拦截）
+	var (
+		ipDst   net.IP
+		ipPort  uint16
+		dnsData []byte
+		v6Info  v6HeaderInfo // 仅 isV6 时有效，构造 v6 响应包需要
+		isV6    bool
+	)
+	switch (pl.Data[0] & 0xF0) >> 4 {
+	case 4:
+		ipHeaderLen := int(pl.Data[0]&0x0F) * 4
+		// 验证 IHL 值的合法性(5-15,对应 20-60 字节)
+		if ipHeaderLen < 20 || ipHeaderLen > 60 {
+			if ipHeaderLen != 0 {
+				base.Debug("Invalid IP header length:", ipHeaderLen, "bytes, dropping")
+			}
+			return false
 		}
+		// 检查数据包是否包含完整的 IP 头 + UDP 头
+		if len(pl.Data) < ipHeaderLen+8 {
+			base.Debug("Packet too short:", len(pl.Data), "bytes, dropping")
+			return false
+		}
+		// 只处理 UDP 协议
+		if waterutil.IPv4Protocol(pl.Data) != waterutil.UDP {
+			return false
+		}
+		ipDst = waterutil.IPv4Destination(pl.Data)
+		ipPort = waterutil.IPv4DestinationPort(pl.Data)
+		dnsData = pl.Data[ipHeaderLen+8:]
+	case 6:
+		info, ok := parseV6Header(pl.Data)
+		if !ok || info.Proto != 17 { // 只处理 UDP
+			return false
+		}
+		if len(pl.Data) < info.L4Off+8 {
+			return false
+		}
+		v6Info, isV6 = info, true
+		ipDst = info.Dst
+		ipPort = info.DstPort
+		dnsData = pl.Data[info.L4Off+8:]
+	default:
 		return false
 	}
-	// 检查数据包是否包含完整的 IP 头 + UDP 头
-	if len(pl.Data) < ipHeaderLen+8 {
-		base.Debug("Packet too short:", len(pl.Data), "bytes, dropping")
-		return false
-	}
-
-	ipProto := waterutil.IPv4Protocol(pl.Data)
-
-	// 只处理 UDP 协议
-	if ipProto != waterutil.UDP {
-		return false
-	}
-	ipDst := waterutil.IPv4Destination(pl.Data)
-	ipPort := waterutil.IPv4DestinationPort(pl.Data)
 
 	// 判断是否是DNS请求
 	if ipPort != 53 {
@@ -64,14 +82,14 @@ func interceptDNS(cSess *sessdata.ConnSession, pl *sessdata.Payload) bool {
 	// 检查是否是配置的ClientDns服务器
 	isDNSServer := false
 	for _, dnsServer := range rp.ClientDns {
-		if dnsServer.Val == ipDst.String() {
+		if dnsAddrEqual(dnsServer.Val, ipDst) {
 			isDNSServer = true
 			break
 		}
 	}
 	// 检查是否是 FakeDNS 上游服务器
 	if !isDNSServer && rp.FakeDNSUpstream != "" {
-		if rp.FakeDNSUpstream == ipDst.String() {
+		if dnsAddrEqual(rp.FakeDNSUpstream, ipDst) {
 			isDNSServer = true
 		}
 	}
@@ -79,9 +97,6 @@ func interceptDNS(cSess *sessdata.ConnSession, pl *sessdata.Payload) bool {
 	if !isDNSServer {
 		return false
 	}
-
-	// 提取 DNS 数据（IP头 + UDP头之后）
-	dnsData := pl.Data[ipHeaderLen+8:]
 
 	// 解析 DNS 请求
 	msg := new(dns.Msg)
@@ -97,17 +112,52 @@ func interceptDNS(cSess *sessdata.ConnSession, pl *sessdata.Payload) bool {
 	domain := strings.TrimSuffix(msg.Question[0].Name, ".")
 	qType := msg.Question[0].Qtype
 
-	// 对命中 FakeDNS 规则的 AAAA 查询，返回空响应
+	// 命中 FakeDNS 规则的 AAAA 查询
 	if qType == dns.TypeAAAA && shouldUseFakeIP(domain, rp) {
+		if !cSess.FakeDNS.IsV6Enabled() {
+			return false // 未开双栈，不接管 AAAA，放行真实解析
+		}
 		resp := new(dns.Msg)
 		resp.SetReply(msg)
-		dnsResp, err := resp.Pack()
-		if err == nil {
-			respPacket := buildDNSResponsePacket(pl.Data, dnsResp)
-			sendDNSResponse(cSess, respPacket)
+		// IPv6 优先关闭：不回 v6 fakeIP，回 NODATA 强制客户端走 v4 fakeIP。
+		// 否则双栈下 A/AAAA 同时拿到 fakeIP，客户端在 v4/v6 间竞速，v6 fakeIP→DNAT 路径
+		if !cSess.Policy.PreferIPv6 {
+			dnsResp, err := resp.Pack()
+			if err != nil {
+				return false
+			}
+			sendDNSResponse(cSess, buildDNSResponse(pl.Data, v6Info, isV6, dnsResp))
 			return true
 		}
-		return false
+		upstream := cSess.Policy.GetUpstreamDNS() + ":53"
+		if cSess.FakeDNS.IsAAAANegative(domain, upstream) {
+			// 已确认上游无 AAAA：不回 v6 fakeIP（否则黑洞），回 NODATA 引导走 v4
+			dnsResp, err := resp.Pack()
+			if err != nil {
+				return false
+			}
+			sendDNSResponse(cSess, buildDNSResponse(pl.Data, v6Info, isV6, dnsResp))
+			return true
+		}
+		if fakeIP6 := cSess.FakeDNS.AcquireFakeIPv6(domain); fakeIP6 != nil {
+			// 异步解析 AAAA 并写入映射/DNAT；失败会写入负缓存，后续查询据此回退 v4
+			cSess.FakeDNS.ResolveAndMapping(fakeIP6.String(), domain, upstream)
+			resp.Answer = append(resp.Answer, &dns.AAAA{
+				Hdr: dns.RR_Header{
+					Name:   msg.Question[0].Name,
+					Rrtype: dns.TypeAAAA,
+					Class:  dns.ClassINET,
+					Ttl:    60,
+				},
+				AAAA: fakeIP6,
+			})
+		}
+		dnsResp, err := resp.Pack()
+		if err != nil {
+			return false
+		}
+		sendDNSResponse(cSess, buildDNSResponse(pl.Data, v6Info, isV6, dnsResp))
+		return true
 	}
 
 	// 只处理 A 记录查询
@@ -120,6 +170,29 @@ func interceptDNS(cSess *sessdata.ConnSession, pl *sessdata.Payload) bool {
 		base.Debug("Domain not matched FakeDNS rules, Not Intercepting:", domain)
 		return false // 不拦截，正常转发
 	}
+
+	// IPv6 优先：仅当该域名上游 AAAA 已确认可达（异步解析成功后写入的正缓存）才抑制 A 回 NODATA，
+	// 首次/未知域名不抑制，回 v4 fakeIP，由客户端 Happy Eyeballs 竞争 v6，
+	// 避免「抑制 A 但 v6 映射建不起来」导致的全黑洞（转发失效）。
+	if cSess.Policy.PreferIPv6 && cSess.FakeDNS.IsV6Enabled() {
+		upstream := cSess.Policy.GetUpstreamDNS() + ":53"
+		if cSess.FakeDNS.IsAAAAPositive(domain, upstream) {
+			if fakeIP6 := cSess.FakeDNS.AcquireFakeIPv6(domain); fakeIP6 != nil {
+				cSess.FakeDNS.ResolveAndMapping(fakeIP6.String(), domain, upstream)
+				base.Debug("PreferIPv6: AAAA confirmed, suppress A for:", domain, "->", fakeIP6.String())
+				resp := new(dns.Msg)
+				resp.SetReply(msg) // 空 Answer = NODATA
+				dnsResp, err := resp.Pack()
+				if err != nil {
+					return false
+				}
+				sendDNSResponse(cSess, buildDNSResponse(pl.Data, v6Info, isV6, dnsResp))
+				return true
+			}
+		}
+		// AAAA 未确认：回退 v4 fakeIP
+	}
+
 	base.Debug("Intercepting DNS query for:", domain)
 
 	// 分配 FakeIP
@@ -152,13 +225,29 @@ func interceptDNS(cSess *sessdata.ConnSession, pl *sessdata.Payload) bool {
 		return false
 	}
 
-	// 构造完整的响应包
-	respPacket := buildDNSResponsePacket(pl.Data, dnsResp)
-
-	// 发送响应包回客户端
-	sendDNSResponse(cSess, respPacket)
+	// 构造完整的响应包并发送回客户端
+	sendDNSResponse(cSess, buildDNSResponse(pl.Data, v6Info, isV6, dnsResp))
 
 	return true
+}
+
+// 比较配置的 DNS 服务器地址与报文目的地址
+func dnsAddrEqual(cfgVal string, dst net.IP) bool {
+	if cfgVal == dst.String() {
+		return true
+	}
+	if ip := net.ParseIP(cfgVal); ip != nil {
+		return ip.Equal(dst)
+	}
+	return false
+}
+
+// 按传输层版本构造 DNS 响应包
+func buildDNSResponse(queryPacket []byte, v6Info v6HeaderInfo, isV6 bool, dnsResp []byte) []byte {
+	if isV6 {
+		return buildDNSResponsePacket6(v6Info, dnsResp)
+	}
+	return buildDNSResponsePacket(queryPacket, dnsResp)
 }
 
 // 还原 FakeIP 为真实域名并解析
@@ -168,12 +257,21 @@ func restoreFakeIP(cSess *sessdata.ConnSession, pl *sessdata.Payload) bool {
 		return false
 	}
 
-	// 连通优先：v6 包不做 FakeIP 还原（v6 FakeIP 留 v2），直接放行，避免误读 v6 头丢包
-	if (pl.Data[0]&0xF0)>>4 != 4 {
+	// 按 IP 版本取目的地址；v6 复用共享头解析
+	var ipDst net.IP
+	switch (pl.Data[0] & 0xF0) >> 4 {
+	case 4:
+		ipDst = waterutil.IPv4Destination(pl.Data)
+	case 6:
+		info, ok := parseV6Header(pl.Data)
+		if !ok {
+			return false // 畸形 v6 包交给后续 ACL 处理
+		}
+		ipDst = info.Dst
+	default:
 		return false
 	}
 
-	ipDst := waterutil.IPv4Destination(pl.Data)
 	if !cSess.FakeDNS.IsFakeIP(ipDst) {
 		return false
 	}
@@ -278,6 +376,41 @@ func buildDNSResponsePacket(queryPacket []byte, dnsResp []byte) []byte {
 
 	respPacket[ipHeaderLen+6] = 0
 	respPacket[ipHeaderLen+7] = 0
+
+	return respPacket
+}
+
+// 构建 IPv6 DNS 响应包：全新 40 字节基础头（不携带查询包的扩展头）+ UDP + DNS 载荷。
+// IPv6 的 UDP 校验和为强制项，必须按含伪头计算，否则客户端内核直接丢包。
+func buildDNSResponsePacket6(info v6HeaderInfo, dnsResp []byte) []byte {
+	udpLen := 8 + len(dnsResp)
+	respPacket := make([]byte, 40+udpLen)
+
+	// IPv6 基础头
+	respPacket[0] = 0x60 // Version=6
+	binary.BigEndian.PutUint16(respPacket[4:6], uint16(udpLen))
+	respPacket[6] = 17                       // Next Header: UDP
+	respPacket[7] = 64                       // Hop Limit
+	copy(respPacket[8:24], info.Dst.To16())  // 源 = 查询包目的（DNS 服务器）
+	copy(respPacket[24:40], info.Src.To16()) // 目的 = 查询包源（客户端）
+
+	// UDP 头（源/目的端口对调）
+	binary.BigEndian.PutUint16(respPacket[40:42], info.DstPort)
+	binary.BigEndian.PutUint16(respPacket[42:44], info.SrcPort)
+	binary.BigEndian.PutUint16(respPacket[44:46], uint16(udpLen))
+	copy(respPacket[48:], dnsResp)
+
+	// UDP 校验和（IPv6 伪头: 源 + 目的 + uint32 UDP 长度 + 3 字节零 + Next Header）
+	pseudo := make([]byte, 0, 40+udpLen)
+	pseudo = append(pseudo, respPacket[8:40]...)
+	pseudo = binary.BigEndian.AppendUint32(pseudo, uint32(udpLen))
+	pseudo = append(pseudo, 0, 0, 0, 17)
+	pseudo = append(pseudo, respPacket[40:]...)
+	csum := calculateChecksum(pseudo)
+	if csum == 0 {
+		csum = 0xffff // RFC 768/8200：0 表示无校验和，需翻转为全 1
+	}
+	binary.BigEndian.PutUint16(respPacket[46:48], csum)
 
 	return respPacket
 }

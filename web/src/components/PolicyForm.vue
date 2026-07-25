@@ -30,8 +30,8 @@
               class="bandwidth-input">
               <template slot="append">GB</template>
             </el-input>
-            <el-select v-model="form.traffic_reset" placeholder="重置周期" size="small"
-              class="traffic-reset-select" :disabled="!form.traffic_quota_format || parseFloat(form.traffic_quota_format) <= 0">
+            <el-select v-model="form.traffic_reset" placeholder="重置周期" size="small" class="traffic-reset-select"
+              :disabled="!form.traffic_quota_format || parseFloat(form.traffic_quota_format) <= 0">
               <el-option label="不限" value=""></el-option>
               <el-option label="按日" value="daily"></el-option>
               <el-option label="按周" value="weekly"></el-option>
@@ -41,9 +41,7 @@
           </el-form-item>
 
           <el-form-item label="排除本地网络" prop="allow_lan" class="form-item-row">
-            <el-switch v-model="form.allow_lan"
-              active-color="#13ce66"
-              inactive-color="#dcdfe6">
+            <el-switch v-model="form.allow_lan" active-color="#13ce66" inactive-color="#dcdfe6">
             </el-switch>
             <span class="form-tip">开启后，AnyConnect 客户端需勾选 Allow Local LAN 才能生效</span>
           </el-form-item>
@@ -70,8 +68,8 @@
                     @click.prevent="removeItem(form.client_dns, index)"></el-button>
                 </div>
               </div>
-              <el-button size="small" type="primary" plain icon="el-icon-plus"
-                @click.prevent="addItem(form.client_dns)" class="dynamic-add-btn">
+              <el-button size="small" type="primary" plain icon="el-icon-plus" @click.prevent="addItem(form.client_dns)"
+                class="dynamic-add-btn">
                 添加 DNS
               </el-button>
             </div>
@@ -97,7 +95,8 @@
                   <el-dropdown-item v-if="otherPolicies.length === 0" disabled>暂无其他策略</el-dropdown-item>
                 </el-dropdown-menu>
               </el-dropdown>
-              <el-button size="mini" type="text" icon="el-icon-edit" @click.prevent="$emit('open-ip-editor', 'route_include')">
+              <el-button size="mini" type="text" icon="el-icon-edit"
+                @click.prevent="$emit('open-ip-editor', 'route_include')">
                 批量编辑
               </el-button>
             </div>
@@ -133,7 +132,8 @@
           <div class="section-title">
             排除路由
             <div class="section-title-actions">
-              <el-button size="mini" type="text" icon="el-icon-edit" @click.prevent="$emit('open-ip-editor', 'route_exclude')">
+              <el-button size="mini" type="text" icon="el-icon-edit"
+                @click.prevent="$emit('open-ip-editor', 'route_exclude')">
                 批量编辑
               </el-button>
             </div>
@@ -227,8 +227,8 @@
                 </div>
               </div>
             </draggable>
-            <el-button size="small" type="primary" plain icon="el-icon-plus"
-              @click.prevent="addItem(form.link_acl)" class="dynamic-add-btn">
+            <el-button size="small" type="primary" plain icon="el-icon-plus" @click.prevent="addItem(form.link_acl)"
+              class="dynamic-add-btn">
               添加 ACL 规则
             </el-button>
           </el-form-item>
@@ -267,9 +267,7 @@
         <div class="tab-section">
           <div class="section-title">基本开关</div>
           <el-form-item label="FakeDNS" prop="enable_fakedns" class="form-item-row">
-            <el-switch v-model="form.enable_fakedns"
-              active-color="#409eff"
-              inactive-color="#dcdfe6">
+            <el-switch v-model="form.enable_fakedns" active-color="#409eff" inactive-color="#dcdfe6">
             </el-switch>
             <span class="form-tip">通过服务端拦截 DNS 请求实现域名分流，支持所有客户端（含移动端）</span>
           </el-form-item>
@@ -290,8 +288,7 @@
         <div class="tab-section" :class="{ 'tab-section-disabled': !form.enable_fakedns }">
           <div class="section-title">包含域名（白名单模式）</div>
           <el-form-item label="域名列表" prop="fake_dns_include" class="form-item-block">
-            <el-input type="textarea" :rows="4" v-model="form.fake_dns_include"
-              :disabled="!form.enable_fakedns"
+            <el-input type="textarea" :rows="4" v-model="form.fake_dns_include" :disabled="!form.enable_fakedns"
               placeholder="如 google.com,youtube.com（仅拦截列表中的域名，其余正常解析）"></el-input>
             <div class="form-tip">
               仅拦截列表中的域名。与"排除域名"二选一，不能同时填写。
@@ -302,12 +299,21 @@
         <div class="tab-section" :class="{ 'tab-section-disabled': !form.enable_fakedns }">
           <div class="section-title">排除域名（黑名单模式）</div>
           <el-form-item label="域名列表" prop="fake_dns_exclude" class="form-item-block">
-            <el-input type="textarea" :rows="4" v-model="form.fake_dns_exclude"
-              :disabled="!form.enable_fakedns"
+            <el-input type="textarea" :rows="4" v-model="form.fake_dns_exclude" :disabled="!form.enable_fakedns"
               placeholder="如 baidu.com,163.com（拦截所有域名，仅排除列表中的域名正常解析）"></el-input>
             <div class="form-tip">
               拦截所有域名，仅排除列表中的域名。与"包含域名"二选一，不能同时填写。
             </div>
+          </el-form-item>
+        </div>
+
+        <div class="tab-section" :class="{ 'tab-section-disabled': !form.enable_fakedns }">
+          <div class="section-title">IPv6 优先</div>
+          <el-form-item label="DNS解析优先ipv6" prop="prefer_ipv6" class="form-item-row label-nowrap tip-below">
+            <el-switch v-model="form.prefer_ipv6" active-color="#409eff" inactive-color="#dcdfe6"
+              :disabled="!form.enable_fakedns">
+            </el-switch>
+            <span class="form-tip">开启后，命中 FakeDNS 规则的域名优先回 AAAA（v6 fakeIP），对 A 查询返回 NODATA 引导双栈应用走 v6（仅双栈开启时有效）</span>
           </el-form-item>
         </div>
       </el-tab-pane>
@@ -361,7 +367,7 @@ export default {
         this.otherPolicies = datas
           .filter(p => p.id !== this.form.id)
           .map(p => ({ id: p.id, name: p.name }))
-      }).catch(() => {})
+      }).catch(() => { })
     },
     copyRoutesFrom(policyId) {
       axios.get('/policy/detail', { params: { id: policyId } }).then(resp => {
@@ -396,10 +402,12 @@ export default {
   margin-bottom: 0;
   padding: 0 0 0 4px;
 }
+
 .policy-tabs ::v-deep .el-tabs__nav-wrap::after {
   height: 1px;
   background: var(--border-color);
 }
+
 .policy-tabs ::v-deep .el-tabs__item {
   font-size: 13px;
   font-weight: 500;
@@ -407,6 +415,7 @@ export default {
   height: 42px;
   line-height: 42px;
 }
+
 .policy-tabs ::v-deep .el-tabs__item i {
   margin-right: 4px;
 }
@@ -419,10 +428,12 @@ export default {
   padding: 16px 20px 4px;
   margin-bottom: 14px;
 }
+
 .tab-section-disabled {
   opacity: 0.5;
   pointer-events: none;
 }
+
 .section-title {
   font-size: 14px;
   font-weight: 600;
@@ -434,11 +445,13 @@ export default {
   align-items: center;
   justify-content: space-between;
 }
+
 .section-title .el-button--text {
   font-size: 12px;
   padding: 4px 8px;
   font-weight: 400;
 }
+
 .section-title-actions {
   display: flex;
   align-items: center;
@@ -451,17 +464,21 @@ export default {
   align-items: center;
   gap: 12px;
 }
+
 .form-item-row ::v-deep .el-form-item__content {
   display: flex;
   align-items: center;
   gap: 10px;
 }
+
 .form-item-block ::v-deep .el-form-item__content {
   display: block;
 }
+
 .bandwidth-input {
   width: 180px;
 }
+
 .traffic-reset-select {
   width: 110px;
 }
@@ -471,6 +488,7 @@ export default {
   color: var(--text-secondary);
   line-height: 1.6;
 }
+
 .form-tip-warning {
   margin-top: 8px;
   padding: 8px 12px;
@@ -482,12 +500,17 @@ export default {
   align-items: center;
   gap: 6px;
 }
-.form-tip-warning i { font-size: 14px; flex-shrink: 0; }
+
+.form-tip-warning i {
+  font-size: 14px;
+  flex-shrink: 0;
+}
 
 /* ========== 动态列表 ========== */
 .dynamic-list {
   width: 100%;
 }
+
 .dynamic-list-header {
   display: flex;
   gap: 10px;
@@ -497,9 +520,19 @@ export default {
   color: var(--text-secondary);
   font-weight: 500;
 }
-.dynamic-col-val  { flex: 1; }
-.dynamic-col-note { flex: 1; }
-.dynamic-col-ops  { width: 32px; flex-shrink: 0; }
+
+.dynamic-col-val {
+  flex: 1;
+}
+
+.dynamic-col-note {
+  flex: 1;
+}
+
+.dynamic-col-ops {
+  width: 32px;
+  flex-shrink: 0;
+}
 
 .dynamic-item {
   display: flex;
@@ -512,13 +545,21 @@ export default {
   border: 1px solid transparent;
   transition: all 0.15s;
 }
+
 .dynamic-item:hover {
   background: var(--color-primary-bg);
   border-color: var(--color-primary-light);
 }
-.dynamic-item .dynamic-col-val  { flex: 1; }
-.dynamic-item .dynamic-col-note { flex: 1; }
-.dynamic-item .dynamic-col-ops  {
+
+.dynamic-item .dynamic-col-val {
+  flex: 1;
+}
+
+.dynamic-item .dynamic-col-note {
+  flex: 1;
+}
+
+.dynamic-item .dynamic-col-ops {
   width: 32px;
   flex-shrink: 0;
   display: flex;
@@ -536,9 +577,11 @@ export default {
   align-items: center;
   gap: 6px;
 }
+
 .acl-list {
   width: 100%;
 }
+
 .acl-item {
   display: flex;
   gap: 6px;
@@ -550,10 +593,12 @@ export default {
   border: 1px solid var(--border-color-light);
   transition: all 0.15s;
 }
+
 .acl-item:hover {
   background: var(--color-primary-bg);
   border-color: var(--color-primary-light);
 }
+
 .acl-drag {
   flex-shrink: 0;
   cursor: grab;
@@ -564,21 +609,66 @@ export default {
   align-items: center;
   transition: color 0.15s;
 }
-.acl-drag:hover { color: var(--color-primary); }
-.acl-drag:active { cursor: grabbing; }
-.acl-action       { width: 85px;  flex-shrink: 0; }
-.acl-cidr         { flex: 1.5;     min-width: 100px; }
-.acl-proto        { width: 80px;  flex-shrink: 0; }
-.acl-port         { width: 100px; flex-shrink: 0; }
-.acl-note         { flex: 1;      min-width: 60px; }
-.acl-del          { width: 32px;  flex-shrink: 0; display: flex; justify-content: center; }
+
+.acl-drag:hover {
+  color: var(--color-primary);
+}
+
+.acl-drag:active {
+  cursor: grabbing;
+}
+
+.acl-action {
+  width: 85px;
+  flex-shrink: 0;
+}
+
+.acl-cidr {
+  flex: 1.5;
+  min-width: 100px;
+}
+
+.acl-proto {
+  width: 80px;
+  flex-shrink: 0;
+}
+
+.acl-port {
+  width: 100px;
+  flex-shrink: 0;
+}
+
+.acl-note {
+  flex: 1;
+  min-width: 60px;
+}
+
+.acl-del {
+  width: 32px;
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+}
 
 .acl-action-select {
   width: 100%;
 }
 
-.acl-option-allow { color: var(--color-success); display: flex; align-items: center; gap: 4px; font-weight: 500; }
-.acl-option-deny  { color: var(--color-danger); display: flex; align-items: center; gap: 4px; font-weight: 500; }
+.acl-option-allow {
+  color: var(--color-success);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 500;
+}
+
+.acl-option-deny {
+  color: var(--color-danger);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 500;
+}
 
 /* ========== 通用信息提示 ========== */
 .msg-info {
@@ -592,7 +682,11 @@ export default {
   gap: 6px;
   line-height: 1.5;
 }
-.msg-info i { flex-shrink: 0; font-size: 14px; }
+
+.msg-info i {
+  flex-shrink: 0;
+  font-size: 14px;
+}
 
 /* ========== 响应式 ========== */
 /* 窄屏：表单标签上置 + 表单项纵向排列 */
@@ -600,17 +694,21 @@ export default {
   .tab-section {
     padding: 12px 12px 4px;
   }
+
   .section-title {
     flex-wrap: wrap;
     gap: 6px;
   }
+
   .section-title-actions {
     flex-wrap: wrap;
   }
+
   .bandwidth-input {
     width: 100%;
     max-width: 220px;
   }
+
   .traffic-reset-select {
     width: 100%;
     max-width: 160px;
@@ -622,6 +720,7 @@ export default {
     display: block;
     margin-bottom: 16px;
   }
+
   .policy-form-wrap ::v-deep .el-form-item__label {
     width: auto !important;
     text-align: left;
@@ -629,6 +728,7 @@ export default {
     line-height: 1.4;
     float: none;
   }
+
   .policy-form-wrap ::v-deep .el-form-item__content {
     margin-left: 0 !important;
     display: block;
@@ -639,31 +739,42 @@ export default {
   .form-item-row {
     flex-wrap: wrap;
   }
+
   .form-item-row ::v-deep .el-form-item__content {
     flex-wrap: wrap;
   }
+
   .form-item-row .form-tip {
     width: 100%;
     flex-basis: 100%;
+  }
+
+  .form-item-row.label-nowrap ::v-deep .el-form-item__label {
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
   /* 动态列表列堆叠 */
   .dynamic-list-header {
     display: none;
   }
+
   .dynamic-item {
     flex-wrap: wrap;
     padding: 8px;
     gap: 6px;
   }
+
   .dynamic-item .dynamic-col-val {
     flex: 1 1 calc(50% - 24px);
     min-width: 100px;
   }
+
   .dynamic-item .dynamic-col-note {
     flex: 1 1 calc(50% - 24px);
     min-width: 100px;
   }
+
   .dynamic-item .dynamic-col-ops {
     width: auto;
     flex-shrink: 0;
@@ -674,11 +785,28 @@ export default {
     flex-wrap: wrap;
     gap: 4px;
   }
-  .acl-action       { width: 70px; }
-  .acl-proto        { width: 70px; }
-  .acl-port         { width: 80px; }
-  .acl-cidr         { flex: 1 1 120px; min-width: 100px; }
-  .acl-note         { flex: 1 1 100px; min-width: 60px; }
+
+  .acl-action {
+    width: 70px;
+  }
+
+  .acl-proto {
+    width: 70px;
+  }
+
+  .acl-port {
+    width: 80px;
+  }
+
+  .acl-cidr {
+    flex: 1 1 120px;
+    min-width: 100px;
+  }
+
+  .acl-note {
+    flex: 1 1 100px;
+    min-width: 60px;
+  }
 
   .tab-section {
     padding: 10px 8px 2px;
@@ -689,10 +817,17 @@ export default {
   .dynamic-item .dynamic-col-val {
     flex: 1 1 100%;
   }
+
   .dynamic-item .dynamic-col-note {
     flex: 1 1 100%;
   }
-  .acl-item .acl-cidr  { flex: 1 1 100%; }
-  .acl-item .acl-note  { flex: 1 1 100%; }
+
+  .acl-item .acl-cidr {
+    flex: 1 1 100%;
+  }
+
+  .acl-item .acl-note {
+    flex: 1 1 100%;
+  }
 }
 </style>

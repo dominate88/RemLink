@@ -213,9 +213,14 @@
                   <el-input v-model="ruleForm.client_end" placeholder="如 10.0.1.200" size="small"></el-input>
                 </el-form-item>
               </div>
+              <div class="ip-config-row">
+                <el-form-item label="IPv6 网段" prop="client_cidr6" class="ip-config-col">
+                  <el-input v-model="ruleForm.client_cidr6" placeholder="如 2001:db8:10::/64，留空用全局 v6 池" size="small"></el-input>
+                </el-form-item>
+              </div>
               <div class="form-tip form-tip-info" style="margin-left:100px">
                 <i class="el-icon-info"></i>
-                <span>该组用户将从指定网段获取 IP，网关和掩码也对应变化，4 项必须全部填写。</span>
+                <span>该组用户将从指定网段获取 IP，网关和掩码也对应变化，4 项必须全部填写。开启 IPv6 双栈时，可在 IPv6 网段处指定独立 v6 出网段（前缀须小于 128），留空则复用全局 v6 池。</span>
               </div>
             </div>
           </transition>
@@ -479,6 +484,7 @@ export default {
         client_start: '',
         client_end: '',
         client_gateway: '',
+        client_cidr6: '',
       },
       enableGroupIP: false,
       rules: {
@@ -497,6 +503,22 @@ export default {
               }
             }, trigger: 'change'
           }
+        ],
+        client_cidr6: [
+          {
+            validator: (rule, value, callback) => {
+              if (!value) {
+                callback();
+                return;
+              }
+              if (!this.isValidCIDR6(value).valid) {
+                callback(new Error('IPv6 网段格式无效（须为 CIDR，如 2001:db8:10::/64，前缀 0-127）'));
+                return;
+              }
+              callback();
+            },
+            trigger: 'blur',
+          },
         ],
       },
     }
@@ -526,11 +548,49 @@ export default {
         this.ruleForm.client_start = '';
         this.ruleForm.client_end = '';
         this.ruleForm.client_gateway = '';
+        this.ruleForm.client_cidr6 = '';
       }
     },
   },
   methods: {
     getStepLabel(type) { return AUTH_LABELS[type] || type; },
+    // IPv6 CIDR 校验：形如 2001:db8::/64，前缀 0-128；支持 :: 缩写与末段内嵌 IPv4
+    isValidCIDR6(input) {
+      const parts = (input || '').split('/');
+      if (parts.length !== 2) return { valid: false };
+      const prefix = parseInt(parts[1], 10);
+      if (isNaN(prefix) || prefix < 0 || prefix > 128 || !/^\d+$/.test(parts[1])) {
+        return { valid: false };
+      }
+      const addr = parts[0];
+      const dbl = addr.split('::');
+      if (dbl.length > 2) return { valid: false };
+      const isHextet = h => /^[0-9a-fA-F]{1,4}$/.test(h);
+      const isV4 = s => /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/.test(s);
+      const countGroups = seg => {
+        if (seg === '') return 0;
+        const gs = seg.split(':');
+        let n = 0;
+        for (let i = 0; i < gs.length; i++) {
+          const g = gs[i];
+          if (g === '') return -1;
+          if (i === gs.length - 1 && isV4(g)) { n += 2; continue; }
+          if (!isHextet(g)) return -1;
+          n += 1;
+        }
+        return n;
+      };
+      if (dbl.length === 2) {
+        const left = countGroups(dbl[0]);
+        const right = countGroups(dbl[1]);
+        if (left < 0 || right < 0) return { valid: false };
+        if (left + right > 7) return { valid: false };
+      } else {
+        const n = countGroups(dbl[0]);
+        if (n < 0 || n !== 8) return { valid: false };
+      }
+      return { valid: true };
+    },
     loadPolicyList() {
       return axios.get('/policy/names').then(resp => {
         if (resp.data.code === 0) {
@@ -643,6 +703,7 @@ export default {
           policy_id: 0, status: 1, split_dns: [],
           auth_profile: { step: [] },
           client_cidr: '', client_start: '', client_end: '', client_gateway: '',
+          client_cidr6: '',
         };
         this.enableGroupIP = false;
         this.setAuthData(null);
@@ -659,6 +720,7 @@ export default {
           client_start: d.client_start || '',
           client_end: d.client_end || '',
           client_gateway: d.client_gateway || '',
+          client_cidr6: d.client_cidr6 || '',
         };
         this.enableGroupIP = !!(d.client_cidr && d.client_start && d.client_end && d.client_gateway);
         this.setAuthData(d);

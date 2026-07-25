@@ -2,6 +2,7 @@ package sessdata
 
 import (
 	"fmt"
+	"math/big"
 	"net"
 	"os"
 	"path"
@@ -113,7 +114,7 @@ func TestIpv6Pool(t *testing.T) {
 	const n = 50
 	var ips []net.IP
 	for i := 0; i < n; i++ {
-		ip := acquireIpV6(getTestUser(3000+i), getTestMacAddr(3000+i), true)
+		ip := acquireIpV6(getTestUser(3000+i), getTestMacAddr(3000+i), true, IpPool)
 		assert.NotNil(ip)
 		assert.Equal(16, len(ip)) // 128 位
 		ips = append(ips, ip)
@@ -128,7 +129,7 @@ func TestIpv6Pool(t *testing.T) {
 	// 释放后过租期再次分配应仍在池内（轮询游标继续，半满池不保证返回同一地址；回绕后才复用）
 	ReleaseIp(nil, ips[0], getTestMacAddr(3000))
 	time.Sleep(time.Second * 6)
-	ip2 := acquireIpV6(getTestUser(3999), getTestMacAddr(3999), true)
+	ip2 := acquireIpV6(getTestUser(3999), getTestMacAddr(3999), true, IpPool)
 	assert.NotNil(ip2)
 	assert.True(v6Net.Contains(ip2), "复用分配的 v6 地址应在池网段内: %s", ip2)
 
@@ -236,4 +237,75 @@ type testAuthStub struct {
 func (a *testAuthStub) Name() string { return a.name }
 func (a *testAuthStub) Authenticate(*auth.Context) (auth.StepResult, error) {
 	return auth.StepPass, nil
+}
+
+// ========== 组级 v6 池（V2） ==========
+
+func TestInitV6_GatewayAndBounds(t *testing.T) {
+	p := &ipPoolConfig{}
+	assert.Nil(t, p.initV6("2001:db8:5::/120"))
+	// gw = 网络地址 + 1
+	assert.True(t, p.Ipv6Gateway.Equal(net.ParseIP("2001:db8:5::1")))
+	// start = 网络地址 + 2
+	assert.Equal(t, 0, p.ipv6Start.Cmp(ipToBig(net.ParseIP("2001:db8:5::2"))))
+	// end = 网段末地址
+	_, net120, _ := net.ParseCIDR("2001:db8:5::/120")
+	end := new(big.Int).Add(ipToBig(net120.IP.Mask(net120.Mask)),
+		new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), uint(128-120)), big.NewInt(1)))
+	assert.Equal(t, 0, p.ipv6End.Cmp(end))
+	// 前缀 = 128 无分配空间，应报错
+	assert.Error(t, p.initV6("2001:db8:6::/128"))
+	// v4 CIDR 应报错
+	assert.Error(t, p.initV6("10.0.0.0/24"))
+}
+
+func TestGroupV6Pool_Isolated(t *testing.T) {
+	assert := assert.New(t)
+	tmp := t.TempDir()
+	preData(tmp)
+	defer cleardata(tmp)
+	ipActive = map[string]bool{}
+	groupPoolCache = map[string]*ipPoolConfig{}
+
+	g := &dbdata.Group{
+		Name:          "v6group",
+		ClientCidr:    "10.0.9.0/24",
+		ClientStart:   "10.0.9.100",
+		ClientEnd:     "10.0.9.150",
+		ClientGateway: "10.0.9.1",
+		ClientCidr6:   "2001:db8:9::/120",
+	}
+	p := GetGroupIpPool(g)
+	assert.NotNil(p.Ipv6IPNet)
+	assert.True(p.Ipv6IPNet.Contains(net.ParseIP("2001:db8:9::5")))
+	// 组级 v6 网关优先
+	assert.True(p.Ipv6Gateway.Equal(net.ParseIP("2001:db8:9::1")))
+	// 不回退全局网关
+	assert.False(p.V6Gateway().Equal(IpPool.Ipv6Gateway))
+}
+
+func TestGroupV6Pool_FallbackGateway(t *testing.T) {
+	assert := assert.New(t)
+	tmp := t.TempDir()
+	preData(tmp)
+	defer cleardata(tmp)
+	ipActive = map[string]bool{}
+	groupPoolCache = map[string]*ipPoolConfig{}
+
+	g := &dbdata.Group{
+		Name:          "nov6group",
+		ClientCidr:    "10.0.8.0/24",
+		ClientStart:   "10.0.8.100",
+		ClientEnd:     "10.0.8.150",
+		ClientGateway: "10.0.8.1",
+	}
+	p := GetGroupIpPool(g)
+	assert.Nil(p.Ipv6IPNet) // 组池本身无 v6 字段
+	// V6Gateway 回退全局池
+	assert.True(p.V6Gateway().Equal(IpPool.Ipv6Gateway))
+	// 用该组池分配 v6 应回退全局池
+	ip := acquireIpV6("u-fb", "mac-fb", true, p)
+	assert.NotNil(ip)
+	assert.True(IpPool.Ipv6IPNet.Contains(ip), "v6 应回退全局池分配: %s", ip)
+	ReleaseIp(nil, ip, "mac-fb")
 }

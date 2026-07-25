@@ -81,23 +81,37 @@ func TestNewHttpParser(t *testing.T) {
 // v6 包经 checkLinkAcl 不被误丢（连通优先：v6 直接放行，不做 ACL 匹配）
 func TestCheckLinkAclV6Guard(t *testing.T) {
 	ast := assert.New(t)
-	// 一条 deny-all 规则，确保 len(LinkAcl)>0 会进入 v4 匹配分支
-	_, denyNet, _ := net.ParseCIDR("0.0.0.0/0")
-	rp := &dbdata.Policy{
-		LinkAcl: []dbdata.GroupLinkAcl{
-			{Action: dbdata.Deny, Protocol: dbdata.ALL, Val: "0.0.0.0/0", IpNet: denyNet},
-		},
-	}
+	// V2 语义：v6 包按 ACL 规则匹配，不再无条件放行（连通优先已在 V1 取消）
 
-	// v6 数据包：首字节 0x60（version=6），40 字节最小 IPv6 头
+	// v6 数据包：首字节 0x60（version=6），40 字节最小 IPv6 头，目的地址为 ::
 	v6Data := make([]byte, 40)
 	v6Data[0] = 0x60
 	v6pl := &sessdata.Payload{LType: sessdata.LTypeIPData, PType: 0x00, Data: v6Data}
-	ast.True(checkLinkAcl(rp, v6pl), "v6 包应被守卫放行，而非误丢")
 
-	// 对照：同策略下 v4 包命中 deny-all 应被丢弃，证明守卫是 v6 放行的关键
+	// 场景1：无 ACL 规则，v6 包放行（与 v4 一致）
+	ast.True(checkLinkAcl(&dbdata.Policy{}, v6pl), "无 ACL 规则时 v6 包应放行")
+
+	// 场景2：命中 v6 deny 规则（::/0），v6 包被丢弃
+	_, denyNet6, _ := net.ParseCIDR("::/0")
+	rpDeny6 := &dbdata.Policy{
+		LinkAcl: []dbdata.GroupLinkAcl{
+			{Action: dbdata.Deny, Protocol: dbdata.ALL, Val: "::/0", IpNet: denyNet6},
+		},
+	}
+	ast.False(checkLinkAcl(rpDeny6, v6pl), "命中 v6 deny 规则的 v6 包应被丢弃")
+
+	// 场景3：v4 deny-all 规则不匹配 v6 包（v4 CIDR 不含 v6 地址）→ 默认拒绝
+	_, denyNet4, _ := net.ParseCIDR("0.0.0.0/0")
+	rpDeny4 := &dbdata.Policy{
+		LinkAcl: []dbdata.GroupLinkAcl{
+			{Action: dbdata.Deny, Protocol: dbdata.ALL, Val: "0.0.0.0/0", IpNet: denyNet4},
+		},
+	}
+	ast.False(checkLinkAcl(rpDeny4, v6pl), "v4 deny 规则不匹配 v6 包，默认拒绝")
+
+	// 对照：同策略下 v4 包命中 deny-all 应被丢弃
 	v4Data := make([]byte, 40)
 	v4Data[0] = 0x45 // version=4, ihl=5
 	v4pl := &sessdata.Payload{LType: sessdata.LTypeIPData, PType: 0x00, Data: v4Data}
-	ast.False(checkLinkAcl(rp, v4pl), "v4 包命中 deny-all 应被丢弃")
+	ast.False(checkLinkAcl(rpDeny4, v4pl), "v4 包命中 deny-all 应被丢弃")
 }

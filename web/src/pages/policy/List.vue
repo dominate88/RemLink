@@ -409,6 +409,7 @@ export default {
         fake_dns_upstream: '',
         fake_dns_include: '',
         fake_dns_exclude: '',
+        prefer_ipv6: false,
       }
     },
     getData(page) {

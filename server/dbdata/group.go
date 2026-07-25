@@ -187,6 +187,24 @@ func SetGroup(g *Group) error {
 		return errors.New("组 IP 配置必须全部填写：网段、起始地址、结束地址、网关")
 	}
 
+	// 校验组 IPv6 网段：依附于独立 IP 段（避免仅配 v6 时静默回退全局池）
+	g.ClientCidr6 = strings.TrimSpace(g.ClientCidr6)
+	if g.ClientCidr6 != "" {
+		if n != 4 {
+			return errors.New("组 IPv6 网段需要先启用独立 IP 段（填写 v4 网段等 4 项）")
+		}
+		_, v6Net, err := net.ParseCIDR(g.ClientCidr6)
+		if err != nil {
+			return fmt.Errorf("组 IPv6 网段格式无效: %v", err)
+		}
+		if v6Net.IP.To4() != nil {
+			return errors.New("组 IPv6 网段必须是 IPv6 CIDR")
+		}
+		if ones, bits := v6Net.Mask.Size(); bits != 128 || ones >= 128 {
+			return errors.New("组 IPv6 网段前缀须小于 128 才有分配空间")
+		}
+	}
+
 	// 处理认证配置（Pipeline 格式）
 	if len(g.AuthProfile) == 0 {
 		g.AuthProfile = json.RawMessage(`{"step":[{"type":"local"}]}`)

@@ -137,11 +137,15 @@ func LinkMacvtap(cSess *sessdata.ConnSession) error {
 		if err = sysctlSet(fmt.Sprintf("net.ipv6.conf.%s.disable_ipv6", ifName), "0"); err != nil {
 			base.Warn(err)
 		}
+		// 显式开启该接口的 IPv6 转发（新建接口从 default.forwarding 继承，可能仍为 0，导致 v6 转发不生效）
+		if err = sysctlSet(fmt.Sprintf("net.ipv6.conf.%s.forwarding", ifName), "1"); err != nil {
+			base.Warn(err)
+		}
 		// 将 v6 网关地址赋到 macvtap 接口，供客户端解析网关 MAC 与服务器侧路由。
 		// macvtap 与主网卡同处二层广播域，内核在本接口应答 NDP；每个 lvtapN 独立接口可各自持有 /128 网关地址。
 		v6GwAddr := &netlink.Addr{
 			IPNet: &net.IPNet{
-				IP:   sessdata.IpPool.Ipv6Gateway,
+				IP:   cSess.IpPool.V6Gateway(),
 				Mask: net.CIDRMask(128, 128),
 			},
 		}

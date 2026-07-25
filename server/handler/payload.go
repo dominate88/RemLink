@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"net"
+
 	"github.com/songgao/water/waterutil"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
@@ -18,11 +20,15 @@ func payloadIn(cSess *sessdata.ConnSession, pl *sessdata.Payload) bool {
 	}
 
 	if pl.LType == sessdata.LTypeIPData && pl.PType == 0x00 {
-		// 进行Acl规则判断
-		check := checkLinkAcl(cSess.Policy, pl)
-		if !check {
-			// 校验不通过直接丢弃
-			return false
+		// FakeIP 目的段不受 LinkAcl 限制：fakeIP 是 FakeDNS 接管域名的占位地址，
+		// 真实目的在内核 PREROUTING DNAT 后才确定（v4/v6 统一），此处按 v4/v6 放行，
+		if !isFakeIPDst(cSess, pl) {
+			// 进行Acl规则判断
+			check := checkLinkAcl(cSess.Policy, pl)
+			if !check {
+				// 校验不通过直接丢弃
+				return false
+			}
 		}
 	}
 
@@ -75,22 +81,69 @@ func payloadOutDtls(cSess *sessdata.ConnSession, dSess *sessdata.DtlsSession, pl
 	return false
 }
 
-// Acl规则校验
+// 判断包的目的地址是否落在 FakeDNS 假地址段内（v4/v6 双池）。
+// FakeIP 是域名占位地址，真实目的由内核 DNAT 决定，ACL 不应基于占位地址做拦截。
+func isFakeIPDst(cSess *sessdata.ConnSession, pl *sessdata.Payload) bool {
+	if cSess.FakeDNS == nil || !cSess.Policy.EnableFakeDNS {
+		return false
+	}
+	var ipDst net.IP
+	switch (pl.Data[0] & 0xF0) >> 4 {
+	case 4:
+		ipDst = waterutil.IPv4Destination(pl.Data)
+	case 6:
+		info, ok := parseV6Header(pl.Data)
+		if !ok {
+			return false
+		}
+		ipDst = info.Dst
+	default:
+		return false
+	}
+	return cSess.FakeDNS.IsFakeIP(ipDst)
+}
+
+// Acl规则校验（v4/v6 统一；v6 复用 LinkAcl 的 *net.IPNet，兼容 v6 CIDR 规则）
 func checkLinkAcl(rp *dbdata.Policy, pl *sessdata.Payload) bool {
-	// 连通优先：v6 流量不做 ACL 匹配，直接放行（v6 精细 ACL 留 v2）
-	if (pl.Data[0]&0xF0)>>4 != 4 {
+	if !(pl.LType == sessdata.LTypeIPData && pl.PType == 0x00) {
 		return true
 	}
-	if pl.LType == sessdata.LTypeIPData && pl.PType == 0x00 && len(rp.LinkAcl) > 0 {
-	} else {
-		return true
+	if len(rp.LinkAcl) == 0 {
+		return true // 无 ACL 规则，v4/v6 一致放行
 	}
 
-	ipDst := waterutil.IPv4Destination(pl.Data)
-	ipPort := waterutil.IPv4DestinationPort(pl.Data)
-	ipProto := waterutil.IPv4Protocol(pl.Data)
+	// 按 IP 版本分流，提取五元组
+	var ipDst net.IP
+	var ipPort uint16
+	var ipProto waterutil.IPProtocol
+	isICMP := false
 
-	// 优先放行dns端口
+	switch (pl.Data[0] & 0xF0) >> 4 {
+	case 4:
+		ipProto = waterutil.IPv4Protocol(pl.Data)
+		ipDst = waterutil.IPv4Destination(pl.Data)
+		ipPort = waterutil.IPv4DestinationPort(pl.Data)
+		isICMP = ipProto == waterutil.ICMP
+	case 6:
+		info, ok := parseV6Header(pl.Data)
+		if !ok {
+			// 无法解析的 v6 包：安全拒绝，避免畸形报文绕过 ACL
+			return false
+		}
+		ipDst = info.Dst
+		ipPort = info.DstPort
+		// ICMPv6(58) 与 v4 ICMP(1) 同语义：一条 icmp allow 规则同时放行 ping 与 ping6
+		if info.Proto == 58 {
+			ipProto = waterutil.ICMP
+			isICMP = true
+		} else {
+			ipProto = waterutil.IPProtocol(info.Proto)
+		}
+	default:
+		return true // 非 IPv4/IPv6，放行
+	}
+
+	// 优先放行 dns 端口
 	for _, v := range rp.ClientDns {
 		if v.Val == ipDst.String() && ipPort == 53 {
 			return true
@@ -98,25 +151,10 @@ func checkLinkAcl(rp *dbdata.Policy, pl *sessdata.Payload) bool {
 	}
 
 	for _, v := range rp.LinkAcl {
-		// 放行允许ip的ping
-		// if v.Ports == nil || len(v.Ports) == 0 {
-		// 	//单端口历史数据兼容
-		// 	port := uint16(v.Port.(float64))
-		// 	if port == ipPort || port == 0 || ipProto == waterutil.ICMP {
-		// 		if v.Action == dbdata.Allow {
-		// 			return true
-		// 		} else {
-		// 			return false
-		// 		}
-		// 	}
-		// } else {
-
-		// 先判断协议
 		if v.Protocol == "" || v.Protocol == dbdata.ALL || v.IpProto == ipProto {
-			// 循环判断ip和端口
 			if v.IpNet.Contains(ipDst) {
 				// icmp 不判断端口
-				if ipProto == waterutil.ICMP {
+				if isICMP {
 					if v.Action == dbdata.Allow {
 						return true
 					} else {

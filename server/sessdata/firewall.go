@@ -26,19 +26,24 @@ const (
 	nftDnatMapName           = "REMLINK_FAKEIP_DNATMAP"
 	nftFakeIPPreRoutingChain = "REMLINK_FAKEIP_PREROUTING"
 
+	nftTableName6             = "REMLINK_FAKEIP6"
+	nftDnatMapName6           = "REMLINK_FAKEIP6_DNATMAP"
+	nftFakeIPPreRoutingChain6 = "REMLINK_FAKEIP6_PREROUTING"
+
 	iptDnatChain = "REMLINK_FAKEIP_DNAT"
 )
 
 // 防火墙后端接口
 type Firewall interface {
-	CreateChains(vpnCIDR, fakeIPRange string) error                   // 创建自定义链
-	AddNatRule(fakeIP, realIP string) error                           // 添加 DNAT 规则（回包由 conntrack 自动反向）
-	DelNatRule(fakeIP, realIP string) error                           // 删除 DNAT 规则
-	SetupGlobalNAT(vpnCIDR, masterDev string, inContainer bool) error              // 设置全局 NAT 规则
+	CreateChains(vpnCIDR, fakeIPRange string) error                                    // 创建自定义链
+	AddNatRule(fakeIP, realIP string) error                                            // 添加 DNAT 规则（回包由 conntrack 自动反向）
+	DelNatRule(fakeIP, realIP string) error                                            // 删除 DNAT 规则
+	SetupGlobalNAT(vpnCIDR, masterDev string, inContainer bool) error                  // 设置全局 NAT 规则
 	SetupGlobalNAT6(vpnCIDR6, masterDev string, inContainer bool, useNat66 bool) error // 设置全局 IPv6 NAT/转发规则
-	AddGroupNAT(groupCIDR, masterDev string, inContainer bool) error  // 为组自定义 CIDR 添加 NAT 规则
-	CleanupFakeIP() error                                             // 清理所有fakeIP规则
-	CleanupGlobal() error                                             // 清理全局NAT规则
+	AddGroupNAT(groupCIDR, masterDev string, inContainer bool) error                   // 为组自定义 CIDR 添加 NAT 规则
+	AddGroupNAT6(groupCIDR6, masterDev string, inContainer bool, useNat66 bool) error  // 为组自定义 v6 CIDR 添加 NAT66/stateful FORWARD 规则
+	CleanupFakeIP() error                                                              // 清理所有fakeIP规则
+	CleanupGlobal() error                                                              // 清理全局NAT规则
 }
 
 // 全局单例
@@ -116,7 +121,8 @@ func newFirewall() (Firewall, error) {
 
 // iptables 实现
 type IPT struct {
-	ipt *iptables.IPTables
+	ipt  *iptables.IPTables
+	ipt6 *iptables.IPTables
 }
 
 func NewIPT() (*IPT, error) {
@@ -124,7 +130,13 @@ func NewIPT() (*IPT, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &IPT{ipt: ipt}, nil
+	// v6 FakeDNS 需要 ip6tables；不可用则降级（v4 FakeDNS 不受影响）
+	ipt6, err := iptables.NewWithProtocol(iptables.ProtocolIPv6)
+	if err != nil {
+		base.Warn("ip6tables unavailable, v6 FakeDNS disabled:", err)
+		ipt6 = nil
+	}
+	return &IPT{ipt: ipt, ipt6: ipt6}, nil
 }
 func (i *IPT) SetupGlobalNAT(vpnCIDR, masterDev string, inContainer bool) error {
 	// MASQUERADE 规则
@@ -162,7 +174,7 @@ func (i *IPT) AddGroupNAT(groupCIDR, masterDev string, inContainer bool) error {
 	return i.ipt.InsertUnique("nat", "POSTROUTING", 1, natRule...)
 }
 
-// SetupGlobalNAT6 设置全局 IPv6 NAT/转发规则。
+// 设置全局 IPv6 NAT/转发规则
 // 始终下发 stateful FORWARD（established/related 回包 + 来自 VPN v6 CIDR 的出站）；
 // 仅当 useNat66（即全局 GlobalNat 开）才追加 POSTROUTING MASQUERADE。
 // 注意：IPT 严禁复刻 v4 的无条件 `-j ACCEPT`，否则纯路由(GUA)时客户端 v6 会被公网入站暴露。
@@ -197,7 +209,30 @@ func (i *IPT) SetupGlobalNAT6(vpnCIDR6, masterDev string, inContainer bool, useN
 	return nil
 }
 
+// 为组自定义 v6 CIDR 添加出网规则。
+// 规则形态与全局版完全一致（MASQUERADE 受 useNat66 控制 + stateful FORWARD），仅源段不同，
+func (i *IPT) AddGroupNAT6(groupCIDR6, masterDev string, inContainer bool, useNat66 bool) error {
+	return i.SetupGlobalNAT6(groupCIDR6, masterDev, inContainer, useNat66)
+}
+
 func (i *IPT) CreateChains(vpnCIDR, fakeIPRange string) error {
+	// v6 假地址段：用 ip6tables 建独立的 v6 DNAT 链
+	if strings.Contains(fakeIPRange, ":") {
+		if i.ipt6 == nil {
+			return fmt.Errorf("ip6tables not available, cannot create v6 FakeDNS chains")
+		}
+		err := i.ipt6.NewChain("nat", iptDnatChain)
+		if err != nil && !strings.Contains(err.Error(), "Chain already exists") {
+			return fmt.Errorf("failed to create v6 DNAT chain: %v", err)
+		}
+		dnatJumpRule := []string{"-s", vpnCIDR, "-d", fakeIPRange, "-j", iptDnatChain}
+		if err := i.ipt6.AppendUnique("nat", "PREROUTING", dnatJumpRule...); err != nil {
+			return fmt.Errorf("failed to add v6 DNAT jump rule: %v", err)
+		}
+		base.Info("Created v6 FakeIP iptables chains")
+		return nil
+	}
+
 	// 创建 DNAT 自定义链
 	err := i.ipt.NewChain("nat", iptDnatChain)
 	if err != nil && !strings.Contains(err.Error(), "Chain already exists") {
@@ -216,17 +251,33 @@ func (i *IPT) CreateChains(vpnCIDR, fakeIPRange string) error {
 }
 
 func (i *IPT) AddNatRule(fakeIP, realIP string) error {
+	// v6 假地址：走 ip6tables
+	if strings.Contains(fakeIP, ":") {
+		if i.ipt6 == nil {
+			return fmt.Errorf("ip6tables not available, cannot add v6 DNAT rule")
+		}
+		dnatrule := []string{"-d", fakeIP, "-j", "DNAT", "--to-destination", realIP}
+		return i.ipt6.AppendUnique("nat", iptDnatChain, dnatrule...)
+	}
 	dnatrule := []string{"-d", fakeIP, "-j", "DNAT", "--to-destination", realIP}
 	return i.ipt.AppendUnique("nat", iptDnatChain, dnatrule...)
 }
 
 func (i *IPT) DelNatRule(fakeIP, realIP string) error {
+	// v6 假地址：走 ip6tables
+	if strings.Contains(fakeIP, ":") {
+		if i.ipt6 == nil {
+			return fmt.Errorf("ip6tables not available, cannot delete v6 DNAT rule")
+		}
+		dnatRule := []string{"-d", fakeIP, "-j", "DNAT", "--to-destination", realIP}
+		return i.ipt6.Delete("nat", iptDnatChain, dnatRule...)
+	}
 	dnatRule := []string{"-d", fakeIP, "-j", "DNAT", "--to-destination", realIP}
 	return i.ipt.Delete("nat", iptDnatChain, dnatRule...)
 }
 
 func (i *IPT) CleanupFakeIP() error {
-	// 获取所有 PREROUTING 规则
+	// 清理 v4 DNAT 链
 	rules, _ := i.ipt.List("nat", "PREROUTING")
 	for _, rule := range rules {
 		if strings.Contains(rule, iptDnatChain) {
@@ -236,10 +287,24 @@ func (i *IPT) CleanupFakeIP() error {
 			}
 		}
 	}
-
-	// 清空并删除 DNAT 链
 	i.ipt.ClearChain("nat", iptDnatChain)
 	i.ipt.DeleteChain("nat", iptDnatChain)
+
+	// 清理 v6 DNAT 链
+	if i.ipt6 != nil {
+		if v6rules, err := i.ipt6.List("nat", "PREROUTING"); err == nil {
+			for _, rule := range v6rules {
+				if strings.Contains(rule, iptDnatChain) {
+					parts := strings.Fields(rule)
+					if len(parts) > 2 {
+						i.ipt6.Delete("nat", "PREROUTING", parts[2:]...)
+					}
+				}
+			}
+		}
+		i.ipt6.ClearChain("nat", iptDnatChain)
+		i.ipt6.DeleteChain("nat", iptDnatChain)
+	}
 
 	return nil
 }
@@ -293,9 +358,10 @@ func (i *IPT) CleanupGlobal() error {
 
 // nftables 实现
 type NFT struct {
-	mu    sync.Mutex
-	conn  *nftables.Conn
-	table *nftables.Table
+	mu     sync.Mutex
+	conn   *nftables.Conn
+	table  *nftables.Table
+	table6 *nftables.Table // v6 FakeIP DNAT 表（未开 v6 FakeDNS 时为 nil）
 }
 
 func NewNFT() (*NFT, error) {
@@ -424,6 +490,41 @@ func (n *NFT) AddGroupNAT(groupCIDR, masterDev string, inContainer bool) error {
 		Table: globalNatTable,
 		Chain: forwardChain,
 		Exprs: n.ForwardAcceptExprs(ipNet, prefixMask),
+	})
+
+	return n.conn.Flush()
+}
+
+// 为组自定义 v6 CIDR 添加出网规则（向 SetupGlobalNAT6 已建的 v6 表/链追加）。
+// useNat66 控制是否追加 MASQUERADE；stateful FORWARD 的 established/related 规则全局已有，仅补组源段 ACCEPT。
+func (n *NFT) AddGroupNAT6(groupCIDR6, masterDev string, inContainer bool, useNat66 bool) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	_, ipNet, err := net.ParseCIDR(groupCIDR6)
+	if err != nil {
+		return fmt.Errorf("invalid groupCIDR6: %v", err)
+	}
+	ones, _ := ipNet.Mask.Size()
+	prefixMask := net.CIDRMask(ones, 128)
+
+	globalNatTable6 := &nftables.Table{
+		Family: nftables.TableFamilyIPv6,
+		Name:   nftGlobalNatTable6,
+	}
+
+	if useNat66 {
+		n.conn.AddRule(&nftables.Rule{
+			Table: globalNatTable6,
+			Chain: &nftables.Chain{Name: nftPostRoutingChain6, Table: globalNatTable6},
+			Exprs: n.MasqueradeExprs6(ipNet, prefixMask, masterDev),
+		})
+	}
+
+	n.conn.AddRule(&nftables.Rule{
+		Table: globalNatTable6,
+		Chain: &nftables.Chain{Name: nftForwardChain6, Table: globalNatTable6},
+		Exprs: n.ForwardAcceptExprs6(ipNet, prefixMask),
 	})
 
 	return n.conn.Flush()
@@ -621,6 +722,46 @@ func (n *NFT) CreateChains(vpnCIDR, fakeIPRange string) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
+	// v6 假地址段：建独立的 IPv6 family 表 + map + prerouting DNAT 链
+	if strings.Contains(fakeIPRange, ":") {
+		n.table6 = n.conn.AddTable(&nftables.Table{
+			Family: nftables.TableFamilyIPv6,
+			Name:   nftTableName6,
+		})
+
+		dnatMap6 := &nftables.Set{
+			Table:    n.table6,
+			Name:     nftDnatMapName6,
+			IsMap:    true,
+			KeyType:  nftables.TypeIP6Addr,
+			DataType: nftables.TypeIP6Addr,
+		}
+		if err := n.conn.AddSet(dnatMap6, nil); err != nil {
+			return err
+		}
+
+		prerouting6 := n.conn.AddChain(&nftables.Chain{
+			Name:     nftFakeIPPreRoutingChain6,
+			Table:    n.table6,
+			Type:     nftables.ChainTypeNAT,
+			Hooknum:  nftables.ChainHookPrerouting,
+			Priority: nftables.ChainPriorityNATDest,
+		})
+		n.conn.AddRule(&nftables.Rule{
+			Table: n.table6,
+			Chain: prerouting6,
+			Exprs: []expr.Any{
+				// v6 头目的地址在偏移 24，16 字节
+				&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 24, Len: 16},
+				&expr.Lookup{SourceRegister: 1, DestRegister: 1, IsDestRegSet: true, SetName: nftDnatMapName6},
+				&expr.NAT{Type: expr.NATTypeDestNAT, Family: uint32(nftables.TableFamilyIPv6), RegAddrMin: 1},
+			},
+		})
+
+		base.Info("nftables v6 FakeIP initialized with map-based rules")
+		return n.conn.Flush()
+	}
+
 	// 创建 IPv4 表
 	n.table = n.conn.AddTable(&nftables.Table{
 		Family: nftables.TableFamilyIPv4,
@@ -668,6 +809,26 @@ func (n *NFT) AddNatRule(fakeIP, realIP string) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
+	// v6 假地址：写入 v6 表的 DNAT map
+	if strings.Contains(fakeIP, ":") {
+		if n.table6 == nil {
+			return fmt.Errorf("nftables v6 FakeIP table not initialized, cannot add v6 DNAT rule")
+		}
+		fake6 := net.ParseIP(fakeIP).To16()
+		real6 := net.ParseIP(realIP).To16()
+		if fake6 == nil || real6 == nil || real6.To4() != nil {
+			return fmt.Errorf("invalid v6 DNAT pair: %s -> %s", fakeIP, realIP)
+		}
+		dnatSet6 := &nftables.Set{Table: n.table6, Name: nftDnatMapName6}
+		n.conn.SetAddElements(dnatSet6, []nftables.SetElement{
+			{Key: fake6, Val: real6},
+		})
+		if err := n.conn.Flush(); err != nil && !isNftDuplicateError(err) {
+			return err
+		}
+		return nil
+	}
+
 	fakeIPParsed := net.ParseIP(fakeIP).To4()
 	realIPParsed := net.ParseIP(realIP).To4()
 
@@ -690,6 +851,25 @@ func (n *NFT) AddNatRule(fakeIP, realIP string) error {
 func (n *NFT) DelNatRule(fakeIP, realIP string) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
+
+	// v6 假地址：从 v6 表的 DNAT map 删除
+	if strings.Contains(fakeIP, ":") {
+		if n.table6 == nil {
+			return nil // v6 表未建，无规则可删
+		}
+		fake6 := net.ParseIP(fakeIP).To16()
+		if fake6 == nil {
+			return fmt.Errorf("invalid fake IP address: %s", fakeIP)
+		}
+		dnatSet6 := &nftables.Set{Table: n.table6, Name: nftDnatMapName6}
+		n.conn.SetDeleteElements(dnatSet6, []nftables.SetElement{
+			{Key: fake6},
+		})
+		if err := n.conn.Flush(); err != nil && !strings.Contains(err.Error(), "no such file") {
+			return err
+		}
+		return nil
+	}
 
 	fakeIPParsed := net.ParseIP(fakeIP).To4()
 	if fakeIPParsed == nil {
@@ -732,7 +912,18 @@ func (n *NFT) CleanupFakeIP() error {
 	} else {
 		n.conn.DelTable(&nftables.Table{Name: nftTableName, Family: nftables.TableFamilyIPv4})
 	}
-	return n.conn.Flush()
+	err := n.conn.Flush()
+
+	// v6 FakeIP 表单独 Flush：表不存在时的失败不应连带 v4 清理
+	if n.table6 != nil {
+		n.conn.DelTable(n.table6)
+	} else {
+		n.conn.DelTable(&nftables.Table{Name: nftTableName6, Family: nftables.TableFamilyIPv6})
+	}
+	if err6 := n.conn.Flush(); err6 != nil && n.table6 != nil {
+		base.Warn("cleanup nftables v6 FakeIP table failed:", err6)
+	}
+	return err
 }
 func (n *NFT) CleanupGlobal() error {
 	n.mu.Lock()

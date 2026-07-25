@@ -168,7 +168,7 @@ func SetPolicy(p *Policy) error {
 
 			if regexp.MustCompile(`^\d{1,5}(-\d{1,5})?(,\d{1,5}(-\d{1,5})?)*$`).MatchString(portsStr) {
 				ports := map[uint16]int8{}
-				for _, pt := range strings.Split(portsStr, ",") {
+				for pt := range strings.SplitSeq(portsStr, ",") {
 					if pt == "" {
 						continue
 					}
@@ -275,6 +275,7 @@ func SetPolicy(p *Policy) error {
 		p.FakeDNSInclude = ""
 		p.FakeDNSExclude = ""
 		p.FakeDNSUpstream = ""
+		p.PreferIPv6 = false
 	}
 
 	p.UpdatedAt = time.Now()
