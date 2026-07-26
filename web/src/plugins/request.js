@@ -1,6 +1,6 @@
 // 全局的 axios 默认值
 import axios from "axios";
-import { logout as doLogout } from "./auth";
+import { logout as doLogout, isLoggingOut, beginLogout, isChecked, getLastLoginTime } from "./auth";
 
 axios.defaults.headers.post['Content-Type'] = 'application/x-www-form-urlencoded';
 
@@ -26,6 +26,16 @@ function request(vm) {
             if (vm.$router.currentRoute.path === '/portal') {
                 return Promise.reject(err);
             }
+            // 防抖：已在登出流程中（并发 401）则忽略，避免反复 doLogout + push('/login')
+            if (isLoggingOut()) {
+                return Promise.reject(err);
+            }
+            // 重新登录后短时间内到达的 401，视为「重新登录前」残留在途请求延迟返回的旧响应，
+            // 不应再把已登录的用户踢回登录页
+            if (isChecked() && Date.now() - getLastLoginTime() < 5000) {
+                return Promise.reject(err);
+            }
+            beginLogout();
             doLogout();
             vm.$router.push('/login');
         }
