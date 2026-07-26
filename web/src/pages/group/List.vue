@@ -217,6 +217,12 @@
                 <el-form-item label="IPv6 网段" prop="client_cidr6" class="ip-config-col">
                   <el-input v-model="ruleForm.client_cidr6" placeholder="如 2001:db8:10::/64，留空用全局 v6 池" size="small"></el-input>
                 </el-form-item>
+                <el-form-item label="出网网卡" prop="out_dev" class="ip-config-col">
+                  <el-select v-model="ruleForm.out_dev" placeholder="留空=默认 master_dev" size="small" clearable filterable style="width:100%">
+                    <el-option label="留空（使用默认 master_dev）" value=""></el-option>
+                    <el-option v-for="iface in outDevOptions" :key="iface" :label="iface" :value="iface"></el-option>
+                  </el-select>
+                </el-form-item>
               </div>
               <div class="form-tip form-tip-info" style="margin-left:100px">
                 <i class="el-icon-info"></i>
@@ -436,11 +442,13 @@ export default {
   mounted() {
     this.loadAllPolicyNames().then(() => { this.getData(1); });
     this.loadPolicyList();
+    this.loadIfaces();
   },
   data() {
     return {
       loading: false,
       isSubmitting: false,
+      ifaces: [],
       page: 1,
       tableData: [],
       count: 10,
@@ -485,6 +493,7 @@ export default {
         client_end: '',
         client_gateway: '',
         client_cidr6: '',
+        out_dev: '',
       },
       enableGroupIP: false,
       rules: {
@@ -503,6 +512,33 @@ export default {
               }
             }, trigger: 'change'
           }
+        ],
+        client_cidr: [
+          {
+            validator: (rule, value, callback) => {
+              if (!value) {
+                callback();
+                return;
+              }
+              const m = value.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/);
+              if (!m) {
+                callback(new Error('IPv4 网段格式无效（如 10.0.1.0/24）'));
+                return;
+              }
+              const octets = [m[1], m[2], m[3], m[4]].map(Number);
+              if (octets.some(o => o > 255)) {
+                callback(new Error('IPv4 地址每段须为 0-255'));
+                return;
+              }
+              const prefix = Number(m[5]);
+              if (prefix < 0 || prefix > 32) {
+                callback(new Error('IPv4 前缀须为 0-32'));
+                return;
+              }
+              callback();
+            },
+            trigger: 'blur',
+          },
         ],
         client_cidr6: [
           {
@@ -540,6 +576,14 @@ export default {
       }
       return ''
     },
+    // 出网网卡下拉选项：物理网卡清单 + 已保存但当前不在清单中的网卡(改名/移除后仍能显示)
+    outDevOptions() {
+      const list = [...this.ifaces]
+      if (this.ruleForm.out_dev && !list.includes(this.ruleForm.out_dev)) {
+        list.unshift(this.ruleForm.out_dev)
+      }
+      return list
+    },
   },
   watch: {
     enableGroupIP(val) {
@@ -549,17 +593,23 @@ export default {
         this.ruleForm.client_end = '';
         this.ruleForm.client_gateway = '';
         this.ruleForm.client_cidr6 = '';
+        this.ruleForm.out_dev = '';
       }
     },
   },
   methods: {
     getStepLabel(type) { return AUTH_LABELS[type] || type; },
+    loadIfaces() {
+      axios.get('/group/ifaces').then(resp => {
+        this.ifaces = (resp.data.data && resp.data.data.ifaces) || [];
+      }).catch(() => {});
+    },
     // IPv6 CIDR 校验：形如 2001:db8::/64，前缀 0-128；支持 :: 缩写与末段内嵌 IPv4
     isValidCIDR6(input) {
       const parts = (input || '').split('/');
       if (parts.length !== 2) return { valid: false };
       const prefix = parseInt(parts[1], 10);
-      if (isNaN(prefix) || prefix < 0 || prefix > 128 || !/^\d+$/.test(parts[1])) {
+      if (isNaN(prefix) || prefix < 0 || prefix > 127 || !/^\d+$/.test(parts[1])) {
         return { valid: false };
       }
       const addr = parts[0];
@@ -704,6 +754,7 @@ export default {
           auth_profile: { step: [] },
           client_cidr: '', client_start: '', client_end: '', client_gateway: '',
           client_cidr6: '',
+          out_dev: '',
         };
         this.enableGroupIP = false;
         this.setAuthData(null);
@@ -721,6 +772,7 @@ export default {
           client_end: d.client_end || '',
           client_gateway: d.client_gateway || '',
           client_cidr6: d.client_cidr6 || '',
+          out_dev: d.out_dev || '',
         };
         this.enableGroupIP = !!(d.client_cidr && d.client_start && d.client_end && d.client_gateway);
         this.setAuthData(d);

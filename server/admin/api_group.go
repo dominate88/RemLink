@@ -9,6 +9,8 @@ import (
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
+	"github.com/wsczx/remlink/pkg/utils"
+	"github.com/wsczx/remlink/sessdata"
 )
 
 // 返回所有用户组的分页列表
@@ -133,10 +135,24 @@ func GroupSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 仅当网段(v4/v6)发生变更时才需清理旧 NAT 规则。
+	var oldGroup dbdata.Group
+	if v.Id > 0 {
+		dbdata.One("Id", v.Id, &oldGroup)
+	}
+
 	err = dbdata.SetGroup(v)
 	if err != nil {
 		RespError(w, RespInternalErr, err)
 		return
+	}
+
+	// 网段变更则清理旧 NAT 规则
+	if oldGroup.ClientCidr != "" && oldGroup.ClientCidr != v.ClientCidr {
+		sessdata.RemoveGroupNAT(oldGroup.ClientCidr, "", oldGroup.OutDev)
+	}
+	if oldGroup.ClientCidr6 != "" && oldGroup.ClientCidr6 != v.ClientCidr6 {
+		sessdata.RemoveGroupNAT("", oldGroup.ClientCidr6, oldGroup.OutDev)
 	}
 
 	// 组配置了外部认证 + OTP 时自动同步用户
@@ -166,6 +182,9 @@ func GroupDel(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespInternalErr, err)
 		return
 	}
+
+	// 清理该组在防火墙里的 NAT/转发规则，避免删除后规则残留至整机重启
+	sessdata.RemoveGroupNAT(g.ClientCidr, g.ClientCidr6, g.OutDev)
 
 	dbdata.AdminLog("用户组管理", g.Name, "删除了用户组", r.RemoteAddr)
 	RespSucess(w, nil)
@@ -406,4 +425,13 @@ func GroupCertAuthCheck(w http.ResponseWriter, r *http.Request) {
 		"groupname":     groupname,
 		"has_cert_auth": hasCertAuth,
 	})
+}
+
+// 返回本机物理网卡列表，供前端组出网网卡(out_dev)下拉选择。
+func GroupIfaces(w http.ResponseWriter, r *http.Request) {
+	ifaces := utils.GetPhysicalInterfaces()
+	if ifaces == nil {
+		ifaces = []string{}
+	}
+	RespSucess(w, map[string]any{"ifaces": ifaces})
 }

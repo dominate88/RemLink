@@ -41,7 +41,11 @@ func (m *mockFirewall) AddGroupNAT(groupCIDR, masterDev string, inContainer bool
 func (m *mockFirewall) AddGroupNAT6(groupCIDR6, masterDev string, inContainer bool, useNat66 bool) error {
 	return nil
 }
-func (m *mockFirewall) CleanupFakeIP() error  { return nil }
+func (m *mockFirewall) DelGroupNAT(groupCIDR, masterDev string, inContainer bool) error { return nil }
+func (m *mockFirewall) DelGroupNAT6(groupCIDR6, masterDev string, inContainer bool, useNat66 bool) error {
+	return nil
+}
+func (m *mockFirewall) CleanupFakeIP() error { return nil }
 func (m *mockFirewall) CleanupGlobal() error { return nil }
 
 func (m *mockFirewall) AddNatRule(fakeIP, realIP string) error {

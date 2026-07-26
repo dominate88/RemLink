@@ -21,6 +21,7 @@ type Group struct {
 	ClientEnd     string `json:"client_end" xorm:"varchar(32)"`     // 结束IP
 	ClientGateway string `json:"client_gateway" xorm:"varchar(32)"` // 网关地址
 	ClientCidr6   string `json:"client_cidr6" xorm:"varchar(64)"`   // IPv6 网段（单 CIDR 自动分配，需启用独立IP段；空=使用全局 v6 池）
+	OutDev        string `json:"out_dev" xorm:"varchar(64)"`        // 出网网卡；空=沿用全局 master_dev
 
 	CreatedAt time.Time `json:"created_at" xorm:"DateTime created"`
 	UpdatedAt time.Time `json:"updated_at" xorm:"DateTime updated"`

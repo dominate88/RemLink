@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"strings"
-	"sync"
 
 	"github.com/songgao/water"
 	"github.com/vishvananda/netlink"
@@ -12,8 +11,6 @@ import (
 	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/wsczx/remlink/sessdata"
 )
-
-var groupNatCIDRs sync.Map
 
 func checkTun() {
 	// 测试ip命令
@@ -243,32 +240,34 @@ func setGroupNAT(cSess *sessdata.ConnSession) {
 	if cSess.IpPool == sessdata.IpPool {
 		return
 	}
-	fw := sessdata.GetFirewall()
-	if fw == nil {
+
+	// 出网网卡：组级 out_dev 优先，空则沿用全局 master_dev
+	egress := cSess.Group.OutDev
+	if egress == "" {
+		egress = base.GetCfg().MasterDev
+	}
+	// 出网网卡不存在：下发无效规则只会残留在防火墙，告警并跳过，待网卡恢复后下次连接自动重试
+	if _, err := net.InterfaceByName(egress); err != nil {
+		base.Warn("组", cSess.Group.Name, "出网网卡", egress, "不存在，跳过 NAT 下发:", err)
 		return
 	}
 
 	cidr := cSess.IpPool.Ipv4IPNet.String()
-	// 已添加过则跳过（失败不 Store，允许下次连接重试）
-	if _, loaded := groupNatCIDRs.Load(cidr); !loaded {
-		if err := fw.AddGroupNAT(cidr, base.GetCfg().MasterDev, base.InContainer); err != nil {
-			base.Warn("组", cSess.Group.Name, "设置NAT失败:", err)
-		} else {
-			groupNatCIDRs.Store(cidr, true)
-			base.Info("为组", cSess.Group.Name, "动态添加NAT规则:", cidr)
-		}
+	v6cidr := ""
+	if cSess.IpPool.Ipv6IPNet != nil {
+		v6cidr = cSess.IpPool.Ipv6IPNet.String()
 	}
 
-	// 组配置了独立 v6 段时按组下发 NAT66/stateful FORWARD
-	if cSess.IpPool.Ipv6IPNet != nil {
-		cidr6 := cSess.IpPool.Ipv6IPNet.String()
-		if _, loaded := groupNatCIDRs.Load(cidr6); !loaded {
-			if err := fw.AddGroupNAT6(cidr6, base.GetCfg().MasterDev, base.InContainer, base.GetCfg().GlobalNat); err != nil {
-				base.Warn("组", cSess.Group.Name, "设置 IPv6 NAT 失败:", err)
-			} else {
-				groupNatCIDRs.Store(cidr6, true)
-				base.Info("为组", cSess.Group.Name, "动态添加 IPv6 NAT 规则:", cidr6)
-			}
+	// 下发/自愈组自定义网段 NAT 规则
+	sessdata.EnsureGroupNAT(cidr, v6cidr, egress)
+
+	// 组指定了独立的出网网卡且不同于全局 master_dev 时，确保该接口 IPv6 可用
+	if v6cidr != "" && egress != base.GetCfg().MasterDev {
+		if err := sysctlSet("net.ipv6.conf."+egress+".disable_ipv6", "0"); err != nil {
+			base.Warn(err)
+		}
+		if err := sysctlSet("net.ipv6.conf."+egress+".accept_ra", "2"); err != nil {
+			base.Warn(err)
 		}
 	}
 }

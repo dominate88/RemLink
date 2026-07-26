@@ -129,6 +129,7 @@ func StartAdmin() {
 	r.HandleFunc("/group/names", GroupNames)
 	r.HandleFunc("/group/names_ids", GroupNamesIds)
 	r.HandleFunc("/group/detail", GroupDetail)
+	r.HandleFunc("/group/ifaces", GroupIfaces)
 	r.HandleFunc("/group/set", GroupSet).Methods(http.MethodPost)
 	r.HandleFunc("/group/del", GroupDel).Methods(http.MethodPost)
 	r.HandleFunc("/group/auth_login", GroupAuthLogin)

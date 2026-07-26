@@ -147,6 +147,13 @@ func SetGroup(g *Group) error {
 	}
 	g.SplitDns = splitDns
 
+	// 出网网卡校验：指定 out_dev 必须是本机存在的网卡
+	if g.OutDev != "" {
+		if _, err := net.InterfaceByName(g.OutDev); err != nil {
+			return fmt.Errorf("出网网卡 %s 不存在", g.OutDev)
+		}
+	}
+
 	// 校验组IP池 配置：全空不启用
 	n := 0
 	for _, f := range []string{g.ClientCidr, g.ClientStart, g.ClientEnd, g.ClientGateway} {
@@ -161,6 +168,9 @@ func SetGroup(g *Group) error {
 		_, ipNet, err := net.ParseCIDR(g.ClientCidr)
 		if err != nil {
 			return fmt.Errorf("组 IP 网段格式无效: %v", err)
+		}
+		if ipNet.IP.To4() == nil {
+			return errors.New("组 IP 网段必须是 IPv4 CIDR（不能填 IPv6）")
 		}
 		start := net.ParseIP(g.ClientStart)
 		end := net.ParseIP(g.ClientEnd)
@@ -183,6 +193,10 @@ func SetGroup(g *Group) error {
 		if utils.Ip2long(start) >= utils.Ip2long(end) {
 			return errors.New("组 IP 起始地址必须小于结束地址")
 		}
+		// 组网段重叠校验：不与全局 VPN 池、其他组的自定义网段重叠
+		if err := checkCidrOverlap(ipNet, g, false); err != nil {
+			return err
+		}
 	default:
 		return errors.New("组 IP 配置必须全部填写：网段、起始地址、结束地址、网关")
 	}
@@ -202,6 +216,10 @@ func SetGroup(g *Group) error {
 		}
 		if ones, bits := v6Net.Mask.Size(); bits != 128 || ones >= 128 {
 			return errors.New("组 IPv6 网段前缀须小于 128 才有分配空间")
+		}
+		// 组 v6 网段重叠校验
+		if err := checkCidrOverlap(v6Net, g, true); err != nil {
+			return err
 		}
 	}
 
@@ -239,6 +257,49 @@ func SetGroup(g *Group) error {
 	}
 
 	return err
+}
+
+// 判断两个 CIDR 是否重叠（任一网段网络地址落在另一网段内即视为重叠）。
+func cidrOverlaps(a, b *net.IPNet) bool {
+	return a.Contains(b.IP) || b.Contains(a.IP)
+}
+
+// 校验组自定义网段 ipNet 是否与全局 VPN 池或其他组的自定义网段重叠
+func checkCidrOverlap(ipNet *net.IPNet, g *Group, isV6 bool) error {
+	// 与全局 VPN 池重叠检测
+	globalCIDR := base.GetCfg().Ipv4CIDR
+	if isV6 {
+		globalCIDR = base.GetCfg().Ipv6CIDR
+	}
+	if globalCIDR != "" {
+		if _, gNet, err := net.ParseCIDR(globalCIDR); err == nil && cidrOverlaps(gNet, ipNet) {
+			return fmt.Errorf("组网段 %s 与全局 VPN 池 %s 重叠", ipNet.String(), globalCIDR)
+		}
+	}
+
+	// 与其他组自定义网段重叠检测
+	var others []Group
+	if err := Find(&others, 0, 0); err != nil {
+		// 查询失败不阻断保存，仅告警，避免误伤正常配置
+		base.Warn("检查组网段重叠失败:", err)
+		return nil
+	}
+	for _, og := range others {
+		if og.Id == g.Id {
+			continue
+		}
+		c := og.ClientCidr
+		if isV6 {
+			c = og.ClientCidr6
+		}
+		if c == "" {
+			continue
+		}
+		if _, oNet, err := net.ParseCIDR(c); err == nil && cidrOverlaps(oNet, ipNet) {
+			return fmt.Errorf("组网段 %s 与组 %q 的网段 %s 重叠", ipNet.String(), og.Name, c)
+		}
+	}
+	return nil
 }
 
 // 检查端口是否在端口映射中
