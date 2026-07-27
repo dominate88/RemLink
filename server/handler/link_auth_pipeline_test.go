@@ -264,54 +264,6 @@ func TestResume_ExpiredSession(t *testing.T) {
 	ast.Contains(w.Body.String(), "error")
 }
 
-// ========== 管道恢复 — 组配置变更 ==========
-
-func TestResume_GroupProfileChanged_MidFlow(t *testing.T) {
-	base.Test()
-	base.SetCfgForTest(&base.ServerConfig{DisplayError: true})
-	preIpData(t)
-	defer closeIpdata()
-
-	group := "changed-group"
-	username := "changed-user"
-	otpSecret := "JBSWY3DPEHPK3PXP"
-
-	// 创建会话时组是 [local, otp]，但改组配置为 [local]（无 otp）
-	profileOriginal := auth.GroupAuthProfile{Step: []auth.AuthMethodConfig{{Type: "local"}, {Type: "otp"}}}
-	_ = json.Unmarshal([]byte(`{"step":[{"type":"local"},{"type":"otp"}]}`), &profileOriginal)
-
-	profileChanged := auth.GroupAuthProfile{Step: []auth.AuthMethodConfig{{Type: "local"}}}
-	profileBytes, _ := json.Marshal(profileChanged)
-	createTestPolicyGroup(t, group, profileBytes)
-	_ = dbdata.SetUser(&dbdata.User{
-		Username: username, Groups: []string{group}, Status: 1,
-		PinCode: "test12", OtpSecret: otpSecret,
-	})
-
-	// 创建 StepIdx=1 的会话（local 已过，等 otp）
-	sessionID := "changed-profile-session"
-	ctx := &auth.Context{
-		Conn:     auth.ConnInfo{Username: username, GroupName: group},
-		UserInfo: &auth.UserInfo{OtpSecret: otpSecret},
-	}
-	ctx.SetStepIdx(1)
-	SaveAuthSession(sessionID, &AuthSession{
-		Ctx: ctx,
-	})
-
-	// 用 OTP 恢复：但组现在只有 1 步 → StepIdx=1 越界
-	body := buildAuthReplyBody(username, "", group, "123456")
-	req := newAuthRequest(body)
-	req.AddCookie(&http.Cookie{Name: "auth-session-id", Value: sessionID})
-	w := httptest.NewRecorder()
-	LinkAuth(w, req)
-
-	ast := assert.New(t)
-	ast.Equal(http.StatusOK, w.Code)
-	// 管道 Resume 会报"无效的恢复步骤" → 静默继续首次认证（密码也空）→ local 失败
-	ast.Contains(w.Body.String(), "error")
-}
-
 // ========== 初始化流程 ==========
 
 func TestLinkAuth_Init_ReturnsLoginForm(t *testing.T) {

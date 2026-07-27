@@ -162,7 +162,7 @@ func TestLinkAuthOtp(t *testing.T) {
 			Status:   dbdata.UserAuthSuccess,
 		},
 	}
-	authSession.Ctx.SetStepIdx(1) // OTP 步骤索引（local=0, otp=1）
+	authSession.Ctx.SetStepIdx(2) // 含 forcepwd 插入后索引：local=0, forcepwd=1, otp=2
 	SaveAuthSession(sessionID, authSession)
 
 	// 测试成功的OTP验证
