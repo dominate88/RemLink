@@ -7,16 +7,15 @@
 ### 功能
 
 - 新增：IPv6 双栈支持。配置 `ipv6_cidr`（如 `2001:db8:1::/64`）后自动为客户端分配 v6 地址（/128），支持 TUN / TAP / macvtap 三种链路模式；「全局NAT」开关同时管控 v4+v6 出网（开启为 NAT66，关闭为纯路由，需上游回指 v6 池路由）；支持 IPv6 明细路由下发。留空则保持纯 v4 行为不变
-- 新增：IPv6 双栈 V2 —— v6 精细 ACL 匹配：开启策略 ACL 后，v6 流量按目的地址/端口级二次过滤（与 v4 同机制），不再"过路由即全放"
-- 新增：IPv6 双栈 V2 —— v6 访问审计：记录 v6 流量的源/目的地址、协议与端口，与 v4 审计同口径（存储 varchar(60) 已够用）
-- 新增：IPv6 双栈 V2 —— v6 DNS 拦截：v6 DNS 报文支持解析与改写
-- 新增：IPv6 双栈 V2 —— 组级独立 v6 出网隔离：组配置新增「IPv6 网段」（前端，前缀须小于 128），每组独立 v6 CIDR 分别 NAT66/stateful FORWARD 出网，避免所有组共用一段 v6 出网；留空则复用全局 v6 池
+- 新增：IPv6 双栈 —— v6 精细 ACL 匹配：开启策略 ACL 后，v6 流量按目的地址/端口级二次过滤（与 v4 同机制），不再"过路由即全放"
+- 新增：IPv6 双栈—— v6 访问审计：记录 v6 流量的源/目的地址、协议与端口，与 v4 审计同口径（存储 varchar(60) 已够用）
+- 新增：IPv6 双栈—— v6 DNS 拦截：v6 DNS 报文支持解析与改写
+- 新增：IPv6 双栈—— 组级独立 v6 出网隔离：组配置新增「IPv6 网段」（前端，前缀须小于 128），每组独立 v6 CIDR 分别 NAT66/stateful FORWARD 出网，避免所有组共用一段 v6 出网；留空则复用全局 v6 池
 - 新增：组级独立出网网卡——组配置新增「出网网卡」（前端网段配置区，下拉选择）；留空=沿用全局 master_dev，适用于多出口网卡按组分流
-- 迁移：新增 group 字段 out_dev（组级出网网卡
+- 新增：允许设置IPv6 DNS服务器
 
 ### 修复
 
-- 修复：IPv6 双栈客户端 v6 不通（表现为「本地 IPv6 地址丢失 / 拿不到 v6」）——根因是 IPv6 转发是 per-interface 的（不同于 IPv4 的 `net.ipv4.ip_forward` 全局单一开关）：原 `start.go` 仅设 `net.ipv6.conf.all.forwarding=1`（只影响已存在接口），客户端连接时新建的 TUN/TAP/macvtap 接口从 `default.forwarding` 继承（默认 0），导致新建接口转发未开启、v6 包转不出去。现补设 `net.ipv6.conf.default.forwarding=1`，并在 tun/tap（桥+tap 两接口）/vtap 接口创建后显式设 `net.ipv6.conf.<iface>.forwarding=1`，使 v6 像 v4 一样自动生效，无需手动改 sysctl 文件
 - 修复：部分主机装系统时全局禁用了 IPv6（`disable_ipv6=1`，连 link-local 都没有），导致双栈开启后出网网卡拿不到运营商 v6 地址、v6 完全不工作。现双栈开启时自动解除禁用（`net.ipv6.conf.{all,default,<egress>}.disable_ipv6=0`）
 - 安全：IPT 模式下 FORWARD 链由无条件放行收紧为有状态放行（仅放行 VPN 网段出站及其 established/related 回包），与 nftables 行为一致，避免客户端被外部主动入站访问
 - 修复：TAP / macvtap 模式下 IPv6 实际不可用——服务端未将 v6 网关地址赋到桥 `remlink0`（TAP），且未对网关及池内其他客户端地址做 NDP 代答（macvtap 因主机隔离无法经内核应答网关 NS）。现 TAP 将 v6 网关 /128 赋到桥、allTapRead 的 NS 代答覆盖网关 / 本会话 / 池内其他客户端三种目标，TAP 与 macvtap 的 v6 数据面完整打通
