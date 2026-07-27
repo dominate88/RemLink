@@ -150,7 +150,7 @@ func initIpPool() error {
 		if err6 := IpPool.initV6(cidr); err6 != nil {
 			return fmt.Errorf("IPv6 CIDR 配置错误(%s): %v", cidr, err6)
 		}
-		base.Info("IPv6 地址池初始化: 网络=", IpPool.Ipv6IPNet.IP.String(),
+		base.Debug("IPv6 地址池初始化: 网络=", IpPool.Ipv6IPNet.IP.String(),
 			" 网关=", IpPool.Ipv6Gateway.String(),
 			" 范围=", IpPool.ipv6Start.String(), "-", IpPool.ipv6End.String())
 	}

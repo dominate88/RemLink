@@ -13,9 +13,6 @@ import (
 )
 
 func checkTun() {
-	// 测试ip命令
-	base.CheckModOrLoad("tun")
-
 	// 测试tun
 	cfg := water.Config{
 		DeviceType: water.TUN,
@@ -40,6 +37,18 @@ func checkTun() {
 	if err = netlink.LinkSetUp(link); err != nil {
 		base.Fatal("testTun err: ", err)
 	}
+	// 默认不初始化防火墙后端
+	if !base.GetCfg().GlobalNat && base.GetCfg().Ipv6CIDR == "" {
+		return
+	}
+
+	fw := sessdata.GetFirewall()
+	if fw == nil {
+		base.Error("初始化防火墙失败: firewall is nil, 请检查防火墙后端配置")
+		return
+	}
+
+	// IPv4 全局 NAT：仅由 GlobalNat 控制，行为不变
 	if base.GetCfg().GlobalNat {
 		// 校验主网卡是否存在
 		masterDev := base.GetCfg().MasterDev
@@ -51,23 +60,28 @@ func checkTun() {
 			base.Warn("NAT 转发规则将无法生效, 请在web后台更新配置")
 			base.Warn("========================================")
 		}
-
-		fw := sessdata.GetFirewall()
-		if fw == nil {
-			base.Error("初始化防火墙失败: firewall is nil, 请检查防火墙后端配置")
-			return
-		}
-		if _, ok := fw.(*sessdata.IPT); ok {
-			base.CheckModOrLoad("iptable_filter")
-			base.CheckModOrLoad("iptable_nat")
-		}
 		if err := fw.SetupGlobalNAT(base.GetCfg().Ipv4CIDR, base.GetCfg().MasterDev, base.InContainer); err != nil {
-			base.Error("设置NAT转发失败:", err, ", 请在web后台更新配置后重启服务")
+			if _, ok := fw.(*sessdata.IPT); ok {
+				base.Error("设置NAT转发失败:", err)
+				base.Error("请确认内核已加载 iptable_nat/iptable_filter 模块：lsmod | grep iptable")
+				base.Error("或执行 modprobe iptable_nat iptable_filter 后，在 web 后台更新配置并重启服务")
+			} else {
+				base.Error("设置NAT转发失败:", err)
+				base.Error("请在 web 后台更新配置后重启服务")
+			}
 		}
-		// IPv6 双栈：始终下发 stateful FORWARD；GlobalNat 开时追加 NAT66（MASQUERADE 带 conntrack，安全基线）
-		if base.GetCfg().Ipv6CIDR != "" {
-			if err := fw.SetupGlobalNAT6(base.GetCfg().Ipv6CIDR, base.GetCfg().MasterDev, base.InContainer, base.GetCfg().GlobalNat); err != nil {
-				base.Error("设置 IPv6 NAT/转发失败:", err, ", 请在web后台更新配置后重启服务")
+	}
+
+	// IPv6 双栈：只要配置了 Ipv6CIDR 就建立 stateful FORWARD 规则
+	if base.GetCfg().Ipv6CIDR != "" {
+		if err := fw.SetupGlobalNAT6(base.GetCfg().Ipv6CIDR, base.GetCfg().MasterDev, base.InContainer, base.GetCfg().GlobalNat6); err != nil {
+			if _, ok := fw.(*sessdata.IPT); ok {
+				base.Error("设置 IPv6 NAT/转发失败:", err)
+				base.Error("请确认内核已加载 ip6table_nat/ip6table_filter 模块：lsmod | grep ip6table")
+				base.Error("或执行 modprobe ip6table_nat ip6table_filter 后，在 web 后台更新配置并重启服务")
+			} else {
+				base.Error("设置 IPv6 NAT/转发失败:", err)
+				base.Error("请在 web 后台更新配置后重启服务")
 			}
 		}
 	}

@@ -32,9 +32,6 @@ func (v *Vtap) Close() error {
 }
 
 func checkMacvtap() {
-	// 加载 macvtap
-	base.CheckModOrLoad("macvtap")
-
 	_setGateway()
 	_checkTapIp(base.GetCfg().MasterDev)
 

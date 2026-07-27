@@ -50,8 +50,9 @@ type ServerConfig struct {
 	Ipv4End        string `json:"ipv4_end"`
 	Ipv6CIDR       string `json:"ipv6_cidr"`
 	IpLease        int    `json:"ip_lease"`
-	GlobalNat      bool   `json:"global_nat"`
 	FirewallDriver string `json:"firewall_driver"`
+	GlobalNat      bool   `json:"global_nat"`
+	GlobalNat6     bool   `json:"global_nat6"`
 
 	// 连接控制
 	MaxClient       int    `json:"max_client"`
@@ -149,7 +150,8 @@ var configMetas = map[string]configMeta{
 	"ipv4_end":        {usage: "IPV4结束", group: "虚拟网络", defaultVal: "192.168.90.200", restart: true},
 	"ipv6_cidr":       {usage: "IPv6地址池CIDR(如 2001:db8:1::/64，前缀须<128)；为空则纯v4", group: "虚拟网络", restart: true},
 	"ip_lease":        {usage: "IP租期(秒)", group: "虚拟网络", defaultVal: "86400"},
-	"global_nat":      {usage: "是否自动添加全局NAT", group: "虚拟网络", defaultVal: "true", restart: true},
+	"global_nat":      {usage: "是否自动添加全局NAT(IPv4)", group: "虚拟网络", defaultVal: "true", restart: true},
+	"global_nat6":     {usage: "是否自动添加全局NAT66(IPv6)；关闭即纯路由模式，需上游回指v6池", group: "虚拟网络", defaultVal: "true", restart: true},
 	"firewall_driver": {usage: "防火墙后端", group: "虚拟网络", defaultVal: "auto", restart: true, options: map[string]string{"自动选择": "auto", "nftables": "nftables", "iptables": "iptables"}},
 
 	"max_client":        {usage: "最大用户连接", group: "连接控制", defaultVal: "200"},

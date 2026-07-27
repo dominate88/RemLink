@@ -195,8 +195,23 @@ func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// 排除出口ip路由(出口ip不加密传输)
-	if base.GetCfg().ExcludeExportIp && exportIp4 != "" {
-		HttpAddHeader(w, "X-CSTP-Split-Exclude", exportIp4+"/255.255.255.255")
+	if base.GetCfg().ExcludeExportIp {
+		if exportIp4 != "" {
+			HttpAddHeader(w, "X-CSTP-Split-Exclude", exportIp4+"/255.255.255.255")
+		}
+		// IPv6 出口地址：优先取客户端上报头 X-Cstp-Remote-Address-Ip6，
+		// 取不到则回退到实际 TCP 连接源地址（客户端经 IPv6 连入时为 v6）。
+		exportIp6 := r.Header.Get("X-Cstp-Remote-Address-Ip6")
+		if exportIp6 == "" {
+			if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+				if ip := net.ParseIP(host); ip != nil && ip.To4() == nil {
+					exportIp6 = host
+				}
+			}
+		}
+		if exportIp6 != "" {
+			HttpAddHeader(w, "X-CSTP-Split-Exclude-IP6", exportIp6+"/128")
+		}
 	}
 	// 下发 FakeIP 段路由
 	if rp.EnableFakeDNS {

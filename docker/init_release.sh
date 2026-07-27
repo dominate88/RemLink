@@ -6,7 +6,7 @@ if [ "$CN" = "yes" ]; then
   export GOPROXY=https://goproxy.cn
 fi
 
-apk add --no-cache ca-certificates bash tzdata inetutils-telnet iptables
+apk add --no-cache ca-certificates bash tzdata iptables
 
 which iptables
 iptables -V

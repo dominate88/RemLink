@@ -471,7 +471,7 @@ func (m *ConfigManager) Warnings() []SystemWarning {
 			ActionPath: "/admin/set/security",
 		})
 	}
-	if cfg.GlobalNat {
+	if cfg.GlobalNat || cfg.GlobalNat6 {
 		if _, err := net.InterfaceByName(cfg.MasterDev); err != nil {
 			ifaces := utils.GetPhysicalInterfaces()
 			msg := "NAT配置错误：主网卡未正确配置，NAT转发规则无法生效，请在软件配置中修改 master_dev"

@@ -20,6 +20,10 @@ VER=$(cat version)
 COMMIT=$(git rev-parse HEAD)
 # Docker 构建架构，逗号分隔
 ARCH="${ARCH:-linux/amd64,linux/arm64}"
+# 是否启用国内源加速（容器内切 ustc apk 源 + goproxy.cn）：默认 yes（本地构建机在国内，加速 go mod/apk）；
+# CI（release.yml 不走本脚本、不带 CN）由 Dockerfile 的 ARG CN="no" 兜底，国外 runner 不受影响。
+# 如需强制关闭可显式 CN=no 覆盖。
+CN="${CN:-yes}"
 
 # 是否额外打 latest 镜像标签：-l / --latest / latest 均可
 LATEST_TAG=0
@@ -81,6 +85,7 @@ docker buildx build --push \
   --platform "$ARCH" \
   --build-arg "appVer=${VER}" \
   --build-arg "commitId=${COMMIT}" \
+  --build-arg "CN=${CN}" \
   -f docker/Dockerfile \
   -t "wsczx/remlink:${VER}" .
 if [ "$LATEST_TAG" = "1" ]; then
@@ -88,6 +93,7 @@ if [ "$LATEST_TAG" = "1" ]; then
     --platform "$ARCH" \
     --build-arg "appVer=${VER}" \
     --build-arg "commitId=${COMMIT}" \
+    --build-arg "CN=${CN}" \
     -f docker/Dockerfile \
     -t "wsczx/remlink:latest" .
 fi

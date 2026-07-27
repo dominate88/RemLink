@@ -6,7 +6,7 @@ func Start() {
 	execute()
 	initCfg()
 	initLog()
-	initMod()
+	initContainer()
 }
 
 var once sync.Once

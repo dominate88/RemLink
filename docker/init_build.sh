@@ -6,7 +6,7 @@ if [ "$CN" = "yes" ]; then
   export GOPROXY=https://goproxy.cn
 fi
 
-apk add build-base tzdata gcc g++ musl musl-dev upx
+apk add build-base tzdata upx
 
 cd /server
 go mod tidy

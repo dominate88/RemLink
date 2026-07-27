@@ -195,7 +195,7 @@ func (i *IPT) AddGroupNAT(groupCIDR, masterDev string, inContainer bool) error {
 
 // 设置全局 IPv6 NAT/转发规则
 // 始终下发 stateful FORWARD（established/related 回包 + 来自 VPN v6 CIDR 的出站）；
-// 仅当 useNat66（即全局 GlobalNat 开）才追加 POSTROUTING MASQUERADE。
+// 仅当 useNat66（即全局 global_nat6 开）才追加 POSTROUTING MASQUERADE。
 // 注意：IPT 严禁复刻 v4 的无条件 `-j ACCEPT`，否则纯路由(GUA)时客户端 v6 会被公网入站暴露。
 func (i *IPT) SetupGlobalNAT6(vpnCIDR6, masterDev string, inContainer bool, useNat66 bool) error {
 	ip6, err := iptables.NewWithProtocol(iptables.ProtocolIPv6)
@@ -648,7 +648,7 @@ func (n *NFT) DelGroupNAT6(groupCIDR6, masterDev string, inContainer bool, useNa
 }
 
 // 设置全局 IPv6 NAT/转发规则。始终下发 stateful FORWARD（established/related 回包 + 来自 VPN v6 CIDR 的出站）；
-// 仅当 useNat66（即全局 GlobalNat 开）追加 POSTROUTING MASQUERADE。纯路由(GUA)因此也受 stateful 保护。
+// 仅当 useNat66（即全局 global_nat6 开）追加 POSTROUTING MASQUERADE。纯路由(GUA)因此也受 stateful 保护。
 func (n *NFT) SetupGlobalNAT6(vpnCIDR6, masterDev string, inContainer bool, useNat66 bool) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -1079,7 +1079,7 @@ func ensureOneGroupNAT(fw Firewall, cidr, egress string, isV6 bool) {
 		}
 		var err error
 		if isV6 {
-			err = fw.AddGroupNAT6(cidr, egress, base.InContainer, base.GetCfg().GlobalNat)
+			err = fw.AddGroupNAT6(cidr, egress, base.InContainer, base.GetCfg().GlobalNat6)
 		} else {
 			err = fw.AddGroupNAT(cidr, egress, base.InContainer)
 		}
@@ -1119,7 +1119,7 @@ func RemoveGroupNAT(oldV4, oldV6, oldOutDev string) {
 func delGroupNATRule(fw Firewall, cidr, egress string, isV6 bool) {
 	var err error
 	if isV6 {
-		err = fw.DelGroupNAT6(cidr, egress, base.InContainer, base.GetCfg().GlobalNat)
+		err = fw.DelGroupNAT6(cidr, egress, base.InContainer, base.GetCfg().GlobalNat6)
 	} else {
 		err = fw.DelGroupNAT(cidr, egress, base.InContainer)
 	}
