@@ -1,6 +1,6 @@
 import Vue from "vue";
 import VueRouter from "vue-router";
-import { isChecked, checkAuth } from "./auth";
+import { shouldRecheck, isAuthExpired, checkAuth } from "./auth";
 
 Vue.use(VueRouter)
 
@@ -69,10 +69,11 @@ router.beforeEach(async (to, from, next) => {
         return;
     }
 
-    // 首次进入受保护页面时，调用后端验证 Cookie 中的 JWT 是否有效
-    if (!isChecked()) {
+    // 受保护页面：未校验过，或距上次成功校验超过时间窗口时，主动重新校验 JWT 是否有效。
+    // 仅「明确未授权（401/cookie 过期）」才跳登录；网络错误放行，避免网络抖动误踢用户。
+    if (shouldRecheck()) {
         const ok = await checkAuth();
-        if (!ok) {
+        if (!ok && isAuthExpired()) {
             next({
                 path: '/login',
                 query: { redirect: to.path }
