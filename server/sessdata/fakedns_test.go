@@ -532,11 +532,9 @@ func TestAddMapping_ConcurrentSameFakeIP(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 10 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			m.AddMapping(fakeIP.String(), "1.2.3.4", "example.com")
-		}()
+		})
 	}
 	wg.Wait()
 

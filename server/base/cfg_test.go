@@ -239,8 +239,8 @@ func TestIsFieldSensitive(t *testing.T) {
 
 func TestConfigMetasCoverServerConfig(t *testing.T) {
 	typ := reflect.TypeFor[ServerConfig]()
-	for i := 0; i < typ.NumField(); i++ {
-		name := typ.Field(i).Tag.Get("json")
+	for field := range typ.Fields() {
+		name := field.Tag.Get("json")
 		if _, ok := configMetas[name]; !ok {
 			t.Errorf("configMetas missing field %q", name)
 		}

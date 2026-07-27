@@ -37,24 +37,20 @@ func benchmarkMap(b *testing.B, hm IMaps) {
 	for i := 0; i < b.N; i++ {
 		var wg sync.WaitGroup
 		for range NumOfWriter {
-			wg.Add(1)
-			go func() {
+			wg.Go(func() {
 				for i := range 100 {
 					hm.Set(strconv.Itoa(i), i*i)
 					hm.Set(strconv.Itoa(i), i*i)
 					hm.Del(strconv.Itoa(i))
 				}
-				wg.Done()
-			}()
+			})
 		}
 		for range NumOfReader {
-			wg.Add(1)
-			go func() {
+			wg.Go(func() {
 				for i := range 100 {
 					hm.Get(strconv.Itoa(i))
 				}
-				wg.Done()
-			}()
+			})
 		}
 		wg.Wait()
 	}

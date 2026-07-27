@@ -538,8 +538,8 @@ func buildConfigFieldByName(fields []configFieldMeta) map[string]configFieldMeta
 func init() {
 	typ := reflect.TypeFor[ServerConfig]()
 	structNames := make(map[string]bool, typ.NumField())
-	for i := 0; i < typ.NumField(); i++ {
-		name := typ.Field(i).Tag.Get("json")
+	for field := range typ.Fields() {
+		name := field.Tag.Get("json")
 		structNames[name] = true
 		if _, ok := configMetas[name]; !ok {
 			panic("configMetas 缺少字段元数据: " + name)
@@ -554,16 +554,16 @@ func init() {
 	// ServerConfig 必须仅含可比较的值类型（string/int/bool 等）。
 	// mutate 通过浅值拷贝 newCfg := *old 实现无锁并发安全；
 	// 若引入 slice/map/指针等引用类型字段，浅拷贝会让 fn 直接修改共享的 old 对象，破坏并发安全。
-	for i := 0; i < typ.NumField(); i++ {
-		switch typ.Field(i).Type.Kind() {
+	for field := range typ.Fields() {
+		switch field.Type.Kind() {
 		case reflect.String, reflect.Bool,
 			reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
 			reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128:
 			// 值类型，允许
 		default:
-			panic("ServerConfig 含非值类型字段 " + typ.Field(i).Name +
-				" (" + typ.Field(i).Type.Kind().String() + ")，会破坏 mutate 的无锁并发安全：请改用值类型或实现深拷贝")
+			panic("ServerConfig 含非值类型字段 " + field.Name +
+				" (" + field.Type.Kind().String() + ")，会破坏 mutate 的无锁并发安全：请改用值类型或实现深拷贝")
 		}
 	}
 }

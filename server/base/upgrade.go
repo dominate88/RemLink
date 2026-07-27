@@ -447,7 +447,7 @@ func compareBase(a, b string) int {
 	partsA := strings.Split(a, ".")
 	partsB := strings.Split(b, ".")
 	maxLen := max(len(partsB), len(partsA))
-	for i := 0; i < maxLen; i++ {
+	for i := range maxLen {
 		na, nb := 0, 0
 		if i < len(partsA) {
 			na, _ = strconv.Atoi(partsA[i])

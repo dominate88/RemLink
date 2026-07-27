@@ -92,8 +92,7 @@ func initCmd() {
 // 遍历 ServerConfig 字段，结合 configMetas 元数据注册 cobra flags
 func registerFlagsFromConfig() {
 	typ := reflect.TypeFor[ServerConfig]()
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
+	for field := range typ.Fields() {
 		name := field.Tag.Get("json")
 		// 默认值/说明来自 config.go 的 configMetas
 		meta := configMetas[name]
