@@ -482,5 +482,21 @@ func AddTrafficUsed(username string, delta int64) {
 	if delta <= 0 {
 		return
 	}
-	_, _ = xdb.Exec("UPDATE user SET traffic_used = traffic_used + ? WHERE username = ?", delta, username)
+	var lastErr error
+	for attempt := range 5 {
+		_, err := xdb.Exec("UPDATE user SET traffic_used = traffic_used + ? WHERE username = ?", delta, username)
+		if err == nil {
+			return
+		}
+		lastErr = err
+		// SQLite 并发写锁竞争为瞬时错误，退避重试避免流量更新静默丢失
+		if strings.Contains(err.Error(), "database is locked") || strings.Contains(err.Error(), "database is busy") {
+			time.Sleep(20 * time.Millisecond * time.Duration(attempt+1))
+			continue
+		}
+		break
+	}
+	if lastErr != nil {
+		base.Error("更新用户流量失败:", username, lastErr)
+	}
 }

@@ -226,13 +226,13 @@ func (s *StatsInfo) getStatsWhere(sd *ScopeDetail) (where string) {
 func (s *StatsInfo) ClearStatsInfo(action string, ts string) (affected int64, err error) {
 	switch action {
 	case "online":
-		affected, err = xdb.Where("created_at < '" + ts + "'").Delete(&StatsOnline{})
+		affected, err = xdb.Where("created_at < ?", ts).Delete(&StatsOnline{})
 	case "network":
-		affected, err = xdb.Where("created_at < '" + ts + "'").Delete(&StatsNetwork{})
+		affected, err = xdb.Where("created_at < ?", ts).Delete(&StatsNetwork{})
 	case "cpu":
-		affected, err = xdb.Where("created_at < '" + ts + "'").Delete(&StatsCpu{})
+		affected, err = xdb.Where("created_at < ?", ts).Delete(&StatsCpu{})
 	case "mem":
-		affected, err = xdb.Where("created_at < '" + ts + "'").Delete(&StatsMem{})
+		affected, err = xdb.Where("created_at < ?", ts).Delete(&StatsMem{})
 	}
 	return affected, err
 }
