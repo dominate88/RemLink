@@ -97,6 +97,25 @@ func (e EncryptedJSON[T]) MarshalJSON() ([]byte, error) {
 	return json.Marshal(e.Data)
 }
 
+// 返回加密形式的 JSON 字符串，用于备份落盘（避免明文泄露凭证）。
+// 还原时经 FromDB：json 反序列化得到无引号密文串 -> DecryptIfNeeded -> 明文 JSON -> 写入 Data，可逆。
+func (e EncryptedJSON[T]) MarshalEncrypted() ([]byte, error) {
+	b, err := e.ToDB()
+	if err != nil {
+		return nil, err
+	}
+	if !IsEnabled() || len(b) == 0 {
+		return json.Marshal(e.Data)
+	}
+	return json.Marshal(string(b))
+}
+
 func (e *EncryptedJSON[T]) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		// 备份还原等场景可能为密文字符串，统一解密
+		s = DecryptIfNeeded(s)
+		return json.Unmarshal([]byte(s), &e.Data)
+	}
 	return json.Unmarshal(data, &e.Data)
 }

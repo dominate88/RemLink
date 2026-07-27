@@ -216,7 +216,60 @@ func tableExport(name string) (json.RawMessage, error) {
 	if err := xdb.Find(slicePtr); err != nil {
 		return nil, err
 	}
-	return json.Marshal(slicePtr)
+	rv := reflect.ValueOf(slicePtr).Elem()
+	rows := make([]json.RawMessage, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		b, err := marshalEncryptedRow(rv.Index(i).Addr().Interface())
+		if err != nil {
+			return nil, err
+		}
+		rows[i] = b
+	}
+	return json.Marshal(rows)
+}
+
+// 对 EncryptedJSON 字段输出加密形式（备份不落明文凭证）。
+func marshalEncryptedRow(v any) (json.RawMessage, error) {
+	rv := reflect.ValueOf(v)
+	for rv.Kind() == reflect.Pointer {
+		rv = rv.Elem()
+	}
+	if rv.Kind() != reflect.Struct {
+		return json.Marshal(v)
+	}
+	out := make(map[string]json.RawMessage, rv.NumField())
+	rt := rv.Type()
+	for i := 0; i < rv.NumField(); i++ {
+		f := rt.Field(i)
+		if !f.IsExported() {
+			continue
+		}
+		tag := f.Tag.Get("json")
+		if tag == "" || tag == "-" {
+			continue
+		}
+		name := tag
+		if before, _, ok := strings.Cut(tag, ","); ok {
+			name = before
+		}
+		fv := rv.Field(i)
+		if ej, ok := fv.Addr().Interface().(interface {
+			MarshalEncrypted() ([]byte, error)
+		}); ok {
+			b, err := ej.MarshalEncrypted()
+			if err != nil {
+				return nil, err
+			}
+			out[name] = b
+			continue
+		}
+		b, err := json.Marshal(fv.Interface())
+		if err != nil {
+			return nil, err
+		}
+		out[name] = b
+	}
+	return json.Marshal(out)
 }
 
 func ListBackups() ([]BackupFileInfo, error) {

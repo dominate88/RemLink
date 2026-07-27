@@ -116,7 +116,6 @@ func UserSet(w http.ResponseWriter, r *http.Request) {
 	// 密码为空时由系统随机生成并通过邮件下发，非空时校验复杂度
 	if data.PinCode == "" {
 		data.PinCode = utils.RandomRunes(8)
-		base.Info("用户", data.Username, "随机密码为:", data.PinCode)
 	} else if err := utils.CheckPasswordPolicy(data.PinCode); err != nil {
 		RespError(w, RespParamErr, err.Error())
 		return
