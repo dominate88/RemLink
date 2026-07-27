@@ -2,7 +2,7 @@
 # 需要先编译前端（bash scripts/build_web.sh）再执行 docker build
 
 # 编译阶段
-FROM golang:1.24-alpine3.22 AS builder
+FROM golang:1.26-alpine3.22 AS builder
 
 ARG CN="no"
 ARG appVer="appVer"

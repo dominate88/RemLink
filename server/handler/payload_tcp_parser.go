@@ -114,12 +114,12 @@ func sniNewParser(b []byte) (uint8, string) {
 // Beta
 func httpNewParser(data []byte) (uint8, string) {
 	methodArr := []string{"OPTIONS", "HEAD", "GET", "POST", "PUT", "DELETE", "TRACE", "CONNECT"}
-	pos := bytes.IndexByte(data, 10)
-	if pos == -1 {
+	before, _, ok := bytes.Cut(data, []byte{10})
+	if !ok {
 		return acc_proto_tcp, ""
 	}
-	method, uri, _ := strings.Cut(string(data[:pos]), " ")
-	ok := false
+	method, uri, _ := strings.Cut(string(before), " ")
+	ok = false
 	for _, v := range methodArr {
 		if v == method {
 			ok = true
