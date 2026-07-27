@@ -694,10 +694,25 @@ func (m *FakeDNSManager) entryFor(fakeIP string) (*fakeIPEntry, bool) {
 
 var errDNSAuthoritative = errors.New("authoritative negative response")
 
+// 上游 DNS 地址：无端口时补 :53；IPv6 地址需加方括号（[..]:53）
+// 支持 IPv6 上游（如 2001:db8::1 或 [2001:db8::1]:53）与自定义端口
+func FormatUpstream(addr string) string {
+	if addr == "" {
+		return addr
+	}
+	if _, _, err := net.SplitHostPort(addr); err == nil {
+		return addr // 已带端口
+	}
+	if ip := net.ParseIP(addr); ip != nil && ip.To4() == nil {
+		return "[" + addr + "]:53"
+	}
+	return addr + ":53"
+}
+
 // 带重试的 DNS 解析
 func (m *FakeDNSManager) ResolveDomain(domain, upstreamDNS string) (string, uint32, error) {
-	if upstreamDNS != "" && !strings.Contains(upstreamDNS, ":") {
-		upstreamDNS = upstreamDNS + ":53"
+	if upstreamDNS != "" {
+		upstreamDNS = FormatUpstream(upstreamDNS)
 	}
 
 	msg := new(dns.Msg)
@@ -724,8 +739,8 @@ func (m *FakeDNSManager) ResolveDomain(domain, upstreamDNS string) (string, uint
 
 // 解析域名的 AAAA（IPv6）真实地址（V2）
 func (m *FakeDNSManager) ResolveDomainAAAA(domain, upstreamDNS string) (string, uint32, error) {
-	if upstreamDNS != "" && !strings.Contains(upstreamDNS, ":") {
-		upstreamDNS = upstreamDNS + ":53"
+	if upstreamDNS != "" {
+		upstreamDNS = FormatUpstream(upstreamDNS)
 	}
 
 	msg := new(dns.Msg)

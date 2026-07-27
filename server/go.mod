@@ -21,7 +21,7 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/mattn/go-sqlite3 v1.14.24
 	github.com/miekg/dns v1.1.62
-	github.com/pion/dtls/v2 v2.2.12
+	github.com/pion/dtls/v3 v3.1.5
 	github.com/pion/logging v0.2.4
 	github.com/pires/go-proxyproto v0.8.1
 	github.com/shirou/gopsutil v3.21.11+incompatible
@@ -34,9 +34,9 @@ require (
 	github.com/xhit/go-simple-mail/v2 v2.16.0
 	github.com/xlzd/gotp v0.1.0
 	github.com/xuri/excelize/v2 v2.9.0
-	golang.org/x/crypto v0.45.0
-	golang.org/x/net v0.47.0
-	golang.org/x/text v0.31.0
+	golang.org/x/crypto v0.48.0
+	golang.org/x/net v0.49.0
+	golang.org/x/text v0.34.0
 	golang.org/x/time v0.14.0
 	layeh.com/radius v0.0.0-20231213012653-1006025d24f8
 	xorm.io/xorm v1.3.9
@@ -61,16 +61,16 @@ require (
 	github.com/mdlayher/netlink v1.7.3-0.20250113171957-fbb4dce95f42 // indirect
 	github.com/mdlayher/socket v0.5.0 // indirect
 	github.com/opentracing/opentracing-go v1.2.1-0.20220228012449-10b1cf09e00b // indirect
-	github.com/pion/transport/v2 v2.2.4 // indirect
+	github.com/pion/transport/v4 v4.0.2 // indirect
 	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common v1.0.1036 // indirect
 	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/dnspod v1.0.1036 // indirect
 	github.com/toorop/go-dkim v0.0.0-20240103092955-90b7d1423f92 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
-	golang.org/x/mod v0.29.0 // indirect
-	golang.org/x/sync v0.18.0 // indirect
-	golang.org/x/tools v0.38.0 // indirect
+	golang.org/x/mod v0.32.0 // indirect
+	golang.org/x/sync v0.19.0 // indirect
+	golang.org/x/tools v0.41.0 // indirect
 )
 
 require (

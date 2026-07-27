@@ -248,9 +248,14 @@ func SetPolicy(p *Policy) error {
 		}
 		p.FakeDNSUpstream = strings.TrimSpace(p.FakeDNSUpstream)
 		if p.FakeDNSUpstream != "" {
-			ip := net.ParseIP(p.FakeDNSUpstream)
-			if ip == nil || ip.String() != p.FakeDNSUpstream {
-				return errors.New("FakeDNS 上游 DNS IP 格式错误")
+			// 允许 host:port 形式（IPv6 需 [..]:port），仅校验 host 部分为合法 IP，
+			// 支持 IPv6 上游 DNS 服务器与自定义端口
+			host := p.FakeDNSUpstream
+			if h, _, err := net.SplitHostPort(p.FakeDNSUpstream); err == nil {
+				host = h
+			}
+			if net.ParseIP(host) == nil {
+				return errors.New("FakeDNS 上游 DNS 格式错误（应为 IP[:port]）")
 			}
 		}
 		p.FakeDNSInclude = strings.TrimSpace(p.FakeDNSInclude)

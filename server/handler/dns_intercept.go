@@ -129,7 +129,7 @@ func interceptDNS(cSess *sessdata.ConnSession, pl *sessdata.Payload) bool {
 			sendDNSResponse(cSess, buildDNSResponse(pl.Data, v6Info, isV6, dnsResp))
 			return true
 		}
-		upstream := cSess.Policy.GetUpstreamDNS() + ":53"
+		upstream := sessdata.FormatUpstream(cSess.Policy.GetUpstreamDNS())
 		if cSess.FakeDNS.IsAAAANegative(domain, upstream) {
 			// 已确认上游无 AAAA：不回 v6 fakeIP（否则黑洞），回 NODATA 引导走 v4
 			dnsResp, err := resp.Pack()
@@ -175,7 +175,7 @@ func interceptDNS(cSess *sessdata.ConnSession, pl *sessdata.Payload) bool {
 	// 首次/未知域名不抑制，回 v4 fakeIP，由客户端 Happy Eyeballs 竞争 v6，
 	// 避免「抑制 A 但 v6 映射建不起来」导致的全黑洞（转发失效）。
 	if cSess.Policy.PreferIPv6 && cSess.FakeDNS.IsV6Enabled() {
-		upstream := cSess.Policy.GetUpstreamDNS() + ":53"
+		upstream := sessdata.FormatUpstream(cSess.Policy.GetUpstreamDNS())
 		if cSess.FakeDNS.IsAAAAPositive(domain, upstream) {
 			if fakeIP6 := cSess.FakeDNS.AcquireFakeIPv6(domain); fakeIP6 != nil {
 				cSess.FakeDNS.ResolveAndMapping(fakeIP6.String(), domain, upstream)
@@ -204,7 +204,7 @@ func interceptDNS(cSess *sessdata.ConnSession, pl *sessdata.Payload) bool {
 
 	base.Debug("Allocated FakeIP:", domain, "->", fakeIP.String())
 	// 异步预解析并写入 NAT 规则
-	cSess.FakeDNS.ResolveAndMapping(fakeIP.String(), domain, cSess.Policy.GetUpstreamDNS()+":53")
+	cSess.FakeDNS.ResolveAndMapping(fakeIP.String(), domain, sessdata.FormatUpstream(cSess.Policy.GetUpstreamDNS()))
 
 	// 构造 DNS 响应
 	resp := new(dns.Msg)
@@ -284,7 +284,7 @@ func restoreFakeIP(cSess *sessdata.ConnSession, pl *sessdata.Payload) bool {
 	// 已有映射: 命中转发, 到期则异步换节点
 	if realIP != "" {
 		if needRefresh {
-			cSess.FakeDNS.RenewMapping(fakeIPStr, domain, cSess.Policy.GetUpstreamDNS()+":53")
+			cSess.FakeDNS.RenewMapping(fakeIPStr, domain, sessdata.FormatUpstream(cSess.Policy.GetUpstreamDNS()))
 		}
 		return false
 	}
@@ -296,7 +296,7 @@ func restoreFakeIP(cSess *sessdata.ConnSession, pl *sessdata.Payload) bool {
 	}
 
 	// 首次访问: 异步解析并写入 NAT 规则, 丢包让客户端 TCP 重传后恢复
-	upstreamDNS := cSess.Policy.GetUpstreamDNS() + ":53"
+	upstreamDNS := sessdata.FormatUpstream(cSess.Policy.GetUpstreamDNS())
 	cSess.FakeDNS.ResolveAndMapping(fakeIPStr, domain, upstreamDNS)
 
 	base.Debug("FakeIP mapping not ready, dropping packet, resolving async:", domain)
