@@ -11,30 +11,30 @@ const PageSize = 10
 
 var ErrNotFound = errors.New("ErrNotFound")
 
-func Add(data interface{}) error {
+func Add(data any) error {
 	_, err := xdb.InsertOne(data)
 	return err
 }
 
-func AddBatch(data interface{}) error {
+func AddBatch(data any) error {
 	_, err := xdb.Insert(data)
 	return err
 }
 
-func Update(fieldName string, value interface{}, data interface{}) error {
+func Update(fieldName string, value any, data any) error {
 	_, err := xdb.Where(fieldName+"=?", value).Update(data)
 	return err
 }
 
-func Del(data interface{}) error {
+func Del(data any) error {
 	_, err := xdb.Delete(data)
 	return err
 }
 
-func extract(data interface{}, fieldName string) interface{} {
+func extract(data any, fieldName string) any {
 	ref := reflect.ValueOf(data)
 	r := &ref
-	if r.Kind() == reflect.Ptr {
+	if r.Kind() == reflect.Pointer {
 		e := r.Elem()
 		r = &e
 	}
@@ -43,13 +43,13 @@ func extract(data interface{}, fieldName string) interface{} {
 }
 
 // 更新全部字段
-func Set(data interface{}) error {
+func Set(data any) error {
 	id := extract(data, "Id")
 	_, err := xdb.ID(id).AllCols().Update(data)
 	return err
 }
 
-func One(fieldName string, value interface{}, data interface{}) error {
+func One(fieldName string, value any, data any) error {
 	has, err := xdb.Where(fieldName+"=?", value).Get(data)
 	if err != nil {
 		return err
@@ -61,12 +61,12 @@ func One(fieldName string, value interface{}, data interface{}) error {
 	return nil
 }
 
-func CountAll(data interface{}) int {
+func CountAll(data any) int {
 	n, _ := xdb.Count(data)
 	return int(n)
 }
 
-func Find(data interface{}, limit, page int) error {
+func Find(data any, limit, page int) error {
 	if limit == 0 {
 		// 默认按主键排序，确保结果一致性
 		return xdb.OrderBy("id ASC").Find(data)
@@ -77,12 +77,12 @@ func Find(data interface{}, limit, page int) error {
 	return xdb.OrderBy("id ASC").Limit(limit, start).Find(data)
 }
 
-func FindWhereCount(data interface{}, where string, args ...interface{}) int {
+func FindWhereCount(data any, where string, args ...any) int {
 	n, _ := xdb.Where(where, args...).Count(data)
 	return int(n)
 }
 
-func FindWhere(data interface{}, limit int, page int, where string, args ...interface{}) error {
+func FindWhere(data any, limit int, page int, where string, args ...any) error {
 	if limit == 0 {
 		return xdb.Where(where, args...).OrderBy("id ASC").Find(data)
 	}
@@ -91,7 +91,7 @@ func FindWhere(data interface{}, limit int, page int, where string, args ...inte
 	return xdb.Where(where, args...).OrderBy("id ASC").Limit(limit, start).Find(data)
 }
 
-func FindAndCount(session *xorm.Session, data interface{}, limit, page int) (int64, error) {
+func FindAndCount(session *xorm.Session, data any, limit, page int) (int64, error) {
 	if limit == 0 {
 		return session.OrderBy("id ASC").FindAndCount(data)
 	}

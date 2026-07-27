@@ -53,7 +53,7 @@ func PolicyList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"count":     count,
 		"page_size": pageSize,
 		"datas":     result,
@@ -68,7 +68,7 @@ func PolicyNames(w http.ResponseWriter, r *http.Request) {
 	if names == nil {
 		names = []dbdata.GroupNameId{}
 	}
-	data := map[string]interface{}{
+	data := map[string]any{
 		"count":     len(names),
 		"page_size": 0,
 		"datas":     names,
@@ -82,7 +82,7 @@ func AllPolicyNames(w http.ResponseWriter, r *http.Request) {
 	if names == nil {
 		names = []dbdata.GroupNameId{}
 	}
-	data := map[string]interface{}{
+	data := map[string]any{
 		"count":     len(names),
 		"page_size": 0,
 		"datas":     names,
@@ -333,7 +333,7 @@ func PolicyUsedBy(w http.ResponseWriter, r *http.Request) {
 	groups := dbdata.PolicyUsedByGroups(id)
 	users := dbdata.PolicyUsedByUsers(id)
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"groups": groups,
 		"users":  users,
 	}

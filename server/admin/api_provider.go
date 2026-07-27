@@ -36,7 +36,7 @@ func keepProviderSecrets(newP, oldP *dbdata.Provider) {
 	if len(keys) == 0 {
 		return
 	}
-	var nm, om map[string]interface{}
+	var nm, om map[string]any
 	if json.Unmarshal(newP.Config.Data, &nm) != nil || json.Unmarshal(oldP.Config.Data, &om) != nil {
 		return
 	}
@@ -79,7 +79,7 @@ func ProviderList(w http.ResponseWriter, r *http.Request) {
 		maskProviderSecrets(&datas[i])
 	}
 
-	RespSucess(w, map[string]interface{}{
+	RespSucess(w, map[string]any{
 		"count":     count,
 		"page_size": pageSize,
 		"datas":     datas,
@@ -94,7 +94,7 @@ func ProviderNames(w http.ResponseWriter, r *http.Request) {
 	if names == nil {
 		names = []string{}
 	}
-	RespSucess(w, map[string]interface{}{
+	RespSucess(w, map[string]any{
 		"count": len(names),
 		"datas": names,
 	})

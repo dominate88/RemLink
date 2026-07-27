@@ -26,7 +26,7 @@ func SetAuditList(w http.ResponseWriter, r *http.Request) {
 	if datas == nil {
 		datas = []dbdata.AccessAudit{}
 	}
-	data := map[string]interface{}{
+	data := map[string]any{
 		"count":     count,
 		"page_size": dbdata.PageSize,
 		"datas":     datas,
@@ -75,7 +75,7 @@ func UserActLogList(w http.ResponseWriter, r *http.Request) {
 	if datas == nil {
 		datas = []dbdata.UserActLog{}
 	}
-	data := map[string]interface{}{
+	data := map[string]any{
 		"count":     count,
 		"page_size": dbdata.PageSize,
 		"datas":     datas,
@@ -106,7 +106,7 @@ func AdminOpLogList(w http.ResponseWriter, r *http.Request) {
 	if datas == nil {
 		datas = []dbdata.AdminOpLog{}
 	}
-	data := map[string]interface{}{
+	data := map[string]any{
 		"count":     count,
 		"page_size": dbdata.PageSize,
 		"datas":     datas,

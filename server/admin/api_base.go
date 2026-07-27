@@ -53,12 +53,12 @@ func Login(w http.ResponseWriter, r *http.Request) {
 	if base.GetCfg().AdminOtp != "" {
 		// 密码验证成功，清除密码阶段的失败计数，OTP 阶段从头计数
 		lm.Success(adminUser, r.RemoteAddr)
-		otpToken, err := SetJwtData(map[string]interface{}{"otp_user": adminUser}, time.Now().Unix()+300)
+		otpToken, err := SetJwtData(map[string]any{"otp_user": adminUser}, time.Now().Unix()+300)
 		if err != nil {
 			RespError(w, 1, err)
 			return
 		}
-		RespSucess(w, map[string]interface{}{
+		RespSucess(w, map[string]any{
 			"otp_required": true,
 			"otp_token":    otpToken,
 		})
@@ -202,7 +202,7 @@ func AdminOtpQr(w http.ResponseWriter, r *http.Request) {
 
 	// GET：仅返回启用状态，不需要生成二维码
 	if r.Method == http.MethodGet {
-		RespSucess(w, map[string]interface{}{
+		RespSucess(w, map[string]any{
 			"enabled": true,
 		})
 		return
@@ -243,7 +243,7 @@ func AdminOtpQr(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dbdata.AdminLog("安全设置", "两步验证", "查看了OTP密钥和二维码", r.RemoteAddr)
-	RespSucess(w, map[string]interface{}{
+	RespSucess(w, map[string]any{
 		"enabled":   true,
 		"secret":    cfg.AdminOtp,
 		"qr_base64": qrBase64,
@@ -267,7 +267,7 @@ func AdminOtpGenerate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dbdata.AdminLog("安全设置", "两步验证", "生成了新的OTP密钥（预览）", r.RemoteAddr)
-	RespSucess(w, map[string]interface{}{
+	RespSucess(w, map[string]any{
 		"secret":    secret,
 		"qr_base64": qrBase64,
 	})
@@ -437,7 +437,7 @@ func generateAdminOTPQrBase64(issuer, adminUser, secret string) (string, error) 
 // 签发管理员登录 JWT token
 func issueLoginJWT(w http.ResponseWriter, r *http.Request, adminUser string) {
 	expiresAt := time.Now().Unix() + 3600*3
-	jwtData := map[string]interface{}{"admin_user": adminUser}
+	jwtData := map[string]any{"admin_user": adminUser}
 	tokenString, err := SetJwtData(jwtData, expiresAt)
 	if err != nil {
 		RespError(w, 1, err)
@@ -445,7 +445,7 @@ func issueLoginJWT(w http.ResponseWriter, r *http.Request, adminUser string) {
 	}
 
 	// JWT token 签发成功，返回数据（不暴露前端）
-	data := make(map[string]interface{})
+	data := make(map[string]any)
 	data["admin_user"] = adminUser
 	data["expires_at"] = expiresAt
 	data["admin_temp"] = base.GetCfg().AdminTemp
@@ -471,7 +471,7 @@ func AuthCheck(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
-	RespSucess(w, map[string]interface{}{
+	RespSucess(w, map[string]any{
 		"admin_user": data["admin_user"],
 	})
 }

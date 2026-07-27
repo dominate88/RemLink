@@ -293,7 +293,7 @@ func (m *ConfigManager) Meta() []map[string]any {
 			val = mask.Placeholder
 		}
 
-		item := map[string]interface{}{
+		item := map[string]any{
 			"name":      field.name,
 			"usage":     field.usage,
 			"type":      field.typ,
@@ -518,7 +518,7 @@ func valueType(kind reflect.Kind) string {
 }
 
 func buildConfigFields() []configFieldMeta {
-	typ := reflect.TypeOf(ServerConfig{})
+	typ := reflect.TypeFor[ServerConfig]()
 	fields := make([]configFieldMeta, 0, typ.NumField())
 	for i := 0; i < typ.NumField(); i++ {
 		fields = append(fields, buildFieldMeta(typ.Field(i), i))

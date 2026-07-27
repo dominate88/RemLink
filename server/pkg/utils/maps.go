@@ -1,15 +1,16 @@
 package utils
 
 import (
+	"maps"
 	"sync"
 )
 
 type IMaps interface {
-	Set(key string, val interface{})
-	Get(key string) (interface{}, bool)
+	Set(key string, val any)
+	Get(key string) (any, bool)
 	Del(key string)
 	// Items 返回所有条目，用于清理等批量操作
-	Items() map[string]interface{}
+	Items() map[string]any
 }
 
 /**
@@ -17,16 +18,16 @@ type IMaps interface {
  *
  */
 type BaseMap struct {
-	m  map[string]interface{}
+	m  map[string]any
 	mu sync.Mutex
 }
 
-func (m *BaseMap) Set(key string, value interface{}) {
+func (m *BaseMap) Set(key string, value any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.m[key] = value
 }
-func (m *BaseMap) Get(key string) (interface{}, bool) {
+func (m *BaseMap) Get(key string) (any, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	v, ok := m.m[key]
@@ -37,13 +38,11 @@ func (m *BaseMap) Del(key string) {
 	defer m.mu.Unlock()
 	delete(m.m, key)
 }
-func (m *BaseMap) Items() map[string]interface{} {
+func (m *BaseMap) Items() map[string]any {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	result := make(map[string]interface{}, len(m.m))
-	for k, v := range m.m {
-		result[k] = v
-	}
+	result := make(map[string]any, len(m.m))
+	maps.Copy(result, m.m)
 	return result
 }
 
@@ -52,17 +51,17 @@ func (m *BaseMap) Items() map[string]interface{} {
  *
  */
 type RWLockMap struct {
-	m    map[string]interface{}
+	m    map[string]any
 	lock sync.RWMutex
 }
 
-func (m *RWLockMap) Set(key string, value interface{}) {
+func (m *RWLockMap) Set(key string, value any) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.m[key] = value
 }
 
-func (m *RWLockMap) Get(key string) (interface{}, bool) {
+func (m *RWLockMap) Get(key string) (any, bool) {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 	v, ok := m.m[key]
@@ -75,13 +74,11 @@ func (m *RWLockMap) Del(key string) {
 	delete(m.m, key)
 }
 
-func (m *RWLockMap) Items() map[string]interface{} {
+func (m *RWLockMap) Items() map[string]any {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
-	result := make(map[string]interface{}, len(m.m))
-	for k, v := range m.m {
-		result[k] = v
-	}
+	result := make(map[string]any, len(m.m))
+	maps.Copy(result, m.m)
 	return result
 }
 
@@ -93,11 +90,11 @@ type SyncMap struct {
 	m sync.Map
 }
 
-func (m *SyncMap) Set(key string, val interface{}) {
+func (m *SyncMap) Set(key string, val any) {
 	m.m.Store(key, val)
 }
 
-func (m *SyncMap) Get(key string) (interface{}, bool) {
+func (m *SyncMap) Get(key string) (any, bool) {
 	return m.m.Load(key)
 }
 
@@ -105,9 +102,9 @@ func (m *SyncMap) Del(key string) {
 	m.m.Delete(key)
 }
 
-func (m *SyncMap) Items() map[string]interface{} {
-	result := make(map[string]interface{})
-	m.m.Range(func(k, v interface{}) bool {
+func (m *SyncMap) Items() map[string]any {
+	result := make(map[string]any)
+	m.m.Range(func(k, v any) bool {
 		result[k.(string)] = v
 		return true
 	})
@@ -119,12 +116,12 @@ func NewMap(name string, len int) IMaps {
 	case "cmap":
 		return &SyncMap{}
 	case "rwmap":
-		m := make(map[string]interface{}, len)
+		m := make(map[string]any, len)
 		return &RWLockMap{m: m}
 	case "syncmap":
 		return &SyncMap{}
 	default:
-		m := make(map[string]interface{}, len)
+		m := make(map[string]any, len)
 		return &BaseMap{m: m}
 	}
 }

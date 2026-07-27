@@ -9,12 +9,12 @@ import (
 )
 
 type Resp struct {
-	Code int         `json:"code"`
-	Msg  string      `json:"msg"`
-	Data interface{} `json:"data"`
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
+	Data any    `json:"data"`
 }
 
-func respHttp(w http.ResponseWriter, respCode int, data interface{}, errS ...interface{}) {
+func respHttp(w http.ResponseWriter, respCode int, data any, errS ...any) {
 	resp := Resp{
 		Code: respCode,
 		Msg:  "success",
@@ -45,10 +45,10 @@ func respHttp(w http.ResponseWriter, respCode int, data interface{}, errS ...int
 	}
 }
 
-func RespSucess(w http.ResponseWriter, data interface{}) {
+func RespSucess(w http.ResponseWriter, data any) {
 	respHttp(w, 0, data, "")
 }
 
-func RespError(w http.ResponseWriter, respCode int, errS ...interface{}) {
+func RespError(w http.ResponseWriter, respCode int, errS ...any) {
 	respHttp(w, respCode, nil, errS...)
 }

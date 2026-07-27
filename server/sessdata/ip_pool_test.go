@@ -113,7 +113,7 @@ func TestIpv6Pool(t *testing.T) {
 	// 分配若干 v6 地址
 	const n = 50
 	var ips []net.IP
-	for i := 0; i < n; i++ {
+	for i := range n {
 		ip := acquireIpV6(getTestUser(3000+i), getTestMacAddr(3000+i), true, IpPool)
 		assert.NotNil(ip)
 		assert.Equal(16, len(ip)) // 128 位
@@ -134,7 +134,7 @@ func TestIpv6Pool(t *testing.T) {
 	assert.True(v6Net.Contains(ip2), "复用分配的 v6 地址应在池网段内: %s", ip2)
 
 	// 回收全部，避免影响其他用例
-	for i := 0; i < n; i++ {
+	for i := range n {
 		ReleaseIp(nil, ips[i], getTestMacAddr(3000+i))
 	}
 	ReleaseIp(nil, ip2, getTestMacAddr(3999))
@@ -192,12 +192,12 @@ func TestGroupIpPoolIsolation(t *testing.T) {
 
 	// 确定性顺序：先把组A灌若干个，再灌组B
 	var ipsA, ipsB []net.IP
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		ip := AcquireIpWithRange(getTestUser(1000+i), getTestMacAddr(1000+i), true, poolA)
 		assert.NotNil(ip)
 		ipsA = append(ipsA, ip)
 	}
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		ip := AcquireIpWithRange(getTestUser(2000+i), getTestMacAddr(2000+i), true, poolB)
 		assert.NotNil(ip)
 		ipsB = append(ipsB, ip)

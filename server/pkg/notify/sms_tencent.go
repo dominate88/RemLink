@@ -116,7 +116,7 @@ func (s *tencentSender) Send(phone string, params map[string]string) error {
 
 	templateParams := getTemplateParams(params)
 
-	body := map[string]interface{}{
+	body := map[string]any{
 		"PhoneNumberSet":   []string{e164phone},
 		"SmsSdkAppId":      s.sdkAppId,
 		"SignName":         s.signName,

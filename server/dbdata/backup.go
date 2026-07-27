@@ -424,10 +424,7 @@ func tableImport(sess *xorm.Session, name string, raw json.RawMessage) error {
 	}
 
 	for i := 0; i < n; i += restoreBatchSize {
-		end := i + restoreBatchSize
-		if end > n {
-			end = n
-		}
+		end := min(i+restoreBatchSize, n)
 		batch := v.Slice(i, end).Interface()
 		if _, err := sess.Insert(batch); err != nil {
 			return err

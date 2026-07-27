@@ -55,7 +55,7 @@ func TestConcurrentReadSafety(t *testing.T) {
 	n := 1000
 	wg.Add(n)
 
-	for i := 0; i < n; i++ {
+	for range n {
 		go func() {
 			defer wg.Done()
 			_ = GetCfg().MaxClient
@@ -74,14 +74,14 @@ func TestConcurrentReadWriteSafety(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 10000; i++ {
+		for range 10000 {
 			_ = GetCfg().MaxClient
 		}
 	}()
 
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 1000; i++ {
+		for i := range 1000 {
 			cfg := &ServerConfig{MaxClient: i}
 			SetCfgForTest(cfg)
 		}
@@ -238,7 +238,7 @@ func TestIsFieldSensitive(t *testing.T) {
 }
 
 func TestConfigMetasCoverServerConfig(t *testing.T) {
-	typ := reflect.TypeOf(ServerConfig{})
+	typ := reflect.TypeFor[ServerConfig]()
 	for i := 0; i < typ.NumField(); i++ {
 		name := typ.Field(i).Tag.Get("json")
 		if _, ok := configMetas[name]; !ok {

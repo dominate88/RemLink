@@ -126,9 +126,9 @@ var dtlsCipherSuites = map[string]dtls.CipherSuiteID{
 }
 
 func checkDtls12Ciphersuite(ciphersuite string) string {
-	csArr := strings.Split(ciphersuite, ":")
+	csArr := strings.SplitSeq(ciphersuite, ":")
 
-	for _, v := range csArr {
+	for v := range csArr {
 		if _, ok := dtlsCipherSuites[v]; ok {
 			return v
 		}

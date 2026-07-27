@@ -19,7 +19,7 @@ func encryptField(s string) string {
 	return EncryptIfNeeded(s)
 }
 
-func (e *EncryptedString) Scan(src interface{}) error {
+func (e *EncryptedString) Scan(src any) error {
 	var s string
 	switch v := src.(type) {
 	case string:

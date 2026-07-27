@@ -13,7 +13,7 @@ func TestLimitAccuracy(t *testing.T) {
 
 	totalBytes := 1460 * 100 // 146000 字节
 	start := time.Now()
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		if err := limit.Wait(1460); err != nil {
 			t.Fatal(err)
 		}

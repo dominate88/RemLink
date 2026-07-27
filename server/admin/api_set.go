@@ -29,7 +29,7 @@ import (
 )
 
 func SetHome(w http.ResponseWriter, r *http.Request) {
-	data := make(map[string]interface{})
+	data := make(map[string]any)
 
 	sess := sessdata.GetOnlineSess("", "", false)
 
@@ -46,17 +46,17 @@ func SetHome(w http.ResponseWriter, r *http.Request) {
 }
 
 func SetSystem(w http.ResponseWriter, r *http.Request) {
-	data := make(map[string]interface{})
+	data := make(map[string]any)
 
 	m, _ := mem.VirtualMemory()
-	data["mem"] = map[string]interface{}{
+	data["mem"] = map[string]any{
 		"total":   utils.HumanByte(m.Total),
 		"free":    utils.HumanByte(m.Free),
 		"percent": decimal(m.UsedPercent),
 	}
 
 	d, _ := disk.Usage("/")
-	data["disk"] = map[string]interface{}{
+	data["disk"] = map[string]any{
 		"total":   utils.HumanByte(d.Total),
 		"free":    utils.HumanByte(d.Free),
 		"percent": decimal(d.UsedPercent),
@@ -76,7 +76,7 @@ func SetSystem(w http.ResponseWriter, r *http.Request) {
 	if cup == 0 {
 		cup = 1
 	}
-	data["cpu"] = map[string]interface{}{
+	data["cpu"] = map[string]any{
 		"core":      cc,
 		"modelName": ci.ModelName,
 		"ghz":       fmt.Sprintf("%.2f GHz", ci.Mhz/1000),
@@ -85,7 +85,7 @@ func SetSystem(w http.ResponseWriter, r *http.Request) {
 
 	hi, _ := host.Info()
 	l, _ := load.Avg()
-	data["sys"] = map[string]interface{}{
+	data["sys"] = map[string]any{
 		"goOs":         runtime.GOOS,
 		"goArch":       runtime.GOARCH,
 		"goVersion":    runtime.Version(),
@@ -210,7 +210,7 @@ func SetSoftEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dbdata.AdminLog("系统设置", req.Name, "修改了系统配置: "+req.Name+"="+formatConfigValue(req.Name, req.Data), r.RemoteAddr)
-	RespSucess(w, map[string]interface{}{
+	RespSucess(w, map[string]any{
 		"restart": restart,
 	})
 }
@@ -258,7 +258,7 @@ func SetIPv4Config(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dbdata.AdminLog("系统设置", "ipv4_config", "修改了 IPv4 网络配置", r.RemoteAddr)
-	RespSucess(w, map[string]interface{}{
+	RespSucess(w, map[string]any{
 		"restart": restart,
 	})
 }

@@ -54,7 +54,7 @@ func ProviderList(pageSize, page int) ([]Provider, int, error) {
 func ProviderNamesByType(typ string) []string {
 	var datas []Provider
 	where := "status=1"
-	args := []interface{}{}
+	args := []any{}
 	if typ != "" {
 		where += " AND type=?"
 		args = append(args, typ)

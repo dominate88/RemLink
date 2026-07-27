@@ -161,7 +161,7 @@ func WebAuthStart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	groups := dbdata.GetGroupNamesNormal()
-	webAuthJSON(w, http.StatusOK, map[string]interface{}{
+	webAuthJSON(w, http.StatusOK, map[string]any{
 		"status": "select_group",
 		"groups": groups,
 	})
@@ -236,7 +236,7 @@ func WebAuthSelectGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if firstStepType == "sms" {
-		webAuthJSON(w, http.StatusOK, map[string]interface{}{
+		webAuthJSON(w, http.StatusOK, map[string]any{
 			"status": "sms_phone",
 			"hint":   "请输入手机号以接收短信验证码",
 		})
@@ -244,7 +244,7 @@ func WebAuthSelectGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 其他认证方式：返回凭据输入界面
-	webAuthJSON(w, http.StatusOK, map[string]interface{}{
+	webAuthJSON(w, http.StatusOK, map[string]any{
 		"status": "credentials",
 		"hint":   "请输入登录凭据",
 	})
@@ -388,7 +388,7 @@ func webAuthHandleResult(w http.ResponseWriter, r *http.Request,
 		challenge := result.Challenge
 		if challenge == nil {
 			// NopChallenger（如 ldap/radius 缺少凭据）→ 显示凭据输入界面
-			resp := map[string]interface{}{
+			resp := map[string]any{
 				"status": "credentials",
 				"hint":   "请输入登录凭据",
 			}
@@ -405,7 +405,7 @@ func webAuthHandleResult(w http.ResponseWriter, r *http.Request,
 			if !result.IsChallengeRetry() && result.Username != "" {
 				lockManager.Success(result.Username, r.RemoteAddr)
 			}
-			webAuthJSON(w, http.StatusOK, map[string]interface{}{
+			webAuthJSON(w, http.StatusOK, map[string]any{
 				"status": "otp",
 				"hint":   "请输入 6 位动态验证码",
 			})
@@ -415,7 +415,7 @@ func webAuthHandleResult(w http.ResponseWriter, r *http.Request,
 			if !result.IsChallengeRetry() && result.Username != "" {
 				lockManager.Success(result.Username, r.RemoteAddr)
 			}
-			resp := map[string]interface{}{
+			resp := map[string]any{
 				"status": "sms",
 				"hint":   "请输入短信验证码",
 			}
@@ -438,7 +438,7 @@ func webAuthHandleResult(w http.ResponseWriter, r *http.Request,
 			if ctx != nil && ctx.RADIUS != nil && ctx.RADIUS.ChallengeMsg != "" {
 				msg = ctx.RADIUS.ChallengeMsg
 			}
-			webAuthJSON(w, http.StatusOK, map[string]interface{}{
+			webAuthJSON(w, http.StatusOK, map[string]any{
 				"status":        "radius",
 				"challenge_msg": msg,
 			})
@@ -448,7 +448,7 @@ func webAuthHandleResult(w http.ResponseWriter, r *http.Request,
 			if !result.IsChallengeRetry() && result.Username != "" {
 				lockManager.Success(result.Username, r.RemoteAddr)
 			}
-			webAuthJSON(w, http.StatusOK, map[string]interface{}{
+			webAuthJSON(w, http.StatusOK, map[string]any{
 				"status":   "change_pwd",
 				"username": ctx.Conn.Username,
 			})
@@ -461,14 +461,14 @@ func webAuthHandleResult(w http.ResponseWriter, r *http.Request,
 			}
 			ssoType, _ := challenge.Data["sso_type"].(string)
 			ssoURL := webAuthBuildSSOURL(r, ssoType, ctx.Conn.GroupName, state)
-			webAuthJSON(w, http.StatusOK, map[string]interface{}{
+			webAuthJSON(w, http.StatusOK, map[string]any{
 				"status":       "sso",
 				"sso_type":     ssoType,
 				"redirect_url": ssoURL,
 			})
 
 		default:
-			webAuthJSON(w, http.StatusOK, map[string]interface{}{
+			webAuthJSON(w, http.StatusOK, map[string]any{
 				"status": "credentials",
 				"hint":   "请继续输入验证信息",
 			})
@@ -522,7 +522,7 @@ func webAuthOnPass(w http.ResponseWriter, r *http.Request,
 		}
 	}
 
-	webAuthJSON(w, http.StatusOK, map[string]interface{}{
+	webAuthJSON(w, http.StatusOK, map[string]any{
 		"status":       "done",
 		"complete_url": fmt.Sprintf("/web-auth/complete?state=%s", url.QueryEscape(state)),
 		"portal_url":   "/ui/#/portal",
@@ -776,19 +776,19 @@ func WebAuthSmsResend(w http.ResponseWriter, r *http.Request) {
 	}
 	SaveAuthSession(state, pending)
 
-	webAuthJSON(w, http.StatusOK, map[string]interface{}{
+	webAuthJSON(w, http.StatusOK, map[string]any{
 		"status": "ok",
 	})
 }
 
-func webAuthJSON(w http.ResponseWriter, statusCode int, data map[string]interface{}) {
+func webAuthJSON(w http.ResponseWriter, statusCode int, data map[string]any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(statusCode)
 	json.NewEncoder(w).Encode(data)
 }
 
 func webAuthError(w http.ResponseWriter, msg string) {
-	webAuthJSON(w, http.StatusOK, map[string]interface{}{
+	webAuthJSON(w, http.StatusOK, map[string]any{
 		"status":  "error",
 		"message": msg,
 	})

@@ -61,7 +61,7 @@ func init() {
 // 生成 6 位随机数字验证码
 func generateSmsCode() string {
 	code := make([]byte, smsCodeLength)
-	for i := 0; i < smsCodeLength; i++ {
+	for i := range smsCodeLength {
 		n, _ := rand.Int(rand.Reader, big.NewInt(10))
 		code[i] = byte('0') + byte(n.Int64())
 	}

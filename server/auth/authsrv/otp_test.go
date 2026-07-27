@@ -240,7 +240,7 @@ func TestOTPAuth_CheckOtp_Concurrent(t *testing.T) {
 	code := totp.Now()
 
 	var wg sync.WaitGroup
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -260,7 +260,7 @@ func TestOTPAuth_CheckOtp_Concurrent_SameUser(t *testing.T) {
 
 	var wg sync.WaitGroup
 	results := make([]bool, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()

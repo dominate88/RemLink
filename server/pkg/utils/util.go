@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -34,12 +35,7 @@ func NowSec() time.Time {
 }
 
 func InArrStr(arr []string, str string) bool {
-	for _, d := range arr {
-		if d == str {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(arr, str)
 }
 
 const (
@@ -50,7 +46,7 @@ const (
 	PB = 1024 * TB
 )
 
-func HumanByte(bf interface{}) string {
+func HumanByte(bf any) string {
 	var hb string
 	var bAll float64
 	switch bi := bf.(type) {

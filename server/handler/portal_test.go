@@ -105,12 +105,12 @@ func TestPortalLogin_Success(t *testing.T) {
 
 	ast.Equal(http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	err := json.NewDecoder(w.Body).Decode(&resp)
 	ast.Nil(err)
 	ast.Equal(float64(0), resp["code"])
 
-	data := resp["data"].(map[string]interface{})
+	data := resp["data"].(map[string]any)
 	ast.Equal("pass", data["status"])
 	ast.NotEmpty(data["token"])
 }
@@ -133,7 +133,7 @@ func TestPortalLogin_WrongPassword(t *testing.T) {
 
 	ast.Equal(http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
 	ast.NotEqual(float64(0), resp["code"])
 }
@@ -156,7 +156,7 @@ func TestPortalLogin_UserNotFound(t *testing.T) {
 
 	ast.Equal(http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
 	ast.NotEqual(float64(0), resp["code"])
 }
@@ -235,7 +235,7 @@ func TestPortalChangePassword_Success(t *testing.T) {
 
 	ast.Equal(http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	err := json.NewDecoder(w.Body).Decode(&resp)
 	ast.Nil(err)
 	ast.Equal(float64(0), resp["code"])
@@ -247,7 +247,7 @@ func TestPortalChangePassword_Success(t *testing.T) {
 	loginW := httptest.NewRecorder()
 	PortalLogin(loginW, loginReq)
 
-	var loginResp map[string]interface{}
+	var loginResp map[string]any
 	json.NewDecoder(loginW.Body).Decode(&loginResp)
 	ast.Equal(float64(0), loginResp["code"])
 }
@@ -272,7 +272,7 @@ func TestPortalChangePassword_WrongOldPassword(t *testing.T) {
 
 	PortalChangePassword(w, req)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
 	ast.NotEqual(float64(0), resp["code"])
 	ast.Contains(resp["msg"], "旧密码错误")
@@ -304,7 +304,7 @@ func TestPortalChangePassword_WeakNewPassword(t *testing.T) {
 
 	PortalChangePassword(w, req)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
 	ast.NotEqual(float64(0), resp["code"])
 }
@@ -335,7 +335,7 @@ func TestPortalChangePassword_TooShort(t *testing.T) {
 
 	PortalChangePassword(w, req)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
 	ast.NotEqual(float64(0), resp["code"])
 }
@@ -405,7 +405,7 @@ func TestPortalChangePassword_ExternalUser(t *testing.T) {
 
 	PortalChangePassword(w, req)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
 	ast.NotEqual(float64(0), resp["code"])
 	ast.Contains(resp["msg"], "外部认证")
@@ -430,7 +430,7 @@ func TestPortalResetPassword_InvalidToken(t *testing.T) {
 
 	PortalResetPassword(w, req)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
 	ast.NotEqual(float64(0), resp["code"])
 }
@@ -449,7 +449,7 @@ func TestPortalResetPassword_EmptyFields(t *testing.T) {
 
 	PortalResetPassword(w, req)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
 	ast.NotEqual(float64(0), resp["code"])
 }
@@ -497,7 +497,7 @@ func TestPortalResetPassword_Success(t *testing.T) {
 	ast.Nil(err)
 
 	// 生成重置 token
-	token, err := admin.SetJwtData(map[string]interface{}{
+	token, err := admin.SetJwtData(map[string]any{
 		"purpose": "portal_reset_password",
 		"user_id": float64(u.Id),
 		"jti":     "test-jti-123",
@@ -512,7 +512,7 @@ func TestPortalResetPassword_Success(t *testing.T) {
 
 	PortalResetPassword(w, req)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
 	ast.Equal(float64(0), resp["code"])
 
@@ -523,7 +523,7 @@ func TestPortalResetPassword_Success(t *testing.T) {
 	loginW := httptest.NewRecorder()
 	PortalLogin(loginW, loginReq)
 
-	var loginResp map[string]interface{}
+	var loginResp map[string]any
 	json.NewDecoder(loginW.Body).Decode(&loginResp)
 	ast.Equal(float64(0), loginResp["code"], "should login with new password")
 }

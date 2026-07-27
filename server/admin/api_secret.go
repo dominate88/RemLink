@@ -14,7 +14,7 @@ import (
 func SecretStatus(w http.ResponseWriter, r *http.Request) {
 	enabled := security.IsEnabled()
 	dbEncrypted := dbdata.HasEncryptedData()
-	RespSucess(w, map[string]interface{}{
+	RespSucess(w, map[string]any{
 		"enabled":      enabled,
 		"db_encrypted": dbEncrypted,
 		"key_path":     security.KeyFilePath(),
@@ -42,7 +42,7 @@ func SecretEnable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dbdata.AdminLog("安全设置", "加密", "启用了敏感字段加密", r.RemoteAddr)
-	RespSucess(w, map[string]interface{}{
+	RespSucess(w, map[string]any{
 		"stats":    stats,
 		"key_path": security.KeyFilePath(),
 	})
@@ -106,7 +106,7 @@ func SecretDisable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dbdata.AdminLog("安全设置", "加密", "关闭了敏感字段加密", r.RemoteAddr)
-	RespSucess(w, map[string]interface{}{
+	RespSucess(w, map[string]any{
 		"stats":    stats,
 		"warnings": warnings,
 	})

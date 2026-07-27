@@ -122,7 +122,7 @@ func (ua *UserActLogProcess) Add(u UserActLog, userAgent string, isPortal ...boo
 }
 
 // 返回带 tag 颜色的操作类型列表（供前端下拉选择）
-func (ua *UserActLogProcess) GetStatusOpsWithTag() interface{} {
+func (ua *UserActLogProcess) GetStatusOpsWithTag() any {
 	type StatusTag struct {
 		Key   int    `json:"key"`
 		Value string `json:"value"`
@@ -272,9 +272,6 @@ func (ua *UserActLogProcess) GetSession(values url.Values) *xorm.Session {
 // 截取字符串
 func substr(s string, pos, length int) string {
 	runes := []rune(s)
-	l := pos + length
-	if l > len(runes) {
-		l = len(runes)
-	}
+	l := min(pos+length, len(runes))
 	return string(runes[pos:l])
 }

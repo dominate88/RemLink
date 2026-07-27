@@ -62,7 +62,7 @@ func TestLockManager_RaceConditions(t *testing.T) {
 		var wg sync.WaitGroup
 		results := make([]bool, 20)
 
-		for i := 0; i < 20; i++ {
+		for i := range 20 {
 			wg.Add(1)
 			go func(index int) {
 				defer wg.Done()
@@ -84,7 +84,7 @@ func TestLockManager_RaceConditions(t *testing.T) {
 		ipaddr := "192.168.1.11:12345"
 		var wg sync.WaitGroup
 
-		for i := 0; i < 50; i++ {
+		for i := range 50 {
 			wg.Add(1)
 			go func(userIndex int) {
 				defer wg.Done()
@@ -138,7 +138,7 @@ func TestCheckLocked(t *testing.T) {
 		username := "testuser"
 		ipaddr := "192.168.1.1:12345"
 
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			lm.Fail(username, ipaddr)
 		}
 
@@ -174,7 +174,7 @@ func TestUpdateLoginStatus(t *testing.T) {
 		username := "successuser"
 		ipaddr := "192.168.1.2:12345"
 
-		for i := 0; i < 3; i++ {
+		for range 3 {
 			lm.Fail(username, ipaddr)
 		}
 
@@ -200,7 +200,7 @@ func TestUpdateLockState(t *testing.T) {
 		username := "lockeduser"
 		ipaddr := "192.168.1.2:12345"
 
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			lm.Fail(username, ipaddr)
 		}
 
@@ -233,7 +233,7 @@ func TestCheckGlobalIPLock(t *testing.T) {
 		ipaddr := "192.168.1.3:12345"
 		ip, _, _ := net.SplitHostPort(ipaddr)
 
-		for i := 0; i < 40; i++ {
+		for i := range 40 {
 			username := fmt.Sprintf("user%d", i)
 			lm.Fail(username, ipaddr)
 		}
@@ -253,7 +253,7 @@ func TestCheckGlobalUserLock(t *testing.T) {
 	t.Run("GlobalUser_Protection", func(t *testing.T) {
 		username := "globaluser"
 
-		for i := 0; i < 20; i++ {
+		for i := range 20 {
 			ipaddr := fmt.Sprintf("192.168.1.%d:12345", 100+i)
 			lm.Fail(username, ipaddr)
 		}
@@ -275,7 +275,7 @@ func TestCheckUserIPLock(t *testing.T) {
 		ipaddr := "192.168.1.4:12345"
 		ip, _, _ := net.SplitHostPort(ipaddr)
 
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			lm.Fail(username, ipaddr)
 		}
 
@@ -325,7 +325,7 @@ func TestGetLocksInfo(t *testing.T) {
 		username := "testuser"
 		ipaddr := "192.168.1.5:12345"
 
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			lm.Fail(username, ipaddr)
 		}
 

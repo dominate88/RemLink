@@ -42,7 +42,7 @@ func GroupList(w http.ResponseWriter, r *http.Request) {
 		datas = []dbdata.Group{}
 	}
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"count":     count,
 		"page_size": pageSize,
 		"datas":     datas,
@@ -57,7 +57,7 @@ func GroupNames(w http.ResponseWriter, r *http.Request) {
 	if names == nil {
 		names = []string{}
 	}
-	data := map[string]interface{}{
+	data := map[string]any{
 		"count":     len(names),
 		"page_size": 0,
 		"datas":     names,
@@ -71,7 +71,7 @@ func GroupNamesIds(w http.ResponseWriter, r *http.Request) {
 	if names == nil {
 		names = []dbdata.GroupNameId{}
 	}
-	data := map[string]interface{}{
+	data := map[string]any{
 		"count":     len(names),
 		"page_size": 0,
 		"datas":     names,
@@ -392,7 +392,7 @@ func GroupCertCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	RespSucess(w, map[string]interface{}{
+	RespSucess(w, map[string]any{
 		"groupname":  groupname,
 		"cert_count": count,
 	})
@@ -421,7 +421,7 @@ func GroupCertAuthCheck(w http.ResponseWriter, r *http.Request) {
 
 	hasCertAuth := dbdata.HasAuthType(g.AuthProfile, "cert")
 
-	RespSucess(w, map[string]interface{}{
+	RespSucess(w, map[string]any{
 		"groupname":     groupname,
 		"has_cert_auth": hasCertAuth,
 	})

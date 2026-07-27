@@ -84,7 +84,7 @@ func doPing(ip string) error {
 func timeToBytes(t time.Time) []byte {
 	nsec := t.UnixNano()
 	b := make([]byte, 8)
-	for i := uint8(0); i < 8; i++ {
+	for i := range uint8(8) {
 		b[i] = byte((nsec >> ((7 - i) * 8)) & 0xff)
 	}
 	return b

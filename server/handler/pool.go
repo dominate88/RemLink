@@ -17,7 +17,7 @@ var plHeader = []byte{
 }
 
 var plPool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		b := make([]byte, BufferSize)
 		pl := sessdata.Payload{
 			LType: sessdata.LTypeIPData,
@@ -47,7 +47,7 @@ func putPayload(pl *sessdata.Payload) {
 }
 
 var bytePool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		b := make([]byte, BufferSize)
 		return &b
 	},
@@ -92,7 +92,7 @@ type BufferPool struct {
 
 // 长度 51 小对象
 var byte51Pool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		b := make([]byte, 51)
 		return &b
 	},

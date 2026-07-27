@@ -203,7 +203,7 @@ func downloadBinary(url string, totalSize int64, progressCh chan<- UpgradeProgre
 
 	var resp *http.Response
 	var err error
-	for retry := 0; retry < 3; retry++ {
+	for retry := range 3 {
 		req, reqErr := http.NewRequest("GET", url, nil)
 		if reqErr != nil {
 			return "", fmt.Errorf("创建下载请求失败: %w", reqErr)
@@ -393,10 +393,7 @@ func calcPercent(downloaded, total int64) int {
 	if total <= 0 {
 		return 0
 	}
-	p := int(downloaded * 100 / total)
-	if p > 100 {
-		p = 100
-	}
+	p := min(int(downloaded*100/total), 100)
 	return p
 }
 
@@ -449,10 +446,7 @@ func splitVersion(v string) (base, pre string) {
 func compareBase(a, b string) int {
 	partsA := strings.Split(a, ".")
 	partsB := strings.Split(b, ".")
-	maxLen := len(partsA)
-	if len(partsB) > maxLen {
-		maxLen = len(partsB)
-	}
+	maxLen := max(len(partsB), len(partsA))
 	for i := 0; i < maxLen; i++ {
 		na, nb := 0, 0
 		if i < len(partsA) {

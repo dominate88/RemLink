@@ -33,7 +33,7 @@ func UserIpMapList(w http.ResponseWriter, r *http.Request) {
 		datas = []dbdata.IpMap{}
 	}
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"count":     count,
 		"page_size": pageSize,
 		"datas":     datas,

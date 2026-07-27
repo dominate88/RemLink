@@ -107,7 +107,7 @@ func PortalSmsSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	portalOK(w, map[string]interface{}{
+	portalOK(w, map[string]any{
 		"message":    "验证码已发送",
 		"phone_tail": req.Phone[len(req.Phone)-4:],
 	})
@@ -323,7 +323,7 @@ func PortalForceChangePassword(w http.ResponseWriter, r *http.Request) {
 				}
 			}()
 		}
-		portalOK(w, map[string]interface{}{
+		portalOK(w, map[string]any{
 			"status":     "otp",
 			"session_id": sessionID,
 			"message":    "密码修改成功，请输入动态验证码",
@@ -360,7 +360,7 @@ func PortalLogout(w http.ResponseWriter, r *http.Request) {
 func PortalLoginConfig(w http.ResponseWriter, r *http.Request) {
 	brand := dbdata.SettingPortalBrand{}
 	_ = dbdata.SettingGet(&brand)
-	portalOK(w, map[string]interface{}{
+	portalOK(w, map[string]any{
 		"title":            brand.Title,
 		"logo":             brand.Logo,
 		"favicon":          brand.Favicon,
@@ -508,7 +508,7 @@ func PortalForgotPassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jti := fmt.Sprintf("%d_%d", user.Id, time.Now().UnixNano())
-	token, err := admin.SetJwtData(map[string]interface{}{
+	token, err := admin.SetJwtData(map[string]any{
 		"purpose": "portal_reset_password",
 		"user_id": user.Id,
 		"jti":     jti,
@@ -554,40 +554,40 @@ func PortalResetPasswordVerify(w http.ResponseWriter, r *http.Request) {
 
 	token := r.URL.Query().Get("token")
 	if token == "" {
-		portalOK(w, map[string]interface{}{"valid": false})
+		portalOK(w, map[string]any{"valid": false})
 		return
 	}
 
 	data, err := admin.GetJwtData(token)
 	if err != nil {
-		portalOK(w, map[string]interface{}{"valid": false})
+		portalOK(w, map[string]any{"valid": false})
 		return
 	}
 
 	purpose, _ := data["purpose"].(string)
 	if purpose != "portal_reset_password" {
-		portalOK(w, map[string]interface{}{"valid": false})
+		portalOK(w, map[string]any{"valid": false})
 		return
 	}
 
 	jti, _ := data["jti"].(string)
 	if jti == "" || portalIsTokenUsed(jti) {
-		portalOK(w, map[string]interface{}{"valid": false})
+		portalOK(w, map[string]any{"valid": false})
 		return
 	}
 
 	userId, _ := data["user_id"].(float64)
 	user := &dbdata.User{}
 	if err := dbdata.One("Id", int(userId), user); err != nil || user.Status != 1 {
-		portalOK(w, map[string]interface{}{"valid": false})
+		portalOK(w, map[string]any{"valid": false})
 		return
 	}
 	if user.Type != "" && user.Type != "local" {
-		portalOK(w, map[string]interface{}{"valid": false})
+		portalOK(w, map[string]any{"valid": false})
 		return
 	}
 
-	portalOK(w, map[string]interface{}{
+	portalOK(w, map[string]any{
 		"valid": true,
 	})
 }
@@ -670,7 +670,7 @@ func PortalResetPassword(w http.ResponseWriter, r *http.Request) {
 type portalAuthResponse struct {
 	Code int
 	Msg  string
-	Data map[string]interface{}
+	Data map[string]any
 }
 
 func portalStartAuth(w http.ResponseWriter, username, password string, r *http.Request) portalAuthResponse {
@@ -710,7 +710,7 @@ func portalStartAuth(w http.ResponseWriter, username, password string, r *http.R
 					}
 				}()
 			}
-			return portalAuthResponse{Data: map[string]interface{}{
+			return portalAuthResponse{Data: map[string]any{
 				"status":     "otp",
 				"session_id": sessionID,
 				"message":    "请输入 6 位动态验证码",
@@ -886,7 +886,7 @@ func portalChallengeResponse(sessionID string, result *auth.PipelineResult, ctx 
 			message = "请完成第三方登录"
 		}
 	}
-	return portalAuthResponse{Data: map[string]interface{}{
+	return portalAuthResponse{Data: map[string]any{
 		"status":     challengeType,
 		"session_id": sessionID,
 		"message":    message,
@@ -924,7 +924,7 @@ func portalIssueLoginResponse(w http.ResponseWriter, r *http.Request, user *dbda
 			SameSite: http.SameSiteLaxMode,
 		})
 	}
-	return portalAuthResponse{Data: map[string]interface{}{
+	return portalAuthResponse{Data: map[string]any{
 		"status": "pass",
 		"token":  token,
 		"user":   portalUserInfo(user, r),
@@ -937,14 +937,14 @@ func portalAuthError(msg string) portalAuthResponse {
 
 // 用户首次登录且需改密时返回内联改密挑战。
 func portalForceChangeResponse(user *dbdata.User) portalAuthResponse {
-	token, err := admin.SetJwtData(map[string]interface{}{
+	token, err := admin.SetJwtData(map[string]any{
 		"purpose": "portal_force_change_password",
 		"user_id": user.Id,
 	}, time.Now().Unix()+900)
 	if err != nil {
 		return portalAuthError("登录失败")
 	}
-	return portalAuthResponse{Data: map[string]interface{}{
+	return portalAuthResponse{Data: map[string]any{
 		"status":   "change_pwd",
 		"username": user.Username,
 		"token":    token,
@@ -1116,7 +1116,7 @@ func portalCheckLocalPassword(user *dbdata.User, password string) error {
 }
 
 func portalIssueToken(user *dbdata.User) (string, error) {
-	return admin.SetJwtData(map[string]interface{}{
+	return admin.SetJwtData(map[string]any{
 		"portal_user_id": user.Id,
 		"portal_user":    user.Username,
 		"portal_type":    user.Type,
@@ -1148,7 +1148,7 @@ func portalCurrentUser(r *http.Request) (*dbdata.User, bool) {
 		return nil, false
 	}
 
-	groupNames, _ := data["portal_groups"].([]interface{})
+	groupNames, _ := data["portal_groups"].([]any)
 	groups := make([]string, 0, len(groupNames))
 	for _, group := range groupNames {
 		if name, ok := group.(string); ok && name != "" {
@@ -1166,13 +1166,13 @@ func portalCurrentUser(r *http.Request) (*dbdata.User, bool) {
 	}, true
 }
 
-func portalUserInfo(user *dbdata.User, r *http.Request) map[string]interface{} {
+func portalUserInfo(user *dbdata.User, r *http.Request) map[string]any {
 	cfg := base.GetCfg()
 	serverAddr := cfg.ServerAddr
 	if r != nil {
 		serverAddr = getServerAddr(r)
 	}
-	result := map[string]interface{}{
+	result := map[string]any{
 		"id":                  user.Id,
 		"username":            user.Username,
 		"name":                user.Nickname,
@@ -1201,7 +1201,7 @@ func portalUserInfo(user *dbdata.User, r *http.Request) map[string]interface{} {
 			dash.ClientDownloadHtml = base.DefaultDownloadHtml
 		}
 	}
-	result["dashboard"] = map[string]interface{}{
+	result["dashboard"] = map[string]any{
 		"announcement_enabled": dash.AnnouncementEnabled,
 		"announcement":         dash.Announcement,
 		"announcement_level":   dash.AnnouncementLevel,
@@ -1216,7 +1216,7 @@ func portalUserInfo(user *dbdata.User, r *http.Request) map[string]interface{} {
 	}
 	return result
 }
-func portalGroupsDetail(groupNames []string, userPolicyId int) []map[string]interface{} {
+func portalGroupsDetail(groupNames []string, userPolicyId int) []map[string]any {
 	allGroups, err := dbdata.GetAllGroups()
 	if err != nil {
 		return nil
@@ -1226,13 +1226,13 @@ func portalGroupsDetail(groupNames []string, userPolicyId int) []map[string]inte
 		groupMap[g.Name] = g
 	}
 
-	result := make([]map[string]interface{}, 0, len(groupNames))
+	result := make([]map[string]any, 0, len(groupNames))
 	for _, gname := range groupNames {
 		g, ok := groupMap[gname]
 		if !ok {
 			continue
 		}
-		info := map[string]interface{}{
+		info := map[string]any{
 			"name":       g.Name,
 			"note":       g.Note,
 			"auth_types": portalAuthTypeLabels(g.AuthProfile),
@@ -1282,7 +1282,7 @@ func portalDnsList(splitDns []dbdata.ValData) []string {
 	return vals
 }
 
-func portalPolicyInfo(policyId int) map[string]interface{} {
+func portalPolicyInfo(policyId int) map[string]any {
 	if policyId <= 0 {
 		return nil
 	}
@@ -1290,7 +1290,7 @@ func portalPolicyInfo(policyId int) map[string]interface{} {
 	if err := dbdata.One("Id", policyId, &policy); err != nil {
 		return nil
 	}
-	return map[string]interface{}{
+	return map[string]any{
 		"id":               policy.Id,
 		"name":             policy.Name,
 		"note":             policy.Note,
@@ -1331,14 +1331,14 @@ func PortalOTPStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if user.OtpSecret == "" {
-		portalOK(w, map[string]interface{}{
+		portalOK(w, map[string]any{
 			"enabled": false,
 		})
 		return
 	}
 	// 已设置 OTP 时返回状态及密钥，方便用户绑定多设备
 	qrBase64, _ := portalGenerateOtpQr(user.Email, user.OtpSecret)
-	portalOK(w, map[string]interface{}{
+	portalOK(w, map[string]any{
 		"enabled":   true,
 		"disabled":  user.DisableOtp,
 		"secret":    user.OtpSecret,
@@ -1385,7 +1385,7 @@ func PortalOTPRegenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	qrBase64, _ := portalGenerateOtpQr(user.Email, secret)
-	portalOK(w, map[string]interface{}{
+	portalOK(w, map[string]any{
 		"secret":    secret,
 		"qr_base64": qrBase64,
 	})
@@ -1615,8 +1615,8 @@ func PortalDeviceOffline(w http.ResponseWriter, r *http.Request) {
 	portalOK(w, map[string]string{"message": "已断开该设备连接"})
 }
 
-func portalOK(w http.ResponseWriter, data interface{}) {
-	portalJSON(w, http.StatusOK, map[string]interface{}{
+func portalOK(w http.ResponseWriter, data any) {
+	portalJSON(w, http.StatusOK, map[string]any{
 		"code": 0,
 		"msg":  "ok",
 		"data": data,
@@ -1624,20 +1624,20 @@ func portalOK(w http.ResponseWriter, data interface{}) {
 }
 
 func portalError(w http.ResponseWriter, msg string) {
-	portalJSON(w, http.StatusOK, map[string]interface{}{
+	portalJSON(w, http.StatusOK, map[string]any{
 		"code": 1,
 		"msg":  msg,
 	})
 }
 
 func portalUnauthorized(w http.ResponseWriter) {
-	portalJSON(w, http.StatusUnauthorized, map[string]interface{}{
+	portalJSON(w, http.StatusUnauthorized, map[string]any{
 		"code": 401,
 		"msg":  "请先登录",
 	})
 }
 
-func portalJSON(w http.ResponseWriter, status int, data interface{}) {
+func portalJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(data)

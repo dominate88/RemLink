@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/wsczx/remlink/pkg/security"
@@ -41,10 +42,8 @@ func HasEncryptedData() bool {
 	if certs > 0 {
 		return true
 	}
-	for _, factory := range settingFactories {
-		if settingEncrypted(factory) {
-			return true
-		}
+	if slices.ContainsFunc(settingFactories, settingEncrypted) {
+		return true
 	}
 	if raw, _, err := loadSettingRaw("SettingServerConfig"); err == nil && len(raw) > 0 &&
 		strings.Contains(string(raw), security.Prefix()) {

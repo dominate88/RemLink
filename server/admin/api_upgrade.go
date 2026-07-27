@@ -31,7 +31,7 @@ func CheckUpgrade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"current_version": "v" + base.APP_VER,
 		"need_upgrade":    needUpgrade,
 		"latest":          info,
@@ -121,14 +121,14 @@ func UpgradeStatusHandler(w http.ResponseWriter, r *http.Request) {
 	upgradeMux.Unlock()
 
 	if state == nil {
-		RespSucess(w, map[string]interface{}{
+		RespSucess(w, map[string]any{
 			"running": false,
 			"stage":   "idle",
 		})
 		return
 	}
 
-	RespSucess(w, map[string]interface{}{
+	RespSucess(w, map[string]any{
 		"running":  state.Running,
 		"stage":    state.Stage,
 		"progress": state.Progress,

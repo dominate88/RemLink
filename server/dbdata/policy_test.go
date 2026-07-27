@@ -190,13 +190,13 @@ func TestAddTrafficUsedConcurrent(t *testing.T) {
 
 	// 并发 100 次，每次累加 100 字节
 	done := make(chan struct{}, 100)
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		go func() {
 			AddTrafficUsed("concurrent-user", 100)
 			done <- struct{}{}
 		}()
 	}
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		<-done
 	}
 

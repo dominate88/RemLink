@@ -107,7 +107,7 @@ func TestWebAuthStart_Success(t *testing.T) {
 	ast := assert.New(t)
 	ast.Equal(http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
 	ast.Equal("select_group", resp["status"])
 	ast.NotNil(resp["groups"], "should return group list")
@@ -125,7 +125,7 @@ func TestWebAuthStart_EmptyState(t *testing.T) {
 	ast := assert.New(t)
 	ast.Equal(http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
 	ast.Equal("error", resp["status"])
 }
@@ -142,7 +142,7 @@ func TestWebAuthStart_InvalidState(t *testing.T) {
 	ast := assert.New(t)
 	ast.Equal(http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
 	ast.Equal("error", resp["status"])
 }
@@ -196,7 +196,7 @@ func TestWebAuthSelectGroup_Success(t *testing.T) {
 
 	ast.Equal(http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
 	ast.Equal("credentials", resp["status"], "should return credentials for local auth first step")
 	ast.Equal("请输入登录凭据", resp["hint"])
@@ -213,7 +213,7 @@ func TestWebAuthSelectGroup_InvalidState(t *testing.T) {
 	WebAuthSelectGroup(w, req)
 
 	ast := assert.New(t)
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
 	ast.Equal("error", resp["status"])
 }
@@ -229,7 +229,7 @@ func TestWebAuthSelectGroup_EmptyState(t *testing.T) {
 	WebAuthSelectGroup(w, req)
 
 	ast := assert.New(t)
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
 	ast.Equal("error", resp["status"])
 }
@@ -249,7 +249,7 @@ func TestWebAuthSelectGroup_GroupNotFound(t *testing.T) {
 	WebAuthSelectGroup(w, req)
 
 	ast := assert.New(t)
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
 	ast.Equal("error", resp["status"])
 }
@@ -265,7 +265,7 @@ func TestWebAuthSelectGroup_EmptyBody(t *testing.T) {
 	WebAuthSelectGroup(w, req)
 
 	ast := assert.New(t)
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
 	ast.Equal("error", resp["status"])
 }
@@ -281,7 +281,7 @@ func TestWebAuthStep_InvalidState(t *testing.T) {
 	WebAuthStep(w, req)
 
 	ast := assert.New(t)
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
 	ast.Equal("error", resp["status"])
 }
@@ -297,7 +297,7 @@ func TestWebAuthStep_EmptyState(t *testing.T) {
 	WebAuthStep(w, req)
 
 	ast := assert.New(t)
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
 	ast.Equal("error", resp["status"])
 }

@@ -509,7 +509,7 @@ func TestAcquireFakeIP_Concurrent(t *testing.T) {
 	m := newTestManager(t)
 	var wg sync.WaitGroup
 	ips := make([]string, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -531,7 +531,7 @@ func TestAddMapping_ConcurrentSameFakeIP(t *testing.T) {
 	fakeIP := m.AcquireFakeIP("example.com")
 
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -575,7 +575,7 @@ func TestAcquireFakeIPv6_AllInRange(t *testing.T) {
 	m := newTestManager(t)
 	assert.Nil(t, m.initV6Pool("fd00::/112"))
 	_, v6Net, _ := net.ParseCIDR("fd00::/112")
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		ip := m.AcquireFakeIPv6(fmt.Sprintf("d%d.example.com", i))
 		assert.NotNil(t, ip)
 		assert.True(t, v6Net.Contains(ip), "v6 fakeIP not in range: %s", ip)

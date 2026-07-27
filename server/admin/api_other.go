@@ -12,7 +12,7 @@ import (
 	"github.com/wsczx/remlink/pkg/notify"
 )
 
-func setOtherGet(data interface{}, w http.ResponseWriter) {
+func setOtherGet(data any, w http.ResponseWriter) {
 	err := dbdata.SettingGet(data)
 	if err != nil && !dbdata.CheckErrNotFound(err) {
 		RespError(w, RespInternalErr, err)
@@ -28,7 +28,7 @@ func setOtherGet(data interface{}, w http.ResponseWriter) {
 	RespSucess(w, data)
 }
 
-func setOtherEdit(data interface{}, w http.ResponseWriter, r *http.Request) {
+func setOtherEdit(data any, w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<21) // 2MB：放宽品牌 logo/favicon（base64）等配置的保存上限
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -245,7 +245,7 @@ func SetOtherSmsTest(w http.ResponseWriter, r *http.Request) {
 func AdminPortalLoginConfig(w http.ResponseWriter, r *http.Request) {
 	brand := dbdata.SettingPortalBrand{}
 	_ = dbdata.SettingGet(&brand)
-	RespSucess(w, map[string]interface{}{
+	RespSucess(w, map[string]any{
 		"title":   brand.Title,
 		"logo":    brand.Logo,
 		"favicon": brand.Favicon,

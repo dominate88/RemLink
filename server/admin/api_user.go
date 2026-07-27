@@ -68,7 +68,7 @@ func UserList(w http.ResponseWriter, r *http.Request) {
 		datas = []dbdata.User{}
 	}
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"count":     count,
 		"page_size": pageSize,
 		"datas":     datas,
@@ -225,7 +225,7 @@ func UserOnline(w http.ResponseWriter, r *http.Request) {
 	// datas := sessdata.OnlineSess()
 	datas := sessdata.GetOnlineSess(search_cate, search_text, showSleeper)
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"count":     len(datas),
 		"page_size": dbdata.PageSize,
 		"datas":     datas,
@@ -428,7 +428,7 @@ func userAccountMail(user *dbdata.User) error {
 
 	// token有效期3天
 	expiresAt := time.Now().Unix() + 3600*24*3
-	jwtData := map[string]interface{}{"id": user.Id}
+	jwtData := map[string]any{"id": user.Id}
 	tokenString, err := SetJwtData(jwtData, expiresAt)
 	if err != nil {
 		return err

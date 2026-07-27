@@ -3,6 +3,7 @@ package authsrv
 import (
 	"encoding/json"
 	"path"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -55,10 +56,8 @@ func preTestData(t *testing.T) {
 // 确保默认测试组存在
 func ensureDefaultGroup() {
 	groups := dbdata.GetGroupNames()
-	for _, g := range groups {
-		if g == "default" {
-			return
-		}
+	if slices.Contains(groups, "default") {
+		return
 	}
 	_ = dbdata.SetPolicy(&dbdata.Policy{Name: "test-policy", Status: 1, ClientDns: []dbdata.ValData{{Val: "8.8.8.8"}}})
 	_ = dbdata.SetGroup(&dbdata.Group{Name: "default", Status: 1, PolicyId: 1})
