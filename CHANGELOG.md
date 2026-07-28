@@ -16,6 +16,7 @@
 
 ### 修复
 
+- 修复：企微/飞书认证中文组名乱码
 - 修复：部分主机装系统时全局禁用了 IPv6（`disable_ipv6=1`，连 link-local 都没有），导致双栈开启后出网网卡拿不到运营商 v6 地址、v6 完全不工作。现双栈开启时自动解除禁用（`net.ipv6.conf.{all,default,<egress>}.disable_ipv6=0`）
 - 安全：IPT 模式下 FORWARD 链由无条件放行收紧为有状态放行（仅放行 VPN 网段出站及其 established/related 回包），与 nftables 行为一致，避免客户端被外部主动入站访问
 - 修复：TAP / macvtap 模式下 IPv6 实际不可用——服务端未将 v6 网关地址赋到桥 `remlink0`（TAP），且未对网关及池内其他客户端地址做 NDP 代答（macvtap 因主机隔离无法经内核应答网关 NS）。现 TAP 将 v6 网关 /128 赋到桥、allTapRead 的 NS 代答覆盖网关 / 本会话 / 池内其他客户端三种目标，TAP 与 macvtap 的 v6 数据面完整打通

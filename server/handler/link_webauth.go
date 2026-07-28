@@ -60,7 +60,6 @@ func handlerWebAuth(w http.ResponseWriter, r *http.Request, cr *ClientRequest, u
 	}
 	SaveAuthSession(state, pending)
 
-	groupEncoded := url.QueryEscape(cr.GroupSelect)
 	serverAddr := getServerAddr(r)
 
 	loginURL := fmt.Sprintf("%s/+CSCOE+/web-auth/sp/login?state=%s&#x26;acsamlcap=v2", serverAddr, url.QueryEscape(state))
@@ -69,8 +68,8 @@ func handlerWebAuth(w http.ResponseWriter, r *http.Request, cr *ClientRequest, u
 	xml := `<?xml version="1.0" encoding="UTF-8"?>
 <config-auth client="vpn" type="auth-request" aggregate-auth-version="2">
     <opaque is-for="sg">
-        <tunnel-group>` + groupEncoded + `</tunnel-group>
-        <group-alias>` + groupEncoded + `</group-alias>
+        <tunnel-group>` + cr.GroupSelect + `</tunnel-group>
+        <group-alias>` + cr.GroupSelect + `</group-alias>
         <aggauth-handle>168179266</aggauth-handle>
         <config-hash>1595829378234</config-hash>
         <auth-method>single-sign-on-v2</auth-method>

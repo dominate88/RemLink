@@ -4,7 +4,6 @@ package handler
 
 import (
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/wsczx/remlink/auth"
@@ -209,7 +208,7 @@ func handleChallengeResult(w http.ResponseWriter, r *http.Request,
 			}
 		}
 		w.WriteHeader(http.StatusOK)
-		tplRequest(tpl_accept_challenge, w, RequestData{Error: msg, Group: url.QueryEscape(result.GroupName)})
+		tplRequest(tpl_accept_challenge, w, RequestData{Error: msg, Group: result.GroupName})
 
 	case auth.ChallengeSSO:
 		// 手机端无法完成企微/飞书扫码
@@ -220,7 +219,7 @@ func handleChallengeResult(w http.ResponseWriter, r *http.Request,
 		ssoType, _ := challenge.Data["sso_type"].(string)
 		browserMode := samlBrowserMode(r, ssoType, result.GroupName)
 		data := RequestData{
-			Group:       url.QueryEscape(result.GroupName),
+			Group:       result.GroupName,
 			Groups:      dbdata.GetGroupNamesNormal(),
 			ServerAddr:  getServerAddr(r),
 			BrowserMode: browserMode,
@@ -231,7 +230,7 @@ func handleChallengeResult(w http.ResponseWriter, r *http.Request,
 
 	case auth.ChallengeForcePwd:
 		data := RequestData{
-			Group:      url.QueryEscape(result.GroupName),
+			Group:      result.GroupName,
 			Groups:     dbdata.GetGroupNamesNormal(),
 			ServerAddr: getServerAddr(r),
 			State:      sessionData.SessionID,

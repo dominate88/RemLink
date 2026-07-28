@@ -163,7 +163,7 @@ var auth_request_saml = `<?xml version="1.0" encoding="UTF-8"?>
         {{if .Error}}
         <error id="88" param1="{{.Error}}" param2="">SAML认证失败: {{.Error}}</error>
         {{end}}
-        <sso-v2-login>{{.ServerAddr}}/+CSCOE+/saml/sp/login?tgname={{.Group}}&#x26;ssotype={{.SsoType}}&#x26;acsamlcap=v2</sso-v2-login>
+        <sso-v2-login>{{.ServerAddr}}/+CSCOE+/saml/sp/login?tgname={{.Group | urlquery}}&#x26;ssotype={{.SsoType}}&#x26;acsamlcap=v2</sso-v2-login>
         <sso-v2-login-final>{{.ServerAddr}}/+CSCOE+/saml_ac_login.html</sso-v2-login-final>
         <sso-v2-token-cookie-name>acSamlv2Token</sso-v2-token-cookie-name>
         {{if .BrowserMode}}<sso-v2-browser-mode>{{.BrowserMode}}</sso-v2-browser-mode>{{end}}
