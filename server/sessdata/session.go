@@ -528,11 +528,11 @@ func Dtls2CSess(did string) *ConnSession {
 }
 
 func Dtls2MasterSecret(did string) string {
+	// 全程持有 sessMux 读锁，避免释放后会话被并发关闭
 	sessMux.RLock()
+	defer sessMux.RUnlock()
 	token := dtlsIds[did]
 	sess := sessions[token]
-	sessMux.RUnlock()
-
 	if sess == nil {
 		return ""
 	}

@@ -260,6 +260,10 @@ func allTapWrite(ifce LinkDriver, cSess *sessdata.ConnSession) {
 
 func allTapRead(ifce LinkDriver, cSess *sessdata.ConnSession) {
 	defer func() {
+		// 解析畸形二层帧等异常不应带崩整个进程
+		if err := recover(); err != nil {
+			base.Error("tapRead panic", err)
+		}
 		base.Debug("tapRead return", cSess.IpAddr)
 		ifce.Close()
 	}()
@@ -301,9 +305,19 @@ func allTapRead(ifce LinkDriver, cSess *sessdata.ConnSession) {
 				if nsLayer == nil {
 					continue
 				}
-				ns := nsLayer.(*layers.ICMPv6NeighborSolicitation)
-				ethLayer := packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet)
-				ip6Layer := packet.Layer(layers.LayerTypeIPv6).(*layers.IPv6)
+				// 畸形包各层可能缺失，逐一判防强制断言 panic
+				ns, ok := nsLayer.(*layers.ICMPv6NeighborSolicitation)
+				if !ok {
+					continue
+				}
+				ethLayer, ok := packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet)
+				if !ok {
+					continue
+				}
+				ip6Layer, ok := packet.Layer(layers.LayerTypeIPv6).(*layers.IPv6)
+				if !ok {
+					continue
+				}
 				if ip6Layer.SrcIP.IsUnspecified() {
 					// DAD 探测(源为::)不代答，/128 池分配不存在地址冲突
 					continue
@@ -370,7 +384,11 @@ func allTapRead(ifce LinkDriver, cSess *sessdata.ConnSession) {
 			// 暂时仅实现了ARP协议
 			packet := gopacket.NewPacket(frame, layers.LayerTypeEthernet, gopacket.NoCopy)
 			layer := packet.Layer(layers.LayerTypeARP)
-			arpReq := layer.(*layers.ARP)
+			// 畸形 ARP 帧解析失败时 layer 为 nil，必须判 ok 否则强制断言 panic 崩进程
+			arpReq, ok := layer.(*layers.ARP)
+			if !ok {
+				continue
+			}
 
 			if !cSess.IpAddr.Equal(arpReq.DstProtAddress) {
 				// 过滤非本机地址

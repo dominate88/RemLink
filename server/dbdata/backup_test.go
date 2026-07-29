@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -75,8 +76,25 @@ func TestAllBusinessTableNames(t *testing.T) {
 func TestTableModels_MatchesBackupTables(t *testing.T) {
 	ast := assert.New(t)
 
+	// 旧校验仅比对数量，无法发现"新增模型漏注册备份表"或"备份表指向错误模型类型"。
+	// 改为按具体模型类型集合比对，确保 TableModels 与 backupTables 完全一一对应。
 	models := TableModels()
-	ast.Len(models, len(backupTables))
+	modelTypes := make(map[reflect.Type]bool, len(models))
+	for _, m := range models {
+		modelTypes[reflect.TypeOf(m).Elem()] = true
+	}
+	backupTypes := make(map[reflect.Type]bool, len(backupTables))
+	for _, bt := range backupTables {
+		backupTypes[reflect.TypeOf(bt.Model)] = true
+	}
+
+	ast.Equal(len(modelTypes), len(backupTypes), "TableModels 与 backupTables 的模型类型数量应一致")
+	for typ := range modelTypes {
+		ast.True(backupTypes[typ], "TableModels 中的模型 %s 未在 backupTables 注册（该表将不会被备份/还原）", typ.Name())
+	}
+	for typ := range backupTypes {
+		ast.True(modelTypes[typ], "backupTables 中的模型 %s 未在 TableModels 注册（Sync2 不会建该表）", typ.Name())
+	}
 }
 
 func TestBackupTable_NewSlicePtr_NewPtr(t *testing.T) {

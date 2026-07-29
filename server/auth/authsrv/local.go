@@ -29,15 +29,11 @@ func (a *LocalAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 
 	v := &dbdata.User{}
 	err := dbdata.One("Username", ctx.Conn.Username, v)
-	if err != nil || v.Status != 1 {
-		switch v.Status {
-		case 0:
-			return auth.StepFail, fmt.Errorf("用户不存在或已停用")
-		case 2:
-			return auth.StepFail, fmt.Errorf("用户已过期")
-		default:
-			return auth.StepFail, fmt.Errorf("用户不存在")
-		}
+	userExists := err == nil
+	// 防用户枚举：用户名不存在与密码错误返回一致的文案
+	if !userExists || v.Status != 1 {
+		base.Debug("local auth account invalid:", ctx.Conn.Username, "exists=", userExists, "status=", v.Status)
+		return auth.StepFail, fmt.Errorf("用户名或密码错误")
 	}
 
 	// 将用户信息写入 ctx.UserInfo，供后续步骤（otp 等）共享
@@ -48,6 +44,11 @@ func (a *LocalAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 		return auth.StepFail, fmt.Errorf("用户已过期")
 	}
 
+	// 先校验密码，再校验组/类型等配置项：避免在校验密码前按组归属泄露用户名是否存在
+	if !verifyLocalPassword(ctx, v) {
+		return auth.StepFail, fmt.Errorf("用户名或密码错误")
+	}
+
 	if v.Type == "ldap" {
 		return auth.StepFail, fmt.Errorf("LDAP 用户不能使用本地认证")
 	}
@@ -56,13 +57,17 @@ func (a *LocalAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 		return auth.StepFail, fmt.Errorf("用户组错误")
 	}
 
-	// 验证本地密码：完整密码优先，失败则兜底尝试"密码+OTP后缀"剥离
+	return auth.StepPass, nil
+}
+
+// 验证本地密码：完整密码优先，失败则兜底尝试"密码+OTP后缀"剥离
+func verifyLocalPassword(ctx *auth.Context, v *dbdata.User) bool {
 	tryPassword := func(pwd string) bool {
 		return dbdata.VerifyPassword(pwd, v.PinCode)
 	}
 
 	if tryPassword(ctx.Conn.Password) {
-		return auth.StepPass, nil
+		return true
 	}
 
 	// 兜底：用户已启用 OTP 且非门户登录时，将密码尾 6 位作为动态码剥离后重试
@@ -73,9 +78,8 @@ func (a *LocalAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 			otp := ctx.GetOTP()
 			otp.Code = ctx.Conn.Password[pl-6:]
 			base.Debug("本地认证（剥离OTP后缀兜底）: user=", ctx.Conn.Username)
-			return auth.StepPass, nil
+			return true
 		}
 	}
-
-	return auth.StepFail, fmt.Errorf("密码错误")
+	return false
 }

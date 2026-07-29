@@ -124,9 +124,17 @@
                   <el-input v-model="configForm.addr" placeholder="如 192.168.1.10:389"></el-input>
                 </el-form-item>
               </el-col>
-              <el-col :span="9">
+              <el-col :span="4">
                 <el-form-item label="TLS" label-width="50px">
                   <el-switch v-model="configForm.tls"></el-switch>
+                </el-form-item>
+              </el-col>
+              <el-col :span="5">
+                <el-form-item label="校验证书" label-width="70px">
+                  <el-switch v-model="configForm.tls_verify"></el-switch>
+                  <el-tooltip content="开启后校验 LDAP StartTLS 服务端证书（防中间人）；自签证书须先在系统部署 CA，默认关闭=兼容自签证书" placement="top">
+                    <i class="el-icon-question help-icon"></i>
+                  </el-tooltip>
                 </el-form-item>
               </el-col>
             </el-row>
@@ -406,7 +414,7 @@ import axios from "axios";
 
 const configDefaults = {
   ldap: {
-    addr: "", tls: false, bind_name: "", bind_pwd: "", base_dn: "",
+    addr: "", tls: false, tls_verify: false, bind_name: "", bind_pwd: "", base_dn: "",
     object_class: "person", search_attr: "sAMAccountName",
     member_of: "", sync_user_status: false, enable_otp: false, sync_users: false
   },

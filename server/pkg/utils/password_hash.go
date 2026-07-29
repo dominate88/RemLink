@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	mt "math/rand"
+	"strings"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -16,12 +17,23 @@ func PasswordHash(password string) (string, error) {
 }
 
 func PasswordVerify(password, hash string) bool {
-	// 保留老用户明文验证
-	if len(hash) == 60 {
+	// 保留老用户明文验证：以 bcrypt 前缀判定
+	if IsBcryptHash(hash) {
 		err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 		return err == nil
 	}
 	return subtle.ConstantTimeCompare([]byte(hash), []byte(password)) == 1
+}
+
+// 判断字符串是否为 bcrypt 哈希
+// bcrypt 标准前缀为 $2a$/$2b$/$2y$，固定长度 60。
+func IsBcryptHash(hash string) bool {
+	if len(hash) != 60 {
+		return false
+	}
+	return strings.HasPrefix(hash, "$2a$") ||
+		strings.HasPrefix(hash, "$2b$") ||
+		strings.HasPrefix(hash, "$2y$")
 }
 
 func RandSecret(min int, max int) (string, error) {

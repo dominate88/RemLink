@@ -374,8 +374,19 @@ func buildDNSResponsePacket(queryPacket []byte, dnsResp []byte) []byte {
 
 	copy(respPacket[ipHeaderLen+udpHeaderLen:], dnsResp)
 
+	// UDP 校验和（IPv4 伪头）
 	respPacket[ipHeaderLen+6] = 0
 	respPacket[ipHeaderLen+7] = 0
+	pseudo := make([]byte, 0, 12+udpLen)
+	pseudo = append(pseudo, respPacket[12:20]...) // 源 + 目的 IP
+	pseudo = append(pseudo, 0, 17)                // 零 + 协议号 UDP
+	pseudo = binary.BigEndian.AppendUint16(pseudo, uint16(udpLen))
+	pseudo = append(pseudo, respPacket[ipHeaderLen:]...)
+	udpCsum := calculateChecksum(pseudo)
+	if udpCsum == 0 {
+		udpCsum = 0xffff // RFC 768：计算结果 0 需翻转为全 1
+	}
+	binary.BigEndian.PutUint16(respPacket[ipHeaderLen+6:ipHeaderLen+8], udpCsum)
 
 	return respPacket
 }
@@ -432,6 +443,12 @@ func calculateChecksum(data []byte) uint16 {
 // 发送 DNS 响应包到客户端
 func sendDNSResponse(cSess *sessdata.ConnSession, respPacket []byte) {
 	respPl := getPayload()
+	// 超长响应不能静默截断，直接丢弃并告警
+	if len(respPacket) > len(respPl.Data) {
+		putPayload(respPl)
+		base.Warn("DNS response exceeds buffer, dropped:", len(respPacket))
+		return
+	}
 	respPl.LType = sessdata.LTypeIPData
 	respPl.PType = 0x00
 	copy(respPl.Data, respPacket)

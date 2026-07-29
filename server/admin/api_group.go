@@ -211,11 +211,18 @@ func GroupAuthLogin(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespInternalErr, err)
 		return
 	}
+	// 接入防暴力破解：测试接口携带真实凭据，须受 LockManager 约束
+	if !auth.GetLockManager().Check(v.Name, r.RemoteAddr) {
+		RespError(w, RespParamErr, "尝试次数过多，请稍后再试")
+		return
+	}
 	err = dbdata.GroupAuthLogin(v.Name, v.Pwd, v.AuthProfile)
 	if err != nil {
+		auth.GetLockManager().Fail(v.Name, r.RemoteAddr)
 		RespError(w, RespInternalErr, err)
 		return
 	}
+	auth.GetLockManager().Success(v.Name, r.RemoteAddr)
 	dbdata.AdminLog("用户组管理", v.Name, "测试了用户组认证登录", r.RemoteAddr)
 	RespSucess(w, "ok")
 }
@@ -269,10 +276,17 @@ func ProviderAuthLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 接入防暴力破解：Provider 测试登录同样携带真实凭据
+	if !auth.GetLockManager().Check(req.Name, r.RemoteAddr) {
+		RespError(w, RespParamErr, "尝试次数过多，请稍后再试")
+		return
+	}
 	if err := dbdata.GroupAuthLogin(req.Name, req.Pwd, profileJSON); err != nil {
+		auth.GetLockManager().Fail(req.Name, r.RemoteAddr)
 		RespError(w, RespInternalErr, err)
 		return
 	}
+	auth.GetLockManager().Success(req.Name, r.RemoteAddr)
 	dbdata.AdminLog("Provider管理", p.Name, "测试了Provider认证登录("+p.Type+")", r.RemoteAddr)
 	RespSucess(w, "ok")
 }

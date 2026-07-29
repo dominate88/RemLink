@@ -5,6 +5,7 @@ package auth
 import (
 	"crypto/tls"
 	"fmt"
+	"net"
 	"regexp"
 	"strconv"
 	"time"
@@ -33,6 +34,8 @@ type LDAPConfig struct {
 	SyncUserStatus bool   `json:"sync_user_status"`
 	EnableOtp      bool   `json:"enable_otp"` // 同步用户时启用 OTP
 	SyncUsers      bool   `json:"sync_users"` // 定时自动同步用户
+	// TlsVerify 校验 LDAP StartTLS 服务端证书（默认 false=不校验，保持历史行为；需要防中间人时显式开启）
+	TlsVerify bool `json:"tls_verify"`
 }
 
 // 填充 LDAP 默认值
@@ -76,7 +79,15 @@ func (c *LDAPConfig) Connect() (*ldap.Conn, error) {
 	}
 
 	if c.Tls {
-		if err := l.StartTLS(&tls.Config{InsecureSkipVerify: true}); err != nil {
+		// 默认不校验服务端证书（保持历史行为，兼容自签证书）；TlsVerify 开启后校验防中间人
+		host, _, err := net.SplitHostPort(c.Addr)
+		if err != nil {
+			host = c.Addr
+		}
+		if err := l.StartTLS(&tls.Config{
+			InsecureSkipVerify: !c.TlsVerify,
+			ServerName:         host,
+		}); err != nil {
 			l.Close()
 			return nil, fmt.Errorf("LDAP TLS 连接失败: %w", err)
 		}

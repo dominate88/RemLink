@@ -20,6 +20,10 @@ func LinkDtls(conn net.Conn, cSess *sessdata.ConnSession) {
 	}
 
 	defer func() {
+		// 解析畸形报文等异常不应带崩整个进程
+		if err := recover(); err != nil {
+			base.Error("LinkDtls panic", cSess.Username, err)
+		}
 		base.Debug("LinkDtls return", cSess.Username, cSess.IpAddr)
 		_ = conn.Close()
 		dSess.Close()
@@ -77,11 +81,12 @@ func LinkDtls(conn net.Conn, cSess *sessdata.ConnSession) {
 		case 0x04:
 			base.Trace("recv LinkDtls DPD-RESP", cSess.Username, cSess.IpAddr, conn.RemoteAddr())
 		case 0x08: // decompress
-			if cSess.DtlsPickCmp == nil {
+			if cSess.DtlsPickCmp == nil || n < 2 {
 				continue
 			}
 			dst := getByteFull()
-			nn, err := cSess.DtlsPickCmp.Uncompress(pl.Data[1:], *dst)
+			// 只解压实际读到的数据，避免把缓冲区残留脏数据一起解压
+			nn, err := cSess.DtlsPickCmp.Uncompress(pl.Data[1:n], *dst)
 			if err != nil {
 				putByte(dst)
 				base.Error("dtls decompress error", err, n)
@@ -97,6 +102,10 @@ func LinkDtls(conn net.Conn, cSess *sessdata.ConnSession) {
 			n = nn + 1
 			fallthrough
 		case 0x00: // DATA
+			// n==1 时载荷为空，下游 payloadIn 读 pl.Data[0] 会越界
+			if n < 2 {
+				continue
+			}
 			// 去除数据头
 			// copy(pl.Data, pl.Data[1:n])
 			// 更新切片长度

@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"syscall"
 	"unsafe"
 
@@ -19,16 +20,24 @@ const vTapPrefix = "lvtap"
 
 type Vtap struct {
 	*os.File
-	ifName string
+	ifName    string
+	closeOnce sync.Once
 }
 
 func (v *Vtap) Close() error {
-	v.File.Close()
-	link, err := netlink.LinkByName(v.ifName)
-	if err != nil {
-		return err
-	}
-	return netlink.LinkDel(link)
+	// 读/写两个协程都会 defer Close，用 Once 保证 fd 关闭与 LinkDel 只执行一次，
+	// 避免第二次 LinkByName 因网卡已删而报无谓错误
+	var err error
+	v.closeOnce.Do(func() {
+		v.File.Close()
+		link, e := netlink.LinkByName(v.ifName)
+		if e != nil {
+			err = e
+			return
+		}
+		err = netlink.LinkDel(link)
+	})
+	return err
 }
 
 func checkMacvtap() {
@@ -195,7 +204,7 @@ func createVtap(cSess *sessdata.ConnSession, ifName string) error {
 	}
 
 	file := os.NewFile(uintptr(fdInt), tName)
-	ifce := &Vtap{file, ifName}
+	ifce := &Vtap{File: file, ifName: ifName}
 
 	go allTapRead(ifce, cSess)
 	go allTapWrite(ifce, cSess)

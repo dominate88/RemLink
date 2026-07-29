@@ -478,6 +478,10 @@ func AuthCheck(w http.ResponseWriter, r *http.Request) {
 
 // 管理员退出登录，清除 JWT HttpOnly Cookie
 func Logout(w http.ResponseWriter, r *http.Request) {
+	// 吊销当前 JWT，避免登出后令牌仍可用于管理后台
+	if cc, err := r.Cookie("jwt"); err == nil && cc.Value != "" {
+		RevokeJwtToken(cc.Value)
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     "jwt",
 		Value:    "",

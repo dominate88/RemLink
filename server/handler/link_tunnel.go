@@ -309,8 +309,10 @@ func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 		err = LinkMacvtap(cSess)
 	}
 	if err != nil {
-		conn.Close()
 		base.Error(err)
+		// 显式关闭会话，否则已分配的 IP/连接数配额不会回收，长期运行导致地址池枯竭
+		cSess.Close()
+		conn.Close()
 		return
 	}
 	go LinkCstp(conn, bufRW, cSess)

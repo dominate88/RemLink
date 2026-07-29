@@ -79,6 +79,7 @@ type RADIUSState struct {
 type SSOState struct {
 	Type             string // "wxwork"|"feishu"
 	From             string // 来源标记："portal"|"web_auth" 等
+	ClientIP         string // 发起登录的客户端地址，回调时校验来源防重放
 	Authenticated    bool   // SSO 回调已完成，身份+部门在回调阶段校验
 	UserID           string // SSO 返回的用户 ID
 	Code             string // OAuth code（管道内 SSO 流程）

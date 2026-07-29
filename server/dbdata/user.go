@@ -73,7 +73,7 @@ func SetUser(v *User) error {
 
 // 插入数据库前加密密码
 func (u *User) BeforeInsert() {
-	if base.GetCfg().EncryptionPassword {
+	if base.GetCfg().EncryptionPassword && !utils.IsBcryptHash(u.PinCode) {
 		hashedPassword, err := utils.PasswordHash(u.PinCode)
 		if err != nil {
 			base.Error(err)
@@ -84,7 +84,7 @@ func (u *User) BeforeInsert() {
 
 // 更新数据库前加密密码
 func (u *User) BeforeUpdate() {
-	if len(u.PinCode) != 60 && base.GetCfg().EncryptionPassword {
+	if !utils.IsBcryptHash(u.PinCode) && base.GetCfg().EncryptionPassword {
 		hashedPassword, err := utils.PasswordHash(u.PinCode)
 		if err != nil {
 			base.Error(err)
@@ -95,7 +95,7 @@ func (u *User) BeforeUpdate() {
 
 // 校验密码
 func VerifyPassword(password, pinCode string) bool {
-	if len(pinCode) == 60 {
+	if utils.IsBcryptHash(pinCode) {
 		return utils.PasswordVerify(password, pinCode)
 	}
 	return subtle.ConstantTimeCompare([]byte(pinCode), []byte(password)) == 1

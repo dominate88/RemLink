@@ -46,7 +46,9 @@ type ipPoolConfig struct {
 func GetGroupIpPool(group *dbdata.Group) *ipPoolConfig {
 	// 优先使用组级别配置
 	if group != nil && group.ClientCidr != "" && group.ClientStart != "" && group.ClientEnd != "" && group.ClientGateway != "" {
-		cacheKey := group.ClientCidr + "|" + group.ClientStart + "|" + group.ClientEnd + "|" + group.ClientGateway + "|" + group.ClientCidr6
+		// 相同网段的不同组若共享池对象，GroupName 会错乱，
+		// 导致 IpMap 按 (mac_addr, ip_group) 定位到错误记录
+		cacheKey := group.Name + "|" + group.ClientCidr + "|" + group.ClientStart + "|" + group.ClientEnd + "|" + group.ClientGateway + "|" + group.ClientCidr6
 
 		groupPoolMux.Lock()
 		defer groupPoolMux.Unlock()

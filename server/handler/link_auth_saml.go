@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"html"
+	"net"
 	"net/http"
 	"net/url"
 
@@ -27,8 +28,9 @@ func startSSO(w http.ResponseWriter, r *http.Request, tgname, ssoType, callbackP
 		Ctx: &auth.Context{
 			Conn: auth.ConnInfo{GroupName: tgname},
 			SSO: &auth.SSOState{
-				Type: ssoType,
-				From: r.URL.Query().Get("from"),
+				Type:     ssoType,
+				From:     r.URL.Query().Get("from"),
+				ClientIP: r.RemoteAddr,
 			},
 		},
 	}
@@ -113,6 +115,24 @@ func WXAuthCallback(w http.ResponseWriter, r *http.Request) {
 		SAMLError(w, fmt.Errorf("认证会话已过期或无效"))
 		return
 	}
+	// 已被标记为已认证的 state 说明此前使用过，拒绝重放
+	if pending.Ctx.SSO == nil || pending.Ctx.SSO.Authenticated {
+		base.Error("SSO state 已被消费（疑似重放）:", state[:min(16, len(state))])
+		SAMLError(w, fmt.Errorf("认证会话已过期或无效"))
+		return
+	}
+	// 发起登录与回调须来自同一客户端 IP，否则拒绝冒用
+	if pending.Ctx.SSO.ClientIP != "" {
+		want, _, _ := net.SplitHostPort(pending.Ctx.SSO.ClientIP)
+		got, _, _ := net.SplitHostPort(r.RemoteAddr)
+		if want != "" && got != "" && want != got {
+			base.Error("SSO state 来源 IP 不匹配:", want, got)
+			SAMLError(w, fmt.Errorf("认证会话来源异常"))
+			return
+		}
+	}
+	// 消费 pending，避免同一 state 被重复使用
+	SessStore.Delete(state)
 	groupname := pending.Ctx.Conn.GroupName
 	if groupname == "" {
 		base.Error("SSO pending 会话缺少组名")
@@ -284,6 +304,24 @@ func FeishuAuthCallback(w http.ResponseWriter, r *http.Request) {
 		SAMLError(w, fmt.Errorf("认证会话已过期或无效"))
 		return
 	}
+	// 已被标记为已认证的 state 说明此前使用过，拒绝重放
+	if pending.Ctx.SSO == nil || pending.Ctx.SSO.Authenticated {
+		base.Error("SSO state 已被消费（疑似重放）:", state[:min(16, len(state))])
+		SAMLError(w, fmt.Errorf("认证会话已过期或无效"))
+		return
+	}
+	// 发起登录与回调须来自同一客户端 IP，否则拒绝冒用
+	if pending.Ctx.SSO.ClientIP != "" {
+		want, _, _ := net.SplitHostPort(pending.Ctx.SSO.ClientIP)
+		got, _, _ := net.SplitHostPort(r.RemoteAddr)
+		if want != "" && got != "" && want != got {
+			base.Error("SSO state 来源 IP 不匹配:", want, got)
+			SAMLError(w, fmt.Errorf("认证会话来源异常"))
+			return
+		}
+	}
+	// 避免同一 state 被重复使用
+	SessStore.Delete(state)
 	groupname := pending.Ctx.Conn.GroupName
 	if groupname == "" {
 		base.Error("SSO pending 会话缺少组名")

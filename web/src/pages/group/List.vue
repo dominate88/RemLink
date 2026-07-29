@@ -458,7 +458,7 @@ export default {
         local: {}, otp: {}, cert: {}, sms: {},
         radius: { addr: "", secret: "", nasip: "" },
         ldap: {
-          addr: "", tls: false, bind_name: "", bind_pwd: "", base_dn: "",
+          addr: "", tls: false, tls_verify: false, bind_name: "", bind_pwd: "", base_dn: "",
           object_class: "person", search_attr: "sAMAccountName",
           member_of: "", sync_user_status: false, enable_otp: false
         },
