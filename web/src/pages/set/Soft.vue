@@ -1251,15 +1251,24 @@ export default {
 
   .config-item {
     flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
   }
 
   .config-item-info {
     flex: 1 1 100%;
-    min-width: 100%;
+    min-width: 0;
   }
 
   .config-item-value {
-    width: 170px;
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+    max-width: 220px;
+  }
+
+  .config-item-effect,
+  .config-item-action {
     flex-shrink: 0;
   }
 }

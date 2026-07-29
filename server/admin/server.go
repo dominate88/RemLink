@@ -122,6 +122,7 @@ func StartAdmin() {
 	r.HandleFunc("/user/ip_map/detail", UserIpMapDetail)
 	r.HandleFunc("/user/ip_map/set", UserIpMapSet).Methods(http.MethodPost)
 	r.HandleFunc("/user/ip_map/del", UserIpMapDel).Methods(http.MethodPost)
+	r.HandleFunc("/user/ip_map/batch_del", UserIpMapBatchDel).Methods(http.MethodPost)
 	r.HandleFunc("/user/batch/send_email", UserBatchSendEmail).Methods(http.MethodPost)
 	r.HandleFunc("/user/batch/delete", UserBatchDelete).Methods(http.MethodPost)
 

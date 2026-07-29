@@ -349,10 +349,25 @@ body {
   font-weight: 500;
 }
 
-/* 下拉菜单美化 */
+/* 下拉菜单美化（与 el-select 弹层风格统一） */
+.el-dropdown-menu {
+  border-radius: 8px;
+  border: 1px solid var(--border-color-light);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
+  padding: 6px 0;
+}
+.el-dropdown-menu__item {
+  color: var(--text-regular);
+  line-height: 34px;
+  padding: 0 16px;
+}
 .el-dropdown-menu__item:hover {
   background: var(--color-primary-bg);
   color: var(--color-primary);
+}
+.el-dropdown-menu__item--divided:before {
+  margin: 0;
+  background-color: var(--border-color-light);
 }
 
 /* 折叠侧栏弹出的 Element UI 菜单挂在 body 下，需要全局样式覆盖透明背景 */
@@ -767,15 +782,25 @@ html.dark .el-select-dropdown__item.selected {
 html.dark .el-dropdown-menu {
   background: var(--bg-card) !important;
   border-color: var(--border-color) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4) !important;
+  padding: 6px 0 !important;
 }
 
 html.dark .el-dropdown-menu__item {
   color: var(--text-regular) !important;
+  line-height: 34px !important;
+  padding: 0 16px !important;
 }
 
 html.dark .el-dropdown-menu__item:hover {
   background: var(--bg-hover) !important;
   color: var(--color-primary) !important;
+}
+
+html.dark .el-dropdown-menu__item--divided:before {
+  margin: 0 !important;
+  background-color: var(--border-color) !important;
 }
 
 html.dark .el-popper[x-placement^="bottom"] .popper__arrow,

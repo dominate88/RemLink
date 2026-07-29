@@ -102,7 +102,13 @@
             </div>
           </div>
           <el-form-item label="路由规则" prop="route_include" class="form-item-block">
-            <div class="dynamic-list">
+            <div v-if="form.route_include.length > collapseThreshold && !expanded.route_include" class="route-compact">
+              <i class="el-icon-info"></i>
+              共 <b>{{ form.route_include.length }}</b> 条包含路由，建议使用上方「批量编辑」管理，或
+              <el-button type="text" @click="expanded.route_include = true">展开逐条编辑</el-button>
+            </div>
+            <div v-show="!(form.route_include.length > collapseThreshold && !expanded.route_include)"
+              class="dynamic-list" :class="{ 'route-list-scroll': form.route_include.length > collapseThreshold }">
               <div class="dynamic-list-header">
                 <span class="dynamic-col-val">CIDR 地址</span>
                 <span class="dynamic-col-note">备注</span>
@@ -139,7 +145,13 @@
             </div>
           </div>
           <el-form-item label="路由规则" prop="route_exclude" class="form-item-block">
-            <div class="dynamic-list">
+            <div v-if="form.route_exclude.length > collapseThreshold && !expanded.route_exclude" class="route-compact">
+              <i class="el-icon-info"></i>
+              共 <b>{{ form.route_exclude.length }}</b> 条排除路由，建议使用上方「批量编辑」管理，或
+              <el-button type="text" @click="expanded.route_exclude = true">展开逐条编辑</el-button>
+            </div>
+            <div v-show="!(form.route_exclude.length > collapseThreshold && !expanded.route_exclude)"
+              class="dynamic-list" :class="{ 'route-list-scroll': form.route_exclude.length > collapseThreshold }">
               <div class="dynamic-list-header">
                 <span class="dynamic-col-val">CIDR 地址</span>
                 <span class="dynamic-col-note">备注</span>
@@ -194,7 +206,8 @@
               <i class="el-icon-info"></i>
               规则自上而下匹配，未匹配的流量默认拒绝。支持 all / tcp / udp / icmp 协议，端口 0 表示所有端口。多个端口逗号分隔：80,443，连续端口：8000-9000
             </div>
-            <draggable v-model="form.link_acl" handle=".drag-handle" class="acl-list">
+            <draggable v-model="form.link_acl" handle=".drag-handle" class="acl-list"
+              :class="{ 'acl-list-scroll': form.link_acl.length > collapseThreshold }">
               <div v-for="(item, index) in form.link_acl" :key="index" class="acl-item">
                 <div class="acl-drag drag-handle" title="拖拽排序">
                   <i class="el-icon-rank"></i>
@@ -283,6 +296,12 @@
               若未配置客户端 DNS，需手动配置上游 DNS 地址，否则 FakeDNS 无法生效
             </div>
           </el-form-item>
+          <el-form-item label="IPv6 优先" prop="prefer_ipv6" class="form-item-block">
+            <el-switch v-model="form.prefer_ipv6" active-color="#409eff" inactive-color="#dcdfe6"
+              :disabled="!form.enable_fakedns">
+            </el-switch>
+            <div class="form-tip">开启后，命中 FakeDNS 规则的域名优先回 AAAA（v6 fakeIP），对 A 查询返回 NODATA 引导双栈应用走 v6（仅双栈开启时有效）</div>
+          </el-form-item>
         </div>
 
         <div class="tab-section" :class="{ 'tab-section-disabled': !form.enable_fakedns }">
@@ -307,15 +326,6 @@
           </el-form-item>
         </div>
 
-        <div class="tab-section" :class="{ 'tab-section-disabled': !form.enable_fakedns }">
-          <div class="section-title">IPv6 优先</div>
-          <el-form-item label="DNS解析优先ipv6" prop="prefer_ipv6" class="form-item-row label-nowrap tip-below">
-            <el-switch v-model="form.prefer_ipv6" active-color="#409eff" inactive-color="#dcdfe6"
-              :disabled="!form.enable_fakedns">
-            </el-switch>
-            <span class="form-tip">开启后，命中 FakeDNS 规则的域名优先回 AAAA（v6 fakeIP），对 A 查询返回 NODATA 引导双栈应用走 v6（仅双栈开启时有效）</span>
-          </el-form-item>
-        </div>
       </el-tab-pane>
     </el-tabs>
   </div>
@@ -336,6 +346,9 @@ export default {
     return {
       activeTab: 'general',
       otherPolicies: [],
+      // 路由/ACL 条目超过该阈值时，内联列表默认折叠为摘要，避免编辑页过长
+      collapseThreshold: 10,
+      expanded: { route_include: false, route_exclude: false },
     }
   },
   computed: {
@@ -568,6 +581,44 @@ export default {
 
 .dynamic-add-btn {
   margin-top: 4px;
+}
+
+/* 路由条目过多时的折叠摘要 */
+.route-compact {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  background: var(--info-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-regular);
+  line-height: 1.6;
+}
+
+.route-compact i {
+  color: var(--text-secondary);
+  font-size: 15px;
+}
+
+.route-compact b {
+  color: var(--color-primary);
+}
+
+/* 条目过多时内联列表限制高度并滚动 */
+.route-list-scroll {
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.acl-list-scroll {
+  max-height: 400px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 /* ========== ACL 规则列表 ========== */

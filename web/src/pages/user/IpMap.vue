@@ -45,16 +45,37 @@
       <div slot="header" class="card-header">
         <span class="card-title"><i class="el-icon-connection"></i> IP映射列表</span>
         <div class="card-actions">
+          <el-button v-if="multipleSelection.length" size="small" type="danger" icon="el-icon-delete"
+            @click="handleBatchDel">批量删除 ({{ multipleSelection.length }})</el-button>
           <el-button size="small" type="primary" icon="el-icon-plus" @click="handleEdit('')">
             添加映射
           </el-button>
         </div>
       </div>
 
+      <div class="filter-bar">
+        <el-input v-model="filters.ip" placeholder="IP地址" size="small" clearable class="filter-item"
+          @keyup.enter.native="onSearch" @clear="onSearch"></el-input>
+        <el-input v-model="filters.mac" placeholder="MAC地址" size="small" clearable class="filter-item"
+          @keyup.enter.native="onSearch" @clear="onSearch"></el-input>
+        <el-input v-model="filters.username" placeholder="用户名" size="small" clearable class="filter-item"
+          @keyup.enter.native="onSearch" @clear="onSearch"></el-input>
+        <el-input v-model="filters.group" placeholder="组/出口" size="small" clearable class="filter-item"
+          @keyup.enter.native="onSearch" @clear="onSearch"></el-input>
+        <el-select v-model="filters.keep" placeholder="保留" size="small" clearable class="filter-item">
+          <el-option label="已保留" value="1"></el-option>
+          <el-option label="未保留" value="0"></el-option>
+        </el-select>
+        <el-button size="small" type="primary" icon="el-icon-search" @click="onSearch">查询</el-button>
+        <el-button size="small" icon="el-icon-refresh" @click="resetFilters">重置</el-button>
+      </div>
+
       <div class="ipmap-table-wrap">
         <el-table ref="multipleTable" :data="tableData" stripe highlight-current-row border
           style="width:100%"
+          @selection-change="handleSelectionChange"
           :header-cell-style="{ background:'#fafafa', color:'#303133', fontWeight:'600', fontSize:'13px' }">
+          <el-table-column type="selection" width="45" align="center"></el-table-column>
           <el-table-column sortable prop="id" label="ID" width="65" align="center"></el-table-column>
           <el-table-column prop="ip_addr" label="IP地址" width="150">
             <template slot-scope="scope">
@@ -158,6 +179,8 @@ export default {
     return {
       loading: false,
       tableData: [], count: 0,
+      filters: { ip: '', mac: '', username: '', group: '', keep: '' },
+      multipleSelection: [],
       ruleForm: { status: 1, groups: [] },
       rules: {
         mac_addr: [{ required: true, message: '请输入MAC地址', trigger: 'blur' }],
@@ -194,7 +217,13 @@ export default {
     },
     getData(p) {
       this.loading = true;
-      axios.get('/user/ip_map/list', { params: { page: p } }).then(resp => {
+      const params = { page: p };
+      if (this.filters.ip) params.ip = this.filters.ip;
+      if (this.filters.mac) params.mac = this.filters.mac;
+      if (this.filters.username) params.username = this.filters.username;
+      if (this.filters.group) params.group = this.filters.group;
+      if (this.filters.keep !== '') params.keep = this.filters.keep;
+      axios.get('/user/ip_map/list', { params }).then(resp => {
         const data = resp.data.data || {};
         this.tableData = data.datas || [];
         this.count = data.count || 0;
@@ -203,6 +232,32 @@ export default {
       }).finally(() => {
         this.loading = false;
       });
+    },
+    onSearch() { this.getData(1); },
+    resetFilters() {
+      this.filters = { ip: '', mac: '', username: '', group: '', keep: '' };
+      this.getData(1);
+    },
+    handleSelectionChange(val) { this.multipleSelection = val; },
+    handleBatchDel() {
+      if (this.multipleSelection.length === 0) return;
+      const ids = this.multipleSelection.map(r => r.id);
+      this.$confirm(`确定要批量删除选中的 ${ids.length} 条 IP 映射吗？删除后不可恢复。`, '批量删除确认', {
+        confirmButtonText: '确定删除', cancelButtonText: '取消',
+        type: 'warning', confirmButtonClass: 'el-button--danger',
+      }).then(() => {
+        axios.post('/user/ip_map/batch_del', { ids }).then(resp => {
+          if (resp.data.code === 0) {
+            this.$message.success(resp.data.msg);
+            this.multipleSelection = [];
+            this.getData(1);
+          } else {
+            this.$message.error(resp.data.msg);
+          }
+        }).catch(() => {
+          this.$message.error('请求出错');
+        });
+      }).catch(() => { });
     },
     pageChange(p) { this.getData(p); },
     handleEdit(row) {
@@ -281,6 +336,29 @@ export default {
 .ipmap-table-wrap {
   overflow-x: auto;
   width: 100%;
+}
+
+/* 筛选栏 */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+}
+
+.filter-bar .filter-item {
+  width: 150px;
+}
+
+@media (max-width: 600px) {
+  .filter-bar .filter-item {
+    width: calc(50% - 4px);
+  }
 }
 
 /* 响应式 */

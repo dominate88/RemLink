@@ -211,7 +211,8 @@
           <el-form-item label="OTP验证" class="form-item-compact form-item-full form-item-otp">
             <div class="otp-row">
               <el-switch v-model="ruleForm.disable_otp"
-                active-color="#909399" inactive-color="#13ce66" />
+                :active-value="false" :inactive-value="true"
+                active-color="#13ce66" inactive-color="#909399" />
               <el-input v-if="!ruleForm.disable_otp" v-model="ruleForm.otp_secret" placeholder="留空由系统自动生成" size="small" class="otp-secret-input" />
               <el-tooltip content="开启OTP后用户密码为密码+动态码双因素认证" placement="top">
                 <i class="el-icon-question help-icon"></i>

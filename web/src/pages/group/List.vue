@@ -218,7 +218,7 @@
                   <el-input v-model="ruleForm.client_cidr6" placeholder="如 2001:db8:10::/64，留空用全局 v6 池" size="small"></el-input>
                 </el-form-item>
                 <el-form-item label="出网网卡" prop="out_dev" class="ip-config-col">
-                  <el-select v-model="ruleForm.out_dev" placeholder="留空=默认 master_dev" size="small" clearable filterable style="width:100%">
+                  <el-select v-model="ruleForm.out_dev" placeholder="留空=默认 master_dev，可手动输入任意网卡名（如 br0/bond0）" size="small" clearable filterable allow-create default-first-option style="width:100%">
                     <el-option label="留空（使用默认 master_dev）" value=""></el-option>
                     <el-option v-for="iface in outDevOptions" :key="iface" :label="iface" :value="iface"></el-option>
                   </el-select>
