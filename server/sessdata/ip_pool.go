@@ -341,9 +341,12 @@ func AcquireIpWithRange(username, macAddr string, uniqueMac bool, ipRange *ipPoo
 
 	// 获取到客户端 macAddr 的情况
 	if uniqueMac {
-		// 判断是否已经分配过（按 MAC + 组 定位，支持同 MAC 跨组多绑定）。
+		// 判断是否已经分配过：按 MAC + 组 精确匹配优先
 		mi := &dbdata.IpMap{}
-		err = dbdata.OneWhere("mac_addr=? AND (ip_group=? OR ip_group='')", mi, macAddr, ipRange.GroupName)
+		err = dbdata.OneWhere("mac_addr=? AND ip_group=?", mi, macAddr, ipRange.GroupName)
+		if dbdata.CheckErrNotFound(err) && ipRange.GroupName != "" {
+			err = dbdata.OneWhere("mac_addr=? AND ip_group=''", mi, macAddr)
+		}
 		if err != nil {
 			// 没有查询到数据
 			if dbdata.CheckErrNotFound(err) {
@@ -388,9 +391,12 @@ func AcquireIpWithRange(username, macAddr string, uniqueMac bool, ipRange *ipPoo
 		return loopIp(username, macAddr, uniqueMac, ipRange)
 	}
 
-	// 没有获取到mac的情况（按 用户名 + 组 定位）。
+	// 没有获取到mac的情况（按 用户名 + 组 精确匹配优先）
 	ipMaps := []dbdata.IpMap{}
-	err = dbdata.FindWhere(&ipMaps, 30, 1, "username=? AND (ip_group=? OR ip_group='')", username, ipRange.GroupName)
+	err = dbdata.FindWhere(&ipMaps, 30, 1, "username=? AND ip_group=?", username, ipRange.GroupName)
+	if err == nil && len(ipMaps) == 0 && ipRange.GroupName != "" {
+		err = dbdata.FindWhere(&ipMaps, 30, 1, "username=? AND ip_group=''", username)
+	}
 	if err != nil {
 		// 没有查询到数据
 		if dbdata.CheckErrNotFound(err) {

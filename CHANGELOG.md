@@ -17,6 +17,7 @@
 
 ### 修复
 
+- 修复：证书自动认证失败时，无法更换组的Bug
 - 修复：企微/飞书认证中文组名乱码
 - 修复：部分主机装系统时全局禁用了 IPv6（`disable_ipv6=1`，连 link-local 都没有），导致双栈开启后出网网卡拿不到运营商 v6 地址、v6 完全不工作。现双栈开启时自动解除禁用（`net.ipv6.conf.{all,default,<egress>}.disable_ipv6=0`）
 - 安全：IPT 模式下 FORWARD 链由无条件放行收紧为有状态放行（仅放行 VPN 网段出站及其 established/related 回包），与 nftables 行为一致，避免客户端被外部主动入站访问
@@ -25,7 +26,6 @@
 - 修复：TAP / macvtap 模式独立组段（组配置了自定义 CIDR）未下发 NAT/NAT66 规则——`LinkTap`/`LinkMacvtap` 此前遗漏 `setGroupNAT`，导致组级独立网段流量无法 NAT 出网；现与 TUN 对齐，建链时统一调用 `setGroupNAT`
 - 修复：ACL 对非 IPv4/IPv6 的畸形包默认放行——`checkLinkAcl` 的 default 分支原返回放行，存在绕过风险；现改为与「v6 无法解析」分支一致，默认拒绝
 - 修复：服务监听地址（VPN 服务 / DTLS / 管理后台）若配成 `0.0.0.0:端口`，在 Linux 上仅监听 IPv4，导致 IPv6 客户端连不上；现将该通配写法归一成 `:端口`（双栈监听，同时接受 v4/v6，对纯 v4 客户端无影响）。仅作用于绑定地址，不影响通告地址
-- 修复：FakeDNS 上游 DNS 服务器为 IPv6 地址时，下发的 Split-Include 路由掩码被写死成 v4 的 `/255.255.255.255`（畸形），客户端 v6 DNS 分流不生效；现按地址族自动选用 `/32` 或 `/128`
 - 修复：组自定义网段 NAT 规则在「仅改出网网卡(out_dev)、网段不变」时不生效（原需重启服务才生效）——现出网网卡变化时自动删除旧规则并按新网卡重新下发，无需重启
 - 修复：删除用户组或变更组网段后，该组在防火墙（iptables/nftables）里的 NAT/转发规则残留至整机重启——现组删除及网段变更时按旧网段清理对应规则（nftables 通过规则 UserData 标记精准删除，不影响全局规则；iptables 按源段+接口精准删除）
 - 修复：iptables 后端下组自定义 v4 子网的新出站连接被 FORWARD 默认策略丢弃（此前只做了 MASQUERADE 未放行 FORWARD）——现与 nftables 对齐，补充组源段 FORWARD ACCEPT

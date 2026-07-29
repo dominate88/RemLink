@@ -134,36 +134,41 @@ func WebAuthStart(w http.ResponseWriter, r *http.Request) {
 
 	// 证书自动识别组（从原始 AnyConnect 连接继承的证书信息）
 	certCN, certOU, certTLS := webAuthRecoverCert(pending)
+	clientGroup := pending.Ctx.Conn.GroupName
 
-	if certCN != "" && certOU != "" && certTLS != nil {
-		if authsrv.CertAutoAuth(certOU) {
-			pending.Ctx.Conn.Username = certCN
-			pending.Ctx.Conn.GroupName = certOU
-			pending.UserActLog.Username = certCN
-			pending.UserActLog.GroupName = certOU
+	//  - 仅当客户端未显式选择其他组、且证书 OU 组可无交互自动认证时才尝试；
+	//  - 成功（通过或进入后续挑战）则继续；失败（如证书无效）不把用户强制留在证书组，
+	//    回退到组选择流程，让用户可切换组或重试。
+	attemptCertAuto := certCN != "" && certOU != "" && certTLS != nil &&
+		authsrv.CertAutoAuth(certOU) &&
+		(clientGroup == "" || clientGroup == certOU)
 
-			ctx := &auth.Context{
-				Conn: auth.ConnInfo{
-					Username:   certCN,
-					GroupName:  certOU,
-					RemoteAddr: r.RemoteAddr,
-					UserAgent:  r.UserAgent(),
-					TLS:        certTLS,
-				},
-			}
+	certErrMsg := ""
+	if attemptCertAuto {
+		pending.Ctx.Conn.Username = certCN
+		pending.Ctx.Conn.GroupName = certOU
+		pending.UserActLog.Username = certCN
+		pending.UserActLog.GroupName = certOU
 
-			result := authsrv.Authenticate(ctx)
-			pending.Ctx = ctx
+		result := authsrv.Authenticate(pending.Ctx)
+		if result.Result != auth.StepFail {
 			webAuthHandleResult(w, r, state, pending, result, certCN)
 			return
 		}
+		// 证书自动认证失败：回退到组选择流程
+		certErrMsg = "证书自动认证失败，请选择其他组登录"
+		base.Info("[WebAuth-1:start] 证书自动认证失败，回退组选择 ou=", certOU, " err=", result.Err)
 	}
 
 	groups := dbdata.GetGroupNamesNormal()
-	webAuthJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"status": "select_group",
 		"groups": groups,
-	})
+	}
+	if certErrMsg != "" {
+		resp["message"] = certErrMsg
+	}
+	webAuthJSON(w, http.StatusOK, resp)
 }
 
 // 选定组并执行认证管道。首步非 SSO 时返回凭据输入界面。
@@ -227,6 +232,31 @@ func WebAuthSelectGroup(w http.ResponseWriter, r *http.Request) {
 				UserAgent:  r.UserAgent(),
 				TLS:        r.TLS,
 			},
+		}
+		// 浏览器侧无证书，须从会话恢复
+		if _, _, selCertTLS := webAuthRecoverCert(pending); selCertTLS != nil {
+			ctx.Conn.TLS = selCertTLS
+		}
+		result := authsrv.Authenticate(ctx)
+		pending.Ctx = ctx
+		webAuthHandleResult(w, r, state, pending, result, req.Username)
+		return
+	}
+
+	// 纯证书组（或证书为首步）：从会话恢复 TLS 证书立即运行管道
+	if firstStepType == "cert" {
+		_, _, selCertTLS := webAuthRecoverCert(pending)
+		ctx := &auth.Context{
+			Conn: auth.ConnInfo{
+				Username:   req.Username,
+				GroupName:  req.Group,
+				RemoteAddr: r.RemoteAddr,
+				UserAgent:  r.UserAgent(),
+				TLS:        selCertTLS,
+			},
+		}
+		if ctx.Conn.TLS == nil {
+			ctx.Conn.TLS = r.TLS
 		}
 		result := authsrv.Authenticate(ctx)
 		pending.Ctx = ctx
@@ -373,7 +403,7 @@ func webAuthHandleResult(w http.ResponseWriter, r *http.Request,
 		}
 		errMsg := "认证失败"
 		if result.Err != nil {
-			errMsg = result.Err.Error()
+			errMsg = stripStepPrefix(result.Err.Error())
 		}
 		base.Warn("WebAuth 认证失败:", result.Err)
 		webAuthError(w, errMsg)

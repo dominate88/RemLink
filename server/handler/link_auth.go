@@ -120,10 +120,10 @@ func LinkAuth(w http.ResponseWriter, r *http.Request) {
 			handlerWebAuth(w, r, cr, ua)
 			return
 		}
-		if handleCertAutoAuth(w, r, sessionData) {
+		if handleCertAutoAuth(w, r, cr, sessionData) {
 			return
 		}
-		handleInit(w, r, cr)
+		handleInit(w, r, cr, "")
 		return
 	}
 
@@ -180,7 +180,8 @@ func LinkAuth(w http.ResponseWriter, r *http.Request) {
 }
 
 // 当组配置了证书认证且 TLS 连接包含有效客户端证书时，直接从证书提取身份信息，跳过组选择表单。
-func handleCertAutoAuth(w http.ResponseWriter, r *http.Request, sessionData *AuthSession) bool {
+// 证书无效（过期/吊销/不匹配）时回退到 handleInit 组选择
+func handleCertAutoAuth(w http.ResponseWriter, r *http.Request, cr *ClientRequest, sessionData *AuthSession) bool {
 	if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
 		return false
 	}
@@ -192,6 +193,11 @@ func handleCertAutoAuth(w http.ResponseWriter, r *http.Request, sessionData *Aut
 	}
 	groupname := clientCert.Subject.OrganizationalUnit[0]
 	if username == "" || groupname == "" {
+		return false
+	}
+
+	// 客户端显式选择了其他组：不强行使用证书 OU 组，交由 handleInit 处理
+	if cr.GroupSelect != "" && cr.GroupSelect != groupname {
 		return false
 	}
 
@@ -207,17 +213,28 @@ func handleCertAutoAuth(w http.ResponseWriter, r *http.Request, sessionData *Aut
 	base.Info("证书自动认证：用户", username, "组", groupname)
 
 	result := authsrv.Authenticate(sessionData.Ctx)
+	if result.Result == auth.StepFail {
+		// 证书自动认证失败：回退到组选择流程，不强制留在证书组
+		certErr := authFailMessage(result.Err)
+		if base.GetCfg().DisplayError && result.Err != nil {
+			certErr = stripStepPrefix(result.Err.Error())
+		}
+		base.Info("证书自动认证失败，回退组选择 ou=", groupname, " err=", result.Err)
+		handleInit(w, r, cr, certErr)
+		return true
+	}
 	handlePipelineResult(w, r, result, sessionData)
 	return true
 }
 
 // 处理 init 请求：返回组选择登录表单或 SSO 扫码模板。
-func handleInit(w http.ResponseWriter, r *http.Request, cr *ClientRequest) {
+func handleInit(w http.ResponseWriter, r *http.Request, cr *ClientRequest, errMsg string) {
 	// OpenConnect 组选择优化
 	if cr.GroupSelect != "" && strings.Contains(cr.UserAgent, "openconnect") {
 		data := RequestData{
 			Group:  cr.GroupSelect,
 			Groups: []string{cr.GroupSelect},
+			Error:  errMsg,
 		}
 		w.WriteHeader(http.StatusOK)
 		tplRequest(tpl_request, w, data)
@@ -239,7 +256,7 @@ func handleInit(w http.ResponseWriter, r *http.Request, cr *ClientRequest) {
 		return
 	}
 
-	data := RequestData{Group: cr.GroupSelect, Groups: dbdata.GetGroupNamesNormal()}
+	data := RequestData{Group: cr.GroupSelect, Groups: dbdata.GetGroupNamesNormal(), Error: errMsg}
 	w.WriteHeader(http.StatusOK)
 	tplRequest(tpl_request, w, data)
 }
