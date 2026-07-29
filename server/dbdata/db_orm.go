@@ -60,6 +60,17 @@ func One(fieldName string, value any, data any) error {
 
 	return nil
 }
+func OneWhere(where string, data any, args ...any) error {
+	has, err := xdb.Where(where, args...).Get(data)
+	if err != nil {
+		return err
+	}
+	if !has {
+		return ErrNotFound
+	}
+
+	return nil
+}
 
 func CountAll(data any) int {
 	n, _ := xdb.Count(data)

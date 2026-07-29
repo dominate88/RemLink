@@ -68,6 +68,12 @@
               <el-tag v-else type="info" size="mini" effect="plain">否</el-tag>
             </template>
           </el-table-column>
+          <el-table-column prop="group" label="组/出口" width="120">
+            <template slot-scope="scope">
+              <span v-if="scope.row.group" class="group-tag">{{ scope.row.group }}</span>
+              <span v-else class="text-muted">全局</span>
+            </template>
+          </el-table-column>
           <el-table-column prop="username" label="用户名" min-width="120">
             <template slot-scope="scope">
               <span v-if="scope.row.username" class="bound-user">{{ scope.row.username }}</span>
@@ -164,8 +170,8 @@ export default {
   computed: {
     statTotal() { return this.count },
     statKeep() { return this.tableData.filter(r => r.keep).length },
-    statUniqueMac() { return this.tableData.filter(r => r.unique_mac).length },
-    statBoundUser() { return this.tableData.filter(r => r.username).length },
+    statUniqueMac() { return new Set(this.tableData.map(r => r.mac_addr)).size },
+    statBoundUser() { return new Set(this.tableData.filter(r => r.username).map(r => r.username)).size },
   },
   methods: {
     handleRowCmd(row, cmd) {
@@ -254,6 +260,7 @@ export default {
 
 /* 表格内 */
 .ip-addr { font-weight: 600; color: #303133; font-size: 13px; font-family: monospace; }
+.group-tag { font-weight: 500; color: #409eff; font-size: 12px; background: #ecf5ff; padding: 2px 8px; border-radius: 4px; }
 .bound-user { font-weight: 500; color: #303133; }
 .text-muted { color: #c0c4cc; font-size: 12px; }
 .action-more-btn {

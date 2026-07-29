@@ -33,6 +33,7 @@ type ipPoolConfig struct {
 	IpLongMax   uint32
 	loopCurIp   uint32        // 每池独立的循环游标
 	loopFarIp   *dbdata.IpMap // 每池独立的最早登录记录
+	GroupName   string        // 所属组名；全局池为空。用于 IpMap 按 (mac_addr, ip_group) 定位
 
 	// IPv6 全局地址池（单 Ipv6CIDR 自动分配，/128 每客户端）
 	Ipv6IPNet   *net.IPNet
@@ -68,6 +69,7 @@ func GetGroupIpPool(group *dbdata.Group) *ipPoolConfig {
 					Ipv4IPNet:   ipNet,
 					IpLongMin:   utils.Ip2long(start),
 					IpLongMax:   utils.Ip2long(end),
+					GroupName:   group.Name,
 				}
 				p.loopCurIp = p.IpLongMin
 				// 组级 v6 段：受全局 Ipv6CIDR 总开关约束，未开总开关则忽略组 v6
@@ -139,6 +141,7 @@ func initIpPool() error {
 	IpPool.IpLongMax = utils.Ip2long(ipEnd)
 
 	IpPool.loopCurIp = IpPool.IpLongMin
+	IpPool.GroupName = "" // 全局池无组归属
 
 	// IPv6 全局地址池（单 Ipv6CIDR 自动分配；gw=网络+1, start=网络+2, end=网段末）
 	if cidr := base.GetCfg().Ipv6CIDR; cidr != "" {
@@ -179,30 +182,33 @@ func bigToIP(b *big.Int) net.IP {
 	return ip
 }
 
-// 获取 IPv6 动态地址；pool 为组池（未配组 v6 段则回退全局池）。
+// 获取 IPv6 动态地址。pool 为连接所属组池（未配组 v6 段则回退全局池）
 // 向后兼容：全局未配置 Ipv6CIDR 且组无 v6 段时返回 nil
-func acquireIpV6(username, macAddr string, uniqueMac bool, pool *ipPoolConfig) net.IP {
-	if pool == nil || pool.Ipv6IPNet == nil {
-		pool = IpPool // 组池无 v6 字段时回退全局
+func acquireIpV6(username, macAddr string, uniqueMac bool, groupPool *ipPoolConfig) net.IP {
+	// allocPool 为实际分配地址的段：组池未配置 v6 时回退到全局 Ipv6CIDR 池
+	allocPool := groupPool
+	if allocPool == nil || allocPool.Ipv6IPNet == nil {
+		allocPool = IpPool // 组池无 v6 字段时回退全局地址段
 	}
-	if pool.Ipv6IPNet == nil {
+	if allocPool.Ipv6IPNet == nil {
 		return nil
 	}
 	ipPoolMux.Lock()
 	defer ipPoolMux.Unlock()
-	return loopIpV6(username, macAddr, uniqueMac, pool)
+	// groupPool 只用于携带组身份（GroupName），决定绑定记到哪个组，与地址来源无关
+	return loopIpV6(username, macAddr, uniqueMac, groupPool, allocPool)
 }
 
-func loopIpV6(username, macAddr string, uniqueMac bool, pool *ipPoolConfig) net.IP {
-	start := pool.ipv6Start
-	end := pool.ipv6End
+func loopIpV6(username, macAddr string, uniqueMac bool, groupPool *ipPoolConfig, allocPool *ipPoolConfig) net.IP {
+	start := allocPool.ipv6Start
+	end := allocPool.ipv6End
 	if start == nil || end == nil {
 		return nil
 	}
 	tNow := time.Now()
 	leaseTime := time.Now().Add(-1 * time.Duration(base.GetCfg().IpLease) * time.Second)
 
-	cursor := pool.ipv6Cursor
+	cursor := allocPool.ipv6Cursor
 	if cursor.Cmp(start) < 0 || cursor.Cmp(end) > 0 {
 		cursor = new(big.Int).Set(start)
 	}
@@ -221,7 +227,7 @@ func loopIpV6(username, macAddr string, uniqueMac bool, pool *ipPoolConfig) net.
 		for cur.Cmp(hi) <= 0 {
 			ip := bigToIP(cur)
 			ipStr := ip.String()
-			// 内存去重（活跃连接）
+			// 内存去重（活跃连接，全局）
 			if _, ok := ipActive[ipStr]; ok {
 				cur.Add(cur, big.NewInt(1))
 				continue
@@ -235,22 +241,22 @@ func loopIpV6(username, macAddr string, uniqueMac bool, pool *ipPoolConfig) net.
 					continue
 				}
 				ipActive[ipStr] = true
-				pool.ipv6Cursor = new(big.Int).Add(cur, big.NewInt(1))
+				allocPool.ipv6Cursor = new(big.Int).Add(cur, big.NewInt(1))
 				return ip
 			} else if !dbdata.CheckErrNotFound(err) {
 				base.Error("查询 v6 ip_map 失败:", err)
 				return nil
 			}
-			// 空闲：写入本客户端的 ip_map 行（与 v4 同一行，按 mac_addr 定位，避免触发 mac_addr 唯一约束）
+			// 空闲：写入本客户端的 ip_map 行（与 v4 同一行，按 mac_addr+ip_group 定位）
 			row := &dbdata.IpMap{}
-			e2 := dbdata.One("mac_addr", macAddr, row)
+			e2 := dbdata.OneWhere("mac_addr=? AND ip_group=?", row, macAddr, groupPool.GroupName)
 			if e2 != nil && !dbdata.CheckErrNotFound(e2) {
 				base.Error("查询 v6 所属 ip_map 行失败:", e2)
 				return nil
 			}
 			if dbdata.CheckErrNotFound(e2) {
 				// 理论上 v4 先分配，此行已存在；此处防御性新建（IpAddr 留空，仅存 v6）
-				row = &dbdata.IpMap{IpAddr: "", MacAddr: macAddr, UniqueMac: uniqueMac, Username: username, LastLogin: tNow, IpAddr6: ipStr}
+				row = &dbdata.IpMap{IpAddr: "", MacAddr: macAddr, UniqueMac: uniqueMac, Username: username, LastLogin: tNow, IpAddr6: ipStr, Group: groupPool.GroupName}
 				if err := dbdata.Add(row); err != nil {
 					base.Error("IP池 v6 Add 失败:", err)
 				}
@@ -263,7 +269,7 @@ func loopIpV6(username, macAddr string, uniqueMac bool, pool *ipPoolConfig) net.
 				}
 			}
 			ipActive[ipStr] = true
-			pool.ipv6Cursor = new(big.Int).Add(cur, big.NewInt(1))
+			allocPool.ipv6Cursor = new(big.Int).Add(cur, big.NewInt(1))
 			return ip
 		}
 	}
@@ -333,9 +339,9 @@ func AcquireIpWithRange(username, macAddr string, uniqueMac bool, ipRange *ipPoo
 
 	// 获取到客户端 macAddr 的情况
 	if uniqueMac {
-		// 判断是否已经分配过
+		// 判断是否已经分配过（按 MAC + 组 定位，支持同 MAC 跨组多绑定）。
 		mi := &dbdata.IpMap{}
-		err = dbdata.One("mac_addr", macAddr, mi)
+		err = dbdata.OneWhere("mac_addr=? AND (ip_group=? OR ip_group='')", mi, macAddr, ipRange.GroupName)
 		if err != nil {
 			// 没有查询到数据
 			if dbdata.CheckErrNotFound(err) {
@@ -357,6 +363,7 @@ func AcquireIpWithRange(username, macAddr string, uniqueMac bool, ipRange *ipPoo
 			mi.Username = username
 			mi.LastLogin = tNow
 			mi.UniqueMac = uniqueMac
+			mi.Group = ipRange.GroupName
 			// 回写db数据
 			if err = dbdata.Set(mi); err != nil {
 				base.Error("IP池 Set 失败:", err)
@@ -372,16 +379,16 @@ func AcquireIpWithRange(username, macAddr string, uniqueMac bool, ipRange *ipPoo
 		}
 
 		// 删除当前macAddr
-		mi = &dbdata.IpMap{MacAddr: macAddr}
-		if err = dbdata.Del(mi); err != nil {
-			base.Error("IP池 Del 失败:", err)
+		if err = dbdata.Del(&dbdata.IpMap{Id: mi.Id}); err != nil {
+			base.Error("IP池 Del(过期绑定) 失败:", err)
+			return nil
 		}
 		return loopIp(username, macAddr, uniqueMac, ipRange)
 	}
 
-	// 没有获取到mac的情况
+	// 没有获取到mac的情况（按 用户名 + 组 定位）。
 	ipMaps := []dbdata.IpMap{}
-	err = dbdata.FindWhere(&ipMaps, 30, 1, "username=?", username)
+	err = dbdata.FindWhere(&ipMaps, 30, 1, "username=? AND (ip_group=? OR ip_group='')", username, ipRange.GroupName)
 	if err != nil {
 		// 没有查询到数据
 		if dbdata.CheckErrNotFound(err) {
@@ -397,8 +404,8 @@ func AcquireIpWithRange(username, macAddr string, uniqueMac bool, ipRange *ipPoo
 		ipStr := mi.IpAddr
 		ip := net.ParseIP(ipStr)
 
-		// 跳过活跃连接
-		if _, ok := ipActive[ipStr]; ok {
+		// 跳过活跃连接；若是同一设备（同 MAC）重连，则直接复用其地址，
+		if ok := ipActive[ipStr]; ok && mi.MacAddr != macAddr {
 			continue
 		}
 		// 跳过保留ip
@@ -415,7 +422,7 @@ func AcquireIpWithRange(username, macAddr string, uniqueMac bool, ipRange *ipPoo
 			mi.LastLogin = tNow
 			mi.MacAddr = macAddr
 			mi.UniqueMac = uniqueMac
-			// 回写db数据
+			mi.Group = ipRange.GroupName
 			if err = dbdata.Set(mi); err != nil {
 				base.Error("IP池 Set 失败:", err)
 			}
@@ -456,12 +463,16 @@ func loopIp(username, macAddr string, uniqueMac bool, ipRange *ipPoolConfig) net
 	ipRange.loopCurIp = ipRange.IpLongMin
 
 	if ipRange.loopFarIp.Id > 0 {
-		// 使用最早登陆的 ip
+		// 使用最早登陆的 ip（回收并重新分配给当前客户端）。
 		ipStr := ipRange.loopFarIp.IpAddr
 		ip = net.ParseIP(ipStr)
-		mi := &dbdata.IpMap{IpAddr: ipStr, MacAddr: macAddr, UniqueMac: uniqueMac, Username: username, LastLogin: time.Now()}
+		ipRange.loopFarIp.MacAddr = macAddr
+		ipRange.loopFarIp.UniqueMac = uniqueMac
+		ipRange.loopFarIp.Username = username
+		ipRange.loopFarIp.LastLogin = time.Now()
+		ipRange.loopFarIp.Group = ipRange.GroupName
 		// 回写db数据
-		if setErr := dbdata.Set(mi); setErr != nil {
+		if setErr := dbdata.Set(ipRange.loopFarIp); setErr != nil {
 			base.Error("IP池 Set(最早) 失败:", setErr)
 		}
 		ipActive[ipStr] = true
@@ -490,6 +501,11 @@ func loopLong(start, end uint32, username, macAddr string, uniqueMac bool, ipRan
 		ip := utils.Long2ip(i)
 		ipStr := ip.String()
 
+		// 跳过网关地址，避免下发给客户端造成地址冲突
+		if ipRange.Ipv4Gateway != nil && ip.Equal(ipRange.Ipv4Gateway) {
+			continue
+		}
+
 		// 跳过活跃连接
 		if _, ok := ipActive[ipStr]; ok {
 			continue
@@ -501,7 +517,7 @@ func loopLong(start, end uint32, username, macAddr string, uniqueMac bool, ipRan
 			// 没有查询到数据
 			if dbdata.CheckErrNotFound(err) {
 				// 该ip没有被使用
-				mi = &dbdata.IpMap{IpAddr: ipStr, MacAddr: macAddr, UniqueMac: uniqueMac, Username: username, LastLogin: tNow}
+				mi = &dbdata.IpMap{IpAddr: ipStr, MacAddr: macAddr, UniqueMac: uniqueMac, Username: username, LastLogin: tNow, Group: ipRange.GroupName}
 				if err = dbdata.Add(mi); err != nil {
 					base.Error("IP池 Add 失败:", err)
 				}
@@ -525,6 +541,7 @@ func loopLong(start, end uint32, username, macAddr string, uniqueMac bool, ipRan
 			mi.LastLogin = tNow
 			mi.MacAddr = macAddr
 			mi.UniqueMac = uniqueMac
+			mi.Group = ipRange.GroupName
 			// 回写db数据
 			if err = dbdata.Set(mi); err != nil {
 				base.Error("IP池 Set(租期) 失败:", err)
@@ -560,7 +577,7 @@ func ReleaseIp(ip net.IP, ip6 net.IP, macAddr string) {
 	if ip6 != nil {
 		delete(ipActive, ip6.String())
 		mi6 := &dbdata.IpMap{}
-		err6 := dbdata.One("mac_addr", macAddr, mi6)
+		err6 := dbdata.One("ip_addr6", ip6.String(), mi6)
 		if err6 == nil {
 			mi6.IpAddr6 = ""
 			mi6.LastLogin = time.Now()
