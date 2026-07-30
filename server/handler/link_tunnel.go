@@ -159,6 +159,10 @@ func LinkTunnel(w http.ResponseWriter, r *http.Request) {
 	// 允许本地LAN访问vpn网络，必须放在路由的第一个
 	if rp.AllowLan {
 		HttpSetHeader(w, "X-CSTP-Split-Exclude", "0.0.0.0/255.255.255.255")
+		// 双栈下同步排除本地 IPv6 局域网::/128
+		if cSess.IpAddr6 != nil {
+			HttpAddHeader(w, "X-CSTP-Split-Exclude-IP6", "::/128")
+		}
 	}
 	// dns地址：IPv4 走 X-CSTP-DNS，IPv6 走 X-CSTP-DNS-IP6
 	for _, v := range rp.ClientDns {
