@@ -196,11 +196,6 @@ func handleCertAutoAuth(w http.ResponseWriter, r *http.Request, cr *ClientReques
 		return false
 	}
 
-	// 客户端显式选择了其他组：不强行使用证书 OU 组，交由 handleInit 处理
-	if cr.GroupSelect != "" && cr.GroupSelect != groupname {
-		return false
-	}
-
 	if !authsrv.CertAutoAuth(groupname) {
 		return false
 	}

@@ -134,14 +134,10 @@ func WebAuthStart(w http.ResponseWriter, r *http.Request) {
 
 	// 证书自动识别组（从原始 AnyConnect 连接继承的证书信息）
 	certCN, certOU, certTLS := webAuthRecoverCert(pending)
-	clientGroup := pending.Ctx.Conn.GroupName
 
-	//  - 仅当客户端未显式选择其他组、且证书 OU 组可无交互自动认证时才尝试；
-	//  - 成功（通过或进入后续挑战）则继续；失败（如证书无效）不把用户强制留在证书组，
-	//    回退到组选择流程，让用户可切换组或重试。
+	// 回退到组选择流程，让用户可切换组或重试。
 	attemptCertAuto := certCN != "" && certOU != "" && certTLS != nil &&
-		authsrv.CertAutoAuth(certOU) &&
-		(clientGroup == "" || clientGroup == certOU)
+		authsrv.CertAutoAuth(certOU)
 
 	certErrMsg := ""
 	if attemptCertAuto {

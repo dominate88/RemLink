@@ -301,6 +301,11 @@ export default {
               // 关闭组过滤（默认）：直接展示全量启用组，保持旧模式。
               this.groups = data.groups || []
               this.step = 'select_group'
+              // 只有一个组时无需人工选择，直接提交
+              if (this.groups.length === 1) {
+                this.selectedGroup = this.groups[0]
+                this.submitGroup()
+              }
             }
             return
           case 'identify':
