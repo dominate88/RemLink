@@ -40,10 +40,15 @@ func UnlockUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	lm := auth.GetLockManager()
-	if req.Username != "" {
+	switch {
+	case req.Username != "" && req.IP != "":
+		// 单用户IP锁定
+		lm.UnlockUserIP(req.Username, req.IP)
+	case req.Username != "":
+		// 全局用户锁定：解该用户的所有锁定
 		lm.UnlockUser(req.Username)
-	}
-	if req.IP != "" {
+	case req.IP != "":
+		// 全局IP锁定：解该 IP 的所有锁定
 		lm.UnlockIP(req.IP)
 	}
 

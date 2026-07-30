@@ -20,7 +20,22 @@
           <img v-else :src="baseUrl + (isDark ? 'logo-dark' : 'logo') + '.svg'" class="brand-logo-img" alt="logo" />
         </div>
         <h1 class="brand-name">{{ brand.title || 'RemLink' }}</h1>
-        <p class="brand-desc">{{ brand.desc || '企业级安全远程接入网关注证认证' }}</p>
+        <p class="brand-desc">{{ brand.desc || '企业级安全远程接入网关认证' }}</p>
+      </div>
+
+      <!-- 步骤-1：输入用户名以过滤组 -->
+      <div v-show="step === 'identify'" class="step-body">
+        <p class="step-desc">请输入用户名以加载您可接入的用户组</p>
+        <el-form :model="identifyForm" class="auth-form" @submit.native.prevent>
+          <el-form-item>
+            <el-input v-model="identifyForm.username" placeholder="用户名" prefix-icon="el-icon-user-solid"
+              @keydown.enter.native.prevent="submitIdentify" />
+          </el-form-item>
+        </el-form>
+        <div class="step-actions">
+          <el-button type="primary" :loading="loading" :disabled="!identifyForm.username" @click="submitIdentify"
+            class="btn-full" native-type="button">继续</el-button>
+        </div>
       </div>
 
       <!-- 步骤0：组选择 -->
@@ -151,8 +166,8 @@
         </div>
         <el-form :model="changePwdForm" class="auth-form" @submit.native.prevent>
           <el-form-item>
-            <el-input v-model="changePwdForm.new_password" type="password" placeholder="新密码"
-              prefix-icon="el-icon-lock" show-password @keydown.enter.native.prevent="submitChangePwd" />
+            <el-input v-model="changePwdForm.new_password" type="password" placeholder="新密码" prefix-icon="el-icon-lock"
+              show-password @keydown.enter.native.prevent="submitChangePwd" />
           </el-form-item>
           <el-form-item>
             <el-input v-model="changePwdForm.confirm_password" type="password" placeholder="确认新密码"
@@ -207,7 +222,9 @@ export default {
       brand: { title: "", logo: "" },
       state: '',
       groups: [],
+      fallbackGroups: [],
       selectedGroup: '',
+      identifyForm: { username: '' },
       hint: '',
       challengeMsg: '',
       usernameField: '',
@@ -276,11 +293,18 @@ export default {
         this.loadingText = ''
         switch (data.status) {
           case 'select_group':
-            this.groups = data.groups || []
-            if (this.groups.length === 1) {
-              this.selectedGroup = this.groups[0]
-              this.submitGroup()
+            if (data.require_identify) {
+              // 开启组过滤：先收集用户名，再按权限过滤组清单
+              this.fallbackGroups = data.groups || []
+              this.step = 'identify'
+            } else {
+              // 关闭组过滤（默认）：直接展示全量启用组，保持旧模式。
+              this.groups = data.groups || []
+              this.step = 'select_group'
             }
+            return
+          case 'identify':
+            this.step = 'identify'
             return
           case 'credentials':
             this.enterCredentials(data)
@@ -536,6 +560,38 @@ export default {
     },
     goPortal() {
       window.location.href = this.portalUrl
+    },
+    async submitIdentify() {
+      if (!this.identifyForm.username || this.loading) return
+      this.loading = true
+      this.error = ''
+      try {
+        const { data } = await axios.post(this.apiPath('identify'), {
+          username: this.identifyForm.username,
+        }, { withCredentials: false })
+        this.loading = false
+        if (data.status === 'select_group') {
+          this.groups = data.groups || []
+          this.step = 'select_group'
+          if (this.groups.length === 1) {
+            this.selectedGroup = this.groups[0]
+            this.submitGroup()
+          }
+        } else if (data.status === 'error') {
+          this.error = data.message || '加载组失败'
+        } else {
+          this.error = data.message || '未知响应'
+        }
+      } catch (e) {
+        // 旧版服务端无 /web-auth/identify：回退展示 /web-auth/start 返回的全量组
+        this.loading = false
+        if (this.fallbackGroups && this.fallbackGroups.length) {
+          this.groups = this.fallbackGroups
+          this.step = 'select_group'
+        } else {
+          this.error = '请求失败，请重试'
+        }
+      }
     },
     groupIcon(idx) {
       const icons = ['el-icon-s-grid', 'el-icon-s-platform', 'el-icon-s-cooperation', 'el-icon-s-order', 'el-icon-s-flag']

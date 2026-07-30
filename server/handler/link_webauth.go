@@ -168,6 +168,11 @@ func WebAuthStart(w http.ResponseWriter, r *http.Request) {
 	if certErrMsg != "" {
 		resp["message"] = certErrMsg
 	}
+	// 开启组过滤开关时，先要求输入用户名，再按所属组过滤可选组清单
+	// 关闭（默认）则直接展示全部启用组
+	if base.GetCfg().EnableWebAuthGroupFilter {
+		resp["require_identify"] = true
+	}
 	webAuthJSON(w, http.StatusOK, resp)
 }
 
@@ -272,10 +277,91 @@ func WebAuthSelectGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 其他认证方式：返回凭据输入界面
-	webAuthJSON(w, http.StatusOK, map[string]any{
+	// 其他认证方式：返回凭据输入界面（预填已识别的用户名，避免重复输入）
+	resp := map[string]any{
 		"status": "credentials",
 		"hint":   "请输入登录凭据",
+	}
+	if pending.Ctx.Conn.Username != "" {
+		resp["username"] = pending.Ctx.Conn.Username
+	}
+	webAuthJSON(w, http.StatusOK, resp)
+}
+
+// 返回该用户可见的启用组（status=1）：以用户所属组与全部启用组求交集。
+// 调用方需先确认用户存在、已启用（Status==1）且已分配组（否则在 WebAuthIdentify 中已拦截）。
+func filterGroupsByUser(rawGroups []string, user *dbdata.User) []string {
+	allowed := make(map[string]struct{}, len(user.Groups))
+	for _, g := range user.Groups {
+		allowed[g] = struct{}{}
+	}
+	var filtered []string
+	for _, g := range rawGroups {
+		if _, ok := allowed[g]; ok {
+			filtered = append(filtered, g)
+		}
+	}
+	if len(filtered) == 0 {
+		return []string{}
+	}
+	return filtered
+}
+
+// 在选组前先收集用户名，按 User.Groups 过滤后返回可选组列表。仅支持「本地用户认证」
+func WebAuthIdentify(w http.ResponseWriter, r *http.Request) {
+	state := r.URL.Query().Get("state")
+	if state == "" {
+		webAuthError(w, "缺少认证参数")
+		return
+	}
+	pending, err := GetAuthSession(state)
+	if err != nil {
+		webAuthError(w, "认证会话已过期")
+		return
+	}
+
+	var req struct {
+		Username string `json:"username"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Username == "" {
+		webAuthError(w, "请输入用户名")
+		return
+	}
+
+	// 防暴力/枚举：单 IP 高频探查多用户名可形成枚举攻击
+	if !lockManager.Check(req.Username, r.RemoteAddr) {
+		webAuthError(w, "操作过于频繁，请稍后重试")
+		return
+	}
+	// 任何「已拿到有效用户名」的 identify 请求都累加 IP 计数
+	// decode 失败 / session 过期等前置错误不累加。
+	defer lockManager.Fail(req.Username, r.RemoteAddr)
+
+	// 仅支持本地用户认证：用户名必须存在于本地 User 表，否则直接报错、不返回任何组。
+	user := &dbdata.User{}
+	if err := dbdata.One("Username", req.Username, user); err != nil {
+		webAuthError(w, "用户不存在")
+		return
+	}
+	if user.Status != 1 {
+		webAuthError(w, "用户已被禁用")
+		return
+	}
+	if len(user.Groups) == 0 {
+		webAuthError(w, "该用户未分配用户组")
+		return
+	}
+
+	// 记住用户名到会话：后续选组/凭据步骤据此预填，避免用户重复输入。
+	pending.Ctx.Conn.Username = req.Username
+	pending.UserActLog.Username = req.Username
+	SaveAuthSession(state, pending)
+
+	groups := filterGroupsByUser(dbdata.GetGroupNamesNormal(), user)
+	webAuthJSON(w, http.StatusOK, map[string]any{
+		"status": "select_group",
+		"groups": groups,
 	})
 }
 

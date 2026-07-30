@@ -45,6 +45,7 @@ type LockManager struct {
 	cleanupTicker *time.Ticker
 	cleanupDone   chan struct{}
 	cleanupOnce   sync.Once
+	warnLimiter   *WarnLimiter
 }
 
 type ipListItem struct {
@@ -65,6 +66,7 @@ func GetLockManager() *LockManager {
 			userLocks:   make(map[string]*LockState),
 			ipUserLocks: make(map[string]map[string]*LockState),
 			ipLists:     make(map[IPListType][]ipListItem),
+			warnLimiter: newWarnLimiter(warnLogInterval),
 		}
 	})
 	return lm
@@ -72,6 +74,52 @@ func GetLockManager() *LockManager {
 
 // defaultExpireTime 默认锁定过期时间（秒）
 const defaultExpireTime = 3600
+
+// 锁定模块内部告警日志的限频窗口：同一 key 在该窗口内最多输出一次
+const warnLogInterval = 60 * time.Second
+
+// 日志限频 key 前缀。仅作为 WarnLimiter 内部 map 的命名空间，用于区分不同类别的告警
+// 需保证不同类别之间保持彼此不同（否则会共享同一个限流窗口）。
+const (
+	warnKeyExtractIP  = "extract_ip:"
+	warnKeyBlacklist  = "blacklist:"
+	warnKeyGlobalIP   = "giplock:"
+	warnKeyGlobalUser = "guplock:"
+	warnKeyUserIP     = "uiplock:"
+)
+
+// 按 key 对日志做限频，避免暴力破解等高频场景下日志被刷爆。
+type WarnLimiter struct {
+	mu       sync.Mutex
+	last     map[string]time.Time
+	interval time.Duration
+}
+
+func newWarnLimiter(interval time.Duration) *WarnLimiter {
+	return &WarnLimiter{last: make(map[string]time.Time), interval: interval}
+}
+
+// 返回 true 表示本次允许输出日志（并刷新时间戳）。
+func (t *WarnLimiter) allow(key string, now time.Time) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if lt, ok := t.last[key]; ok && now.Sub(lt) < t.interval {
+		return false
+	}
+	t.last[key] = now
+	return true
+}
+
+// 清除超过 interval 的历史时间戳，防止 last 随不同 key 无限增长。
+func (t *WarnLimiter) clear(now time.Time) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for k, v := range t.last {
+		if now.Sub(v) >= t.interval {
+			delete(t.last, k)
+		}
+	}
+}
 
 // 初始化并启动清理协程（服务启动时调用一次）
 func (m *LockManager) Init() {
@@ -112,11 +160,18 @@ func (m *LockManager) LoadIPList(listType IPListType, config string) {
 	}
 }
 
+// 限频后输出日志：同一 key 在 warnLogInterval 内仅放行一次
+func (m *LockManager) warnRateLimited(key string, fn func()) {
+	if m.warnLimiter.allow(key, time.Now()) {
+		fn()
+	}
+}
+
 // 检查用户名和 IP 是否被锁定。返回 true 允许继续。
 func (m *LockManager) Check(username, ipaddr string) bool {
 	ip, _, err := net.SplitHostPort(ipaddr)
 	if err != nil {
-		base.Error("提取 IP 地址失败，拒绝访问:", ipaddr)
+		m.warnRateLimited(warnKeyExtractIP+ipaddr, func() { base.Error("提取 IP 地址失败，拒绝访问:", ipaddr) })
 		return false
 	}
 
@@ -124,7 +179,7 @@ func (m *LockManager) Check(username, ipaddr string) bool {
 		return true
 	}
 	if m.InList(ip, IPBlackList) {
-		base.Warn("IP", ip, "在黑名单中，拒绝访问")
+		m.warnRateLimited(warnKeyBlacklist+ip, func() { base.Warn("IP", ip, "在黑名单中，拒绝访问") })
 		return false
 	}
 
@@ -138,15 +193,15 @@ func (m *LockManager) Check(username, ipaddr string) bool {
 
 	cfg := base.GetCfg()
 	if cfg.MaxGlobalIPBanCount > 0 && m.isIPLocked(ip, now) {
-		base.Warn("IP", ip, "全局锁定")
+		m.warnRateLimited(warnKeyGlobalIP+ip, func() { base.Warn("IP", ip, "全局锁定") })
 		return false
 	}
 	if username != "" && cfg.MaxGlobalUserBanCount > 0 && m.isUserLocked(username, now) {
-		base.Warn("用户", username, "全局锁定")
+		m.warnRateLimited(warnKeyGlobalUser+username, func() { base.Warn("用户", username, "全局锁定") })
 		return false
 	}
 	if username != "" && cfg.MaxBanCount > 0 && m.isUserIPLocked(username, ip, now) {
-		base.Warn("IP", ip, "对用户", username, "已锁定")
+		m.warnRateLimited(warnKeyUserIP+ip+":"+username, func() { base.Warn("IP", ip, "对用户", username, "已锁定") })
 		return false
 	}
 	return true
@@ -167,12 +222,9 @@ func (m *LockManager) UnlockUser(username string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.userLocks, username)
-	for _, users := range m.ipUserLocks {
-		delete(users, username)
-	}
 }
 
-// 手动解锁 IP
+// 手动解锁 IP（仅解「全局IP锁定」）
 func (m *LockManager) UnlockIP(ipaddr string) {
 	host, _, _ := net.SplitHostPort(ipaddr)
 	if host == "" {
@@ -181,7 +233,22 @@ func (m *LockManager) UnlockIP(ipaddr string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.ipLocks, host)
-	delete(m.ipUserLocks, host)
+}
+
+// 手动解锁指定用户在指定 IP 上的锁定（单用户IP锁定），
+func (m *LockManager) UnlockUserIP(username, ipaddr string) {
+	host, _, _ := net.SplitHostPort(ipaddr)
+	if host == "" {
+		host = ipaddr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if um, ok := m.ipUserLocks[host]; ok {
+		delete(um, username)
+		if len(um) == 0 {
+			delete(m.ipUserLocks, host)
+		}
+	}
 }
 
 // 返回所有锁定状态（供管理后台查询）
@@ -249,7 +316,7 @@ func (m *LockManager) InList(ip string, listType IPListType) bool {
 func (m *LockManager) update(username, ipaddr string, success bool) {
 	ip, _, err := net.SplitHostPort(ipaddr)
 	if err != nil {
-		base.Error("提取 IP 地址失败:", ipaddr)
+		m.warnRateLimited(warnKeyExtractIP+ipaddr, func() { base.Error("提取 IP 地址失败:", ipaddr) })
 		return
 	}
 
@@ -427,4 +494,6 @@ func (m *LockManager) cleanup() {
 			delete(m.ipUserLocks, ip)
 		}
 	}
+	// 回收日志限频表，防止不同 key 持续累积导致内存增长
+	m.warnLimiter.clear(now)
 }

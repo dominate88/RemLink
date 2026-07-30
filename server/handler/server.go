@@ -139,6 +139,7 @@ func initRoute() http.Handler {
 	r.HandleFunc("/portal/api/devices/offline", PortalDeviceOffline).Methods(http.MethodPost)
 	// WebAuth 端点
 	r.HandleFunc("/web-auth/start", WebAuthStart).Methods(http.MethodGet)
+	r.HandleFunc("/web-auth/identify", WebAuthIdentify).Methods(http.MethodPost)
 	r.HandleFunc("/web-auth/groups", WebAuthSelectGroup).Methods(http.MethodPost)
 	r.HandleFunc("/web-auth/step", WebAuthStep).Methods(http.MethodPost)
 	r.HandleFunc("/web-auth/sms/resend", WebAuthSmsResend).Methods(http.MethodPost)
