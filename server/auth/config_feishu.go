@@ -16,7 +16,8 @@ type FeishuConfig struct {
 	AppSecret          string `json:"app_secret"`
 	UseDefaultBrowser  bool   `json:"use_default_browser"`
 	AllowedDepartments string `json:"allowed_departments"`
-	SyncUsers          bool   `json:"sync_users"` // 定时自动同步用户
+	BlockedUserIDs     string `json:"blocked_userids"` // 拒绝的用户 ID 列表，逗号分隔
+	SyncUsers          bool   `json:"sync_users"`       // 定时自动同步用户
 }
 
 func (c *FeishuConfig) ValidateConfig() error {
@@ -54,6 +55,30 @@ func (c *FeishuConfig) ParseDepartments() []string {
 		}
 	}
 	return depts
+}
+
+// 解析拒绝的用户 ID 列表
+func (c *FeishuConfig) ParseBlockedUserIDs() []string {
+	if c.BlockedUserIDs == "" {
+		return nil
+	}
+	var ids []string
+	parts := strings.SplitSeq(c.BlockedUserIDs, ",")
+	for part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			ids = append(ids, part)
+		}
+	}
+	return ids
+}
+
+// CheckUserID 校验用户是否在拒绝名单中
+func (c *FeishuConfig) CheckUserID(userID string, blockedIDs []string) error {
+	if slices.Contains(blockedIDs, userID) {
+		return fmt.Errorf("%s 在拒绝的用户列表中", userID)
+	}
+	return nil
 }
 
 type FeishuTokenResponse struct {

@@ -169,8 +169,9 @@ var stepNameMap = map[string]string{
 	"cert":   "证书",
 	"otp":    "OTP",
 	"sms":    "短信验证",
-	"wxwork": "企业微信",
+	"wxwork": "企微",
 	"feishu": "飞书",
+	"dingtalk": "钉钉",
 	"admin":  "管理员认证",
 }
 

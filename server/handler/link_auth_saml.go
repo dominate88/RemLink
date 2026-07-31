@@ -78,6 +78,25 @@ func SAMLSPLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if ssotype == "dingtalk" {
+		if !dbdata.HasAuthType(groupData.AuthProfile, "dingtalk") {
+			base.Error("组未配置钉钉认证:", tgname)
+			http.Error(w, "组未配置钉钉认证", http.StatusBadRequest)
+			return
+		}
+		dingtalkConfig, err := dbdata.GetAuthDingtalk(tgname)
+		if err != nil {
+			base.Error("获取钉钉配置失败", err)
+			http.Error(w, "获取钉钉配置失败", http.StatusInternalServerError)
+			return
+		}
+		startSSO(w, r, tgname, "dingtalk", "DingtalkAuth", func(redirectUri, state string) string {
+			return fmt.Sprintf("https://login.dingtalk.com/oauth2/auth?redirect_uri=%s&response_type=code&client_id=%s&state=%s&scope=openid",
+				url.QueryEscape(redirectUri), dingtalkConfig.ClientID, url.QueryEscape(state))
+		})
+		return
+	}
+
 	// 默认企微
 	if !dbdata.HasAuthType(groupData.AuthProfile, "wxwork") {
 		base.Error("组未配置企微认证:", tgname)
@@ -365,6 +384,14 @@ func FeishuAuthCallback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// 拒绝名单：在回调阶段完成校验，避免后续管道绕过
+	blockedUserIDs := feishuConfig.ParseBlockedUserIDs()
+	if len(blockedUserIDs) > 0 && feishuConfig.CheckUserID(userID, blockedUserIDs) != nil {
+		base.Error("用户在拒绝名单中:", userID)
+		SAMLError(w, fmt.Errorf("用户已被拒绝登录"))
+		return
+	}
+
 	// 创建完整 SSO 会话（覆盖 pending 状态）
 	if portalSSOLogin(w, r, pending, "feishu", userID) {
 		return
@@ -390,7 +417,111 @@ func FeishuAuthCallback(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/+CSCOE+/saml_ac_login.html", http.StatusFound)
 }
 
-// SAML 认证失败页面
+// DingtalkAuthCallback 钉钉 OAuth 扫码登录回调。
+// 与 WXAuthCallback / FeishuAuthCallback 对称：在回调阶段完成部门过滤与用户ID拒绝清单校验。
+func DingtalkAuthCallback(w http.ResponseWriter, r *http.Request) {
+	code := r.URL.Query().Get("code")
+	state := r.URL.Query().Get("state")
+
+	if code == "" || state == "" {
+		base.Error("钉钉认证回调缺少参数")
+		http.Error(w, "缺少认证参数", http.StatusBadRequest)
+		return
+	}
+
+	// 校验 state 是否由本服务签发
+	pending, err := GetAuthSession(state)
+	if err != nil {
+		base.Error("非法的 SSO state:", state[:min(16, len(state))], ", err:", err)
+		SAMLError(w, fmt.Errorf("认证会话已过期或无效"))
+		return
+	}
+	// 已被标记为已认证的 state 说明此前使用过，拒绝重放
+	if pending.Ctx.SSO == nil || pending.Ctx.SSO.Authenticated {
+		base.Error("SSO state 已被消费（疑似重放）:", state[:min(16, len(state))])
+		SAMLError(w, fmt.Errorf("认证会话已过期或无效"))
+		return
+	}
+	// 发起登录与回调须来自同一客户端 IP，否则拒绝冒用
+	if pending.Ctx.SSO.ClientIP != "" {
+		want, _, _ := net.SplitHostPort(pending.Ctx.SSO.ClientIP)
+		got, _, _ := net.SplitHostPort(r.RemoteAddr)
+		if want != "" && got != "" && want != got {
+			base.Error("SSO state 来源 IP 不匹配:", want, got)
+			SAMLError(w, fmt.Errorf("认证会话来源异常"))
+			return
+		}
+	}
+	// 避免同一 state 被重复使用
+	SessStore.Delete(state)
+	groupname := pending.Ctx.Conn.GroupName
+	if groupname == "" {
+		base.Error("SSO pending 会话缺少组名")
+		SAMLError(w, fmt.Errorf("认证会话数据异常"))
+		return
+	}
+
+	dingtalkConfig, err := dbdata.GetAuthDingtalk(groupname)
+	if err != nil {
+		base.Error("获取钉钉配置失败", err)
+		SAMLError(w, err)
+		return
+	}
+
+	userID, accessToken, err := dingtalkConfig.GetDingtalkUser(code)
+	if err != nil {
+		base.Error("钉钉用户信息获取失败", err)
+		SAMLError(w, err)
+		return
+	}
+
+	// 部门过滤：在回调阶段完成校验，避免后续管道绕过
+	allowedDepts := dingtalkConfig.ParseDepartments()
+	if len(allowedDepts) > 0 {
+		ok, err := dingtalkConfig.CheckUserDepartment(accessToken, userID, allowedDepts)
+		if err != nil {
+			base.Error("验证部门失败", err)
+			SAMLError(w, err)
+			return
+		}
+		if !ok {
+			base.Error("用户不在允许的部门范围内:", userID)
+			SAMLError(w, fmt.Errorf("用户不在允许的部门范围内"))
+			return
+		}
+	}
+
+	// 用户ID拒绝清单：在回调阶段完成校验，避免后续管道绕过
+	if err := dingtalkConfig.CheckUserID(userID, dingtalkConfig.ParseBlockedUserIDs()); err != nil {
+		base.Error("用户在被拒绝的用户ID列表中:", userID)
+		SAMLError(w, err)
+		return
+	}
+
+	// 创建完整 SSO 会话（覆盖 pending 状态）
+	if portalSSOLogin(w, r, pending, "dingtalk", userID) {
+		return
+	}
+
+	// 创建完整 SSO 会话（覆盖 pending 状态）
+	samlSession := &AuthSession{
+		Ctx: &auth.Context{
+			Conn: auth.ConnInfo{GroupName: groupname, Username: userID},
+			SSO: &auth.SSOState{
+				Type:          "dingtalk",
+				Authenticated: true,
+				UserID:        userID,
+			},
+		},
+	}
+	SaveAuthSession(state, samlSession)
+
+	// 设置 Cookie（Base64 编码 state）
+	encodeState := base64.StdEncoding.EncodeToString([]byte(state))
+	SetCookie(w, "acSamlv2Token", encodeState, 0)
+
+	http.Redirect(w, r, "/+CSCOE+/saml_ac_login.html", http.StatusFound)
+}
 func SAMLError(w http.ResponseWriter, err error) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusForbidden)

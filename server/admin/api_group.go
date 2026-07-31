@@ -318,7 +318,7 @@ func ProviderSyncUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if p.Type != "ldap" && p.Type != "wxwork" && p.Type != "feishu" {
-		RespError(w, RespParamErr, "仅支持 LDAP/企业微信/飞书 类型的同步用户")
+		RespError(w, RespParamErr, "仅支持 LDAP/企微/飞书 类型的同步用户")
 		return
 	}
 

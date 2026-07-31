@@ -238,7 +238,7 @@ func SetGroup(g *Group) error {
 			return fmt.Errorf("未知的认证方式 %q (步骤 %d)", step.Type, i+1)
 		}
 		switch step.Type {
-		case "ldap", "radius", "wxwork", "feishu":
+		case "ldap", "radius", "wxwork", "feishu", "dingtalk":
 			if step.Provider == "" {
 				return fmt.Errorf("认证类型 %q 必须设置 Provider (步骤 %d)", step.Type, i+1)
 			}
@@ -373,8 +373,7 @@ func GroupUsesProvider(g *Group, providerName string) bool {
 	return false
 }
 
-// SyncExternalUsersForOTP 组配置了外部认证 + OTP 时自动同步用户到本地。
-// LDAP/企微等有用户目录的外部 IdP，在管线要求 OTP 时必须先把用户同步到本地生成秘钥。
+// 组配置了外部认证 + OTP 时自动同步用户到本地。
 func SyncExternalUsersForOTP(g *Group) {
 	if !HasAuthType(g.AuthProfile, "otp") {
 		return
@@ -421,6 +420,21 @@ func SyncExternalUsersForOTP(g *Group) {
 					base.Error("飞书用户同步失败:", g.Name, err)
 				} else {
 					base.Info("飞书用户同步成功:", g.Name)
+				}
+			}()
+		}
+	}
+
+	if HasAuthType(g.AuthProfile, "dingtalk") {
+		authDt, err := ResolveDingtalkConfig(g)
+		if err != nil {
+			base.Error("解析钉钉配置失败:", err)
+		} else {
+			go func() {
+				if err := authDt.SaveUsers(g); err != nil {
+					base.Error("钉钉用户同步失败:", g.Name, err)
+				} else {
+					base.Info("钉钉用户同步成功:", g.Name)
 				}
 			}()
 		}

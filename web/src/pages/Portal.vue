@@ -208,14 +208,18 @@
 
         <div v-if="loginMode === 'login' && hasSso" class="sso-section">
           <div class="sso-divider"><span>第三方登录</span></div>
-          <div class="sso-buttons">
+          <div class="sso-buttons" :class="'sso-count-' + ssoCount">
             <el-button v-if="brand.sso_types && brand.sso_types.includes('wxwork')" class="sso-btn sso-wxwork"
               @click="startSSO('wxwork')">
-              <i class="el-icon-s-platform"></i> 企业微信
+              <i class="el-icon-s-platform"></i> 企微
             </el-button>
             <el-button v-if="brand.sso_types && brand.sso_types.includes('feishu')" class="sso-btn sso-feishu"
               @click="startSSO('feishu')">
               <i class="el-icon-s-cooperation"></i> 飞书
+            </el-button>
+            <el-button v-if="brand.sso_types && brand.sso_types.includes('dingtalk')" class="sso-btn sso-dingtalk"
+              @click="startSSO('dingtalk')">
+              <i class="el-icon-s-grid"></i> 钉钉
             </el-button>
           </div>
         </div>
@@ -759,7 +763,7 @@ export default {
       return this.otpStep === "password" ? "重新绑定 OTP" : "OTP 密钥"
     },
     typeLabel() {
-      const m = { local: "本地用户", ldap: "LDAP 用户", radius: "RADIUS 用户", wxwork: "企业微信用户", feishu: "飞书用户", external: "外部用户" }
+      const m = { local: "本地用户", ldap: "LDAP 用户", radius: "RADIUS 用户", wxwork: "企微用户", feishu: "飞书用户", dingtalk: "钉钉用户", external: "外部用户" }
       return m[this.user.type] || this.user.type || "本地用户"
     },
     statusLabel() {
@@ -808,7 +812,11 @@ export default {
     },
     hasSso() {
       const t = this.brand.sso_types || []
-      return t.includes("wxwork") || t.includes("feishu")
+      return t.includes("wxwork") || t.includes("feishu") || t.includes("dingtalk")
+    },
+    ssoCount() {
+      const t = this.brand.sso_types || []
+      return ["wxwork", "feishu", "dingtalk"].filter((v) => t.includes(v)).length
     },
     showFeatures() {
       return this.brand.features_enabled !== 2
@@ -1982,6 +1990,27 @@ export default {
   gap: 10px;
 }
 
+.sso-count-1 {
+  grid-template-columns: 1fr;
+  justify-items: center;
+}
+
+.sso-count-1 .sso-btn {
+  width: 100%;
+  max-width: 280px;
+}
+
+.sso-count-3 {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.sso-count-3 .sso-btn {
+  padding-left: 8px;
+  padding-right: 8px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
 .sso-btn {
   margin-left: 0 !important;
   border-radius: 6px;
@@ -2010,6 +2039,16 @@ export default {
 .sso-feishu:hover {
   background: var(--color-primary-bg);
   border-color: #3370ff;
+}
+
+.sso-dingtalk {
+  color: #ff6a00;
+  border-color: #ffcfb0;
+}
+
+.sso-dingtalk:hover {
+  background: #fff3eb;
+  border-color: #ff6a00;
 }
 
 /* 门户首页 */

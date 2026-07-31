@@ -99,8 +99,9 @@
               @change="onTypeChange">
               <el-option label="LDAP" value="ldap"></el-option>
               <el-option label="RADIUS" value="radius"></el-option>
-              <el-option label="企业微信" value="wxwork"></el-option>
+              <el-option label="企微" value="wxwork"></el-option>
               <el-option label="飞书" value="feishu"></el-option>
+              <el-option label="钉钉" value="dingtalk"></el-option>
             </el-select>
           </el-form-item>
         </div>
@@ -118,23 +119,44 @@
           <!-- LDAP -->
           <template v-if="ruleForm.type === 'ldap'">
             <div class="section-title"><i class="el-icon-connection"></i> LDAP 连接参数</div>
-            <el-row :gutter="16">
-              <el-col :span="15">
-                <el-form-item label="服务器地址">
-                  <el-input v-model="configForm.addr" placeholder="如 192.168.1.10:389"></el-input>
-                </el-form-item>
-              </el-col>
-              <el-col :span="4">
-                <el-form-item label="TLS" label-width="50px">
-                  <el-switch v-model="configForm.tls"></el-switch>
+            <el-form-item label="服务器地址">
+              <el-input v-model="configForm.addr" placeholder="如 192.168.1.10:389"></el-input>
+            </el-form-item>
+            <el-row type="flex" justify="start" :gutter="24" class="switch-row">
+              <el-col :span="5">
+                <el-form-item class="inline-switch-item" label-width="64px">
+                  <template slot="label">
+                    TLS
+                    <el-tooltip
+                      content="在明文 LDAP 连接上启动 StartTLS 加密升级（如 OpenLDAP / 旧版 AD 的 389 端口）。Windows Server 2025 的 AD 已不支持此方式，需改用 LDAPS"
+                      placement="top">
+                      <i class="el-icon-question help-icon"></i>
+                    </el-tooltip>
+                  </template>
+                  <el-switch v-model="configForm.tls" @change="onTlsChange"></el-switch>
                 </el-form-item>
               </el-col>
               <el-col :span="5">
-                <el-form-item label="校验证书" label-width="70px">
+                <el-form-item class="inline-switch-item" label-width="74px">
+                  <template slot="label">
+                    LDAPS
+                    <el-tooltip content="直连 TLS（如 AD 的 636 端口）。Windows Server 2025 的 AD 已移除 StartTLS，必须开启此项；端口按实际填写"
+                      placement="top">
+                      <i class="el-icon-question help-icon"></i>
+                    </el-tooltip>
+                  </template>
+                  <el-switch v-model="configForm.ldaps" @change="onLdapsChange"></el-switch>
+                </el-form-item>
+              </el-col>
+              <el-col :span="6">
+                <el-form-item class="inline-switch-item" label-width="92px">
+                  <template slot="label">
+                    校验证书
+                    <el-tooltip content="开启后校验服务端证书（防中间人）；自签证书须先在系统部署 CA，默认关闭=兼容自签证书" placement="top">
+                      <i class="el-icon-question help-icon"></i>
+                    </el-tooltip>
+                  </template>
                   <el-switch v-model="configForm.tls_verify"></el-switch>
-                  <el-tooltip content="开启后校验 LDAP StartTLS 服务端证书（防中间人）；自签证书须先在系统部署 CA，默认关闭=兼容自签证书" placement="top">
-                    <i class="el-icon-question help-icon"></i>
-                  </el-tooltip>
                 </el-form-item>
               </el-col>
             </el-row>
@@ -178,17 +200,6 @@
                   <el-input v-model="configForm.member_of" placeholder="选填"></el-input>
                 </el-form-item>
               </el-col>
-              <el-col :span="12">
-                <el-form-item>
-                  <template slot="label">
-                    状态过滤
-                    <el-tooltip content="开启后仅同步状态正常的用户" placement="top">
-                      <i class="el-icon-question help-icon"></i>
-                    </el-tooltip>
-                  </template>
-                  <el-switch v-model="configForm.sync_user_status"></el-switch>
-                </el-form-item>
-              </el-col>
             </el-row>
             <div class="section-title"><i class="el-icon-mobile-phone"></i> OTP 动态验证</div>
             <el-form-item>
@@ -201,15 +212,30 @@
               <el-switch v-model="configForm.enable_otp"></el-switch>
             </el-form-item>
             <div class="section-title"><i class="el-icon-refresh"></i> 用户同步</div>
-            <el-form-item>
-              <template slot="label">
-                自动同步用户
-                <el-tooltip content="开启后定时从本 LDAP 认证源同步用户到本地" placement="top">
-                  <i class="el-icon-question help-icon"></i>
-                </el-tooltip>
-              </template>
-              <el-switch v-model="configForm.sync_users"></el-switch>
-            </el-form-item>
+            <el-row :gutter="16">
+              <el-col :span="12">
+                <el-form-item>
+                  <template slot="label">
+                    自动同步用户
+                    <el-tooltip content="开启后定时从本 LDAP 认证源同步用户到本地" placement="top">
+                      <i class="el-icon-question help-icon"></i>
+                    </el-tooltip>
+                  </template>
+                  <el-switch v-model="configForm.sync_users"></el-switch>
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item>
+                  <template slot="label">
+                    状态过滤
+                    <el-tooltip content="开启后仅同步状态正常的用户" placement="top">
+                      <i class="el-icon-question help-icon"></i>
+                    </el-tooltip>
+                  </template>
+                  <el-switch v-model="configForm.sync_user_status"></el-switch>
+                </el-form-item>
+              </el-col>
+            </el-row>
           </template>
 
           <!-- RADIUS -->
@@ -271,11 +297,81 @@
                 </el-form-item>
               </el-col>
             </el-row>
+            <el-form-item prop="blocked_userids">
+              <template slot="label">拒绝的用户
+                <el-tooltip content="填写后，列表中的用户即使通过部门限制也会被拒绝登录" placement="top">
+                  <i class="el-icon-question"></i>
+                </el-tooltip>
+              </template>
+              <el-input v-model="configForm.blocked_userids" placeholder="逗号分隔，留空不限制"></el-input>
+            </el-form-item>
             <div class="section-title"><i class="el-icon-refresh"></i> 用户同步</div>
             <el-form-item>
               <template slot="label">
                 自动同步用户
                 <el-tooltip content="开启后定时从本飞书认证源同步用户到本地" placement="top">
+                  <i class="el-icon-question help-icon"></i>
+                </el-tooltip>
+              </template>
+              <el-switch v-model="configForm.sync_users"></el-switch>
+            </el-form-item>
+          </template>
+
+          <!-- 钉钉 -->
+          <template v-if="ruleForm.type === 'dingtalk'">
+            <div class="section-title">
+              <i class="el-icon-mobile-phone"></i> 钉钉应用参数
+              <span class="section-warn"><i class="el-icon-warning"></i> 仅支持 PC 端 AnyConnect 客户端</span>
+            </div>
+            <el-row :gutter="16">
+              <el-col :span="12">
+                <el-form-item label="AppKey">
+                  <el-input v-model="configForm.client_id" placeholder="钉钉应用 AppKey"></el-input>
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="AppSecret">
+                  <el-input type="password" v-model="configForm.client_secret" placeholder="应用密钥"
+                    show-password></el-input>
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-row :gutter="16">
+              <el-col :span="16">
+                <el-form-item>
+                  <template slot="label">
+                    允许的部门
+                    <el-tooltip
+                      content="部门ID在钉钉管理后台查看，逗号分隔，留空不限制。注意：请给钉钉应用授予「通讯录只读」权限，否则部门限制与拒绝名单无法按工号精确匹配（将自动回退用 unionid 登录）"
+                      placement="top">
+                      <i class="el-icon-question help-icon"></i>
+                    </el-tooltip>
+                  </template>
+                  <el-input v-model="configForm.allowed_departments" placeholder="逗号分隔，留空不限制"></el-input>
+                </el-form-item>
+              </el-col>
+              <el-col :span="8">
+                <el-form-item label="浏览器">
+                  <el-radio-group v-model="configForm.use_default_browser" size="mini">
+                    <el-radio-button :label="false">内置</el-radio-button>
+                    <el-radio-button :label="true">系统</el-radio-button>
+                  </el-radio-group>
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-form-item prop="blocked_userids">
+              <template slot="label">拒绝的用户
+                <el-tooltip content="填写后，列表中的用户即使通过部门限制也会被拒绝登录" placement="top">
+                  <i class="el-icon-question"></i>
+                </el-tooltip>
+              </template>
+              <el-input v-model="configForm.blocked_userids" placeholder="逗号分隔，留空不限制"></el-input>
+            </el-form-item>
+            <div class="section-title"><i class="el-icon-refresh"></i> 用户同步</div>
+            <el-form-item>
+              <template slot="label">
+                自动同步用户
+                <el-tooltip content="开启后定时从本钉钉认证源同步用户到本地" placement="top">
                   <i class="el-icon-question help-icon"></i>
                 </el-tooltip>
               </template>
@@ -414,16 +510,17 @@ import axios from "axios";
 
 const configDefaults = {
   ldap: {
-    addr: "", tls: false, tls_verify: false, bind_name: "", bind_pwd: "", base_dn: "",
+    addr: "", tls: false, tls_verify: false, ldaps: false, bind_name: "", bind_pwd: "", base_dn: "",
     object_class: "person", search_attr: "sAMAccountName",
     member_of: "", sync_user_status: false, enable_otp: false, sync_users: false
   },
   radius: { addr: "", secret: "", nasip: "" },
   wxwork: { corp_id: "", agent_id: "", secret: "", use_default_browser: false, allowed_departments: "", blocked_userids: "", sync_users: false, verify_file_name: "", verify_file_content: "" },
-  feishu: { app_id: "", app_secret: "", use_default_browser: false, allowed_departments: "", sync_users: false },
+  feishu: { app_id: "", app_secret: "", use_default_browser: false, allowed_departments: "", blocked_userids: "", sync_users: false },
+  dingtalk: { client_id: "", client_secret: "", use_default_browser: false, allowed_departments: "", blocked_userids: "", sync_users: false },
 };
 
-const TYPE_LABELS = { ldap: 'LDAP', radius: 'RADIUS', wxwork: '企业微信', feishu: '飞书' };
+const TYPE_LABELS = { ldap: 'LDAP', radius: 'RADIUS', wxwork: '企微', feishu: '飞书', dingtalk: '钉钉' };
 
 export default {
   name: "ProviderList",
@@ -462,24 +559,26 @@ export default {
     isLdap() { return this.ruleForm.type === 'ldap'; },
     isWxwork() { return this.ruleForm.type === 'wxwork'; },
     isFeishu() { return this.ruleForm.type === 'feishu'; },
+    isDingtalk() { return this.ruleForm.type === 'dingtalk'; },
     isLdapOrRadius() { return this.ruleForm.type === 'ldap' || this.ruleForm.type === 'radius'; },
     isTestEnabled() { return this.ruleForm.status === 1; },
-    isSyncEnabled() { return this.ruleForm.id && (this.isLdap || this.isWxwork || this.isFeishu); },
+    isSyncEnabled() { return this.ruleForm.id && (this.isLdap || this.isWxwork || this.isFeishu || this.isDingtalk); },
     statTotal() { return this.count; },
     statActive() { return this.tableData.filter(r => r.status === 1).length; },
   },
   methods: {
     getTypeLabel(t) { return TYPE_LABELS[t] || t; },
     getTypeTagType(t) {
-      return { ldap: 'primary', radius: 'warning', wxwork: 'success', feishu: '' }[t] || 'info';
+      return { ldap: 'primary', radius: 'warning', wxwork: 'success', feishu: '', dingtalk: 'primary' }[t] || 'info';
     },
     getSyncTypeLabel() {
-      if (this.isWxwork) return '企业微信';
+      if (this.isWxwork) return '企微';
       if (this.isFeishu) return '飞书';
+      if (this.isDingtalk) return '钉钉';
       return 'LDAP';
     },
     isTestable(t) { return t === 'ldap' || t === 'radius'; },
-    isSyncable(t) { return t === 'ldap' || t === 'wxwork' || t === 'feishu'; },
+    isSyncable(t) { return t === 'ldap' || t === 'wxwork' || t === 'feishu' || t === 'dingtalk'; },
     tableDateFormat(row, col, val) {
       if (!val) return '';
       return new Date(val).toLocaleString();
@@ -516,6 +615,13 @@ export default {
     pageChange(p) { this.getData(p); },
     onTypeChange() {
       this.configForm = Object.assign({}, configDefaults[this.ruleForm.type] || {});
+    },
+    // TLS 与 LDAPS 互斥：两者加密方式不同，不可能同时生效
+    onLdapsChange(val) {
+      if (val) this.configForm.tls = false;
+    },
+    onTlsChange(val) {
+      if (val) this.configForm.ldaps = false;
     },
     handleEdit(row) {
       this.$refs['ruleForm'] && this.$refs['ruleForm'].resetFields();
@@ -799,6 +905,27 @@ export default {
   cursor: pointer;
   font-size: 14px;
   vertical-align: -1px;
+}
+
+.help-icon:hover {
+  color: var(--color-primary);
+}
+
+.switch-row .inline-switch-item .el-form-item__label {
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.switch-row .inline-switch-item .el-form-item__content {
+  line-height: 32px;
+}
+
+.help-icon {
+  margin-left: 4px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: help;
 }
 
 .help-icon:hover {

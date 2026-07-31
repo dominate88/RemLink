@@ -392,7 +392,7 @@ func PortalLoginConfig(w http.ResponseWriter, r *http.Request) {
 
 // 返回门户支持且至少存在一个组已配置的 SSO 类型。
 func portalEnabledSSOTypes() []string {
-	supported := []string{"wxwork", "feishu"}
+	supported := []string{"wxwork", "feishu", "dingtalk"}
 	types := make([]string, 0, len(supported))
 	for _, t := range supported {
 		if _, err := portalSSOGroup(t); err == nil {
@@ -407,7 +407,6 @@ var portalForgotLimiter = struct {
 	next map[string]time.Time
 }{next: make(map[string]time.Time)}
 
-// 已消费的重置 token 会写入 Setting，避免重启后被重复使用。
 var portalResetTokens = struct {
 	mu     sync.Mutex
 	used   map[string]int64 // jti -> used_at unix
@@ -1208,13 +1207,14 @@ func portalAuthTypeLabels(raw json.RawMessage) []string {
 		return nil
 	}
 	labelMap := map[string]string{
-		"local":  "本地密码",
-		"ldap":   "LDAP",
-		"radius": "RADIUS",
-		"cert":   "TLS证书",
-		"otp":    "动态验证码",
-		"wxwork": "企业微信",
-		"feishu": "飞书",
+		"local":    "本地密码",
+		"ldap":     "LDAP",
+		"radius":   "RADIUS",
+		"cert":     "TLS证书",
+		"otp":      "动态验证码",
+		"wxwork":   "企微",
+		"feishu":   "飞书",
+		"dingtalk": "钉钉",
 	}
 	labels := make([]string, 0, len(profile.Step))
 	for _, step := range profile.Step {

@@ -677,6 +677,13 @@ func webAuthBuildSSOURL(r *http.Request, ssoType, groupName, webAuthState string
 		}
 		return fmt.Sprintf("https://open.feishu.cn/open-apis/authen/v1/authorize?app_id=%s&redirect_uri=%s&state=%s",
 			cfg.AppID, url.QueryEscape(redirectUri), url.QueryEscape(ssoState))
+	case "dingtalk":
+		cfg, err := dbdata.GetAuthDingtalk(groupName)
+		if err != nil {
+			return ""
+		}
+		return fmt.Sprintf("https://login.dingtalk.com/oauth2/auth?redirect_uri=%s&response_type=code&client_id=%s&state=%s&scope=openid",
+			url.QueryEscape(redirectUri), cfg.ClientID, url.QueryEscape(ssoState))
 	}
 	return ""
 }
@@ -723,6 +730,15 @@ func WebAuthSSOCallback(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		username, err = cfg.GetFeishuUser(code)
+	case "dingtalk":
+		cfg, cErr := dbdata.GetAuthDingtalk(pending.Ctx.Conn.GroupName)
+		if cErr != nil {
+			http.Error(w, "获取钉钉配置失败", http.StatusInternalServerError)
+			return
+		}
+		var userid string
+		userid, _, err = cfg.GetDingtalkUser(code)
+		username = userid
 	default:
 		http.Error(w, "不支持的 SSO 类型", http.StatusBadRequest)
 		return

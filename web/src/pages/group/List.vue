@@ -253,8 +253,9 @@
                     <el-option label="LDAP" value="ldap"></el-option>
                     <el-option label="RADIUS" value="radius"></el-option>
                     <el-option label="OTP验证" value="otp"></el-option>
-                    <el-option label="企业微信" value="wxwork"></el-option>
+                    <el-option label="企微" value="wxwork"></el-option>
                     <el-option label="飞书" value="feishu"></el-option>
+                    <el-option label="钉钉" value="dingtalk"></el-option>
                     <el-option label="短信验证" value="sms"></el-option>
                   </el-select>
                   <el-select v-if="providerTypes.includes(step.type)" v-model="step.provider" size="small"
@@ -429,7 +430,7 @@ import draggable from 'vuedraggable'
 
 const AUTH_LABELS = {
   local: '本地密码', cert: 'TLS证书', ldap: 'LDAP',
-  radius: 'RADIUS', otp: 'OTP验证', wxwork: '企业微信', feishu: '飞书', sms: '短信验证',
+  radius: 'RADIUS', otp: 'OTP验证', wxwork: '企微', feishu: '飞书', dingtalk: '钉钉', sms: '短信验证',
 };
 
 export default {
@@ -471,8 +472,8 @@ export default {
           use_default_browser: false, allowed_departments: ""
         },
       },
-      providerTypes: ['ldap', 'radius', 'wxwork', 'feishu'],
-      providerNames: { ldap: [], radius: [], wxwork: [], feishu: [] },
+      providerTypes: ['ldap', 'radius', 'wxwork', 'feishu', 'dingtalk'],
+      providerNames: { ldap: [], radius: [], wxwork: [], feishu: [], dingtalk: [] },
       stepKeyCounter: 1,
       policyCreateDialog: false,
       policyCreateForm: {
