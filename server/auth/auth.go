@@ -134,9 +134,8 @@ type Context struct {
 	RADIUS *RADIUSState
 	SSO    *SSOState
 
-	PortalLogin     bool // Portal 登录流程
-	PortalOTPDirect bool // Portal OTP 直连模式
-	WebAuth         bool // WebAuth 浏览器认证流程
+	PortalLogin bool // Portal 登录流程
+	WebAuth     bool // WebAuth 浏览器认证流程
 
 	info        string
 	passedSteps []string
