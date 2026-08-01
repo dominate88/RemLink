@@ -92,7 +92,7 @@ func TestBuildInfoFromSteps(t *testing.T) {
 		{"single radius", []string{"radius"}, "RADIUS认证通过"},
 		{"single cert", []string{"cert"}, "证书认证通过"},
 		{"single otp", []string{"otp"}, "OTP认证通过"},
-		{"single wxwork", []string{"wxwork"}, "企业微信认证通过"},
+		{"single wxwork", []string{"wxwork"}, "企微认证通过"},
 		{"single feishu", []string{"feishu"}, "飞书认证通过"},
 		{"single admin", []string{"admin"}, "管理员认证认证通过"},
 		{"local+otp", []string{"local", "otp"}, "本地密码+OTP认证通过"},
