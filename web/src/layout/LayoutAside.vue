@@ -9,10 +9,8 @@
     </div>
 
     <!-- 菜单 -->
-    <el-menu :collapse="!is_active" :default-active="route_path"
-      class="layout-menu" :collapse-transition="false"
-      background-color="transparent" text-color="#969db8"
-      active-text-color="#fff" router>
+    <el-menu :collapse="!is_active" :default-active="route_path" class="layout-menu" :collapse-transition="false"
+      background-color="transparent" text-color="#969db8" active-text-color="#fff" router>
 
       <!-- 仪表盘 -->
       <el-menu-item index="/admin/home">
@@ -41,6 +39,16 @@
         <el-menu-item index="/admin/group/list">用户组管理</el-menu-item>
         <el-menu-item index="/admin/policy/list">策略管理</el-menu-item>
         <el-menu-item index="/admin/provider/list">认证源管理</el-menu-item>
+      </el-submenu>
+
+      <!-- WebVPN -->
+      <el-submenu index="webvpn">
+        <template slot="title">
+          <i class="el-icon-connection"></i>
+          <span slot="title">WebVPN</span>
+        </template>
+        <el-menu-item index="/admin/webvpn">WebVPN 应用</el-menu-item>
+        <el-menu-item index="/admin/webvpn/audit">WebVPN 审计</el-menu-item>
       </el-submenu>
 
       <!-- 系统设置 -->
@@ -107,7 +115,7 @@ export default {
           this.brand = Object.assign({ title: "", logo: "" }, resp.data.data)
           applyBrandToDocument(this.brand)
         }
-      }).catch(() => {})
+      }).catch(() => { })
     },
     // 打开诊断工具：未启用时在当前页报错，而不是跳转新页面显示 403
     openDebugTool(url) {
@@ -131,6 +139,7 @@ export default {
 .debug-tool-link {
   cursor: pointer;
 }
+
 .layout-aside {
   height: 100%;
   width: 100%;
@@ -151,21 +160,25 @@ export default {
   overflow: hidden;
   white-space: nowrap;
 }
+
 .aside-brand.collapsed {
   padding: 0;
   justify-content: center;
 }
+
 .brand-icon {
   font-size: 26px;
   color: var(--color-primary);
   flex-shrink: 0;
 }
+
 .brand-logo-img {
   width: 26px;
   height: 26px;
   object-fit: contain;
   flex-shrink: 0;
 }
+
 .brand-title {
   margin-left: 10px;
   font-size: 18px;
@@ -183,8 +196,9 @@ export default {
   overflow-y: auto;
   overflow-x: hidden;
 }
+
 /* 覆盖 el-menu 自身的宽度计算，始终占满父容器 */
-.layout-aside ::v-deep > .el-menu {
+.layout-aside ::v-deep>.el-menu {
   width: 100% !important;
   box-sizing: border-box;
 }
@@ -198,16 +212,19 @@ export default {
   font-size: 14px;
   transition: all var(--transition-fast);
 }
+
 .layout-menu /deep/ .el-menu-item:hover {
   background: var(--sidebar-bg-hover) !important;
   color: var(--sidebar-text-hover) !important;
 }
+
 .layout-menu /deep/ .el-menu-item.is-active {
   background: var(--sidebar-bg-active) !important;
   color: var(--sidebar-text-active) !important;
   font-weight: 600;
   position: relative;
 }
+
 .layout-menu /deep/ .el-menu-item.is-active::before {
   content: '';
   position: absolute;
@@ -219,6 +236,7 @@ export default {
   background: var(--color-primary);
   border-radius: 0 2px 2px 0;
 }
+
 .layout-menu /deep/ .el-menu-item i {
   color: inherit;
 }
@@ -233,10 +251,12 @@ export default {
   font-weight: 500;
   transition: all var(--transition-fast);
 }
+
 .layout-menu /deep/ .el-submenu__title:hover {
   background: var(--sidebar-bg-hover) !important;
   color: var(--sidebar-text-hover) !important;
 }
+
 .layout-menu /deep/ .el-submenu__title i {
   color: inherit;
 }
@@ -254,6 +274,7 @@ export default {
 .layout-menu.el-menu--collapse /deep/ .el-submenu__title {
   margin: 2px 8px;
 }
+
 .layout-menu.el-menu--collapse /deep/ .el-menu-item i,
 .layout-menu.el-menu--collapse /deep/ .el-submenu__title i {
   font-size: 20px;
@@ -270,6 +291,7 @@ export default {
   padding: 4px 0;
   min-width: 160px;
 }
+
 .layout-menu /deep/ .el-menu--popup .el-menu-item {
   background: transparent;
   color: var(--sidebar-text);
@@ -280,10 +302,12 @@ export default {
   border-radius: 0;
   padding-left: 20px !important;
 }
+
 .layout-menu /deep/ .el-menu--popup .el-menu-item:hover {
   background: var(--sidebar-bg-hover) !important;
   color: var(--sidebar-text-hover) !important;
 }
+
 .layout-menu /deep/ .el-menu--popup .el-menu-item.is-active {
   background: var(--sidebar-bg-active) !important;
   color: var(--sidebar-text-active) !important;

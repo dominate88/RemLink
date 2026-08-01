@@ -595,6 +595,7 @@ export default {
       dashCardsVisible: {
         devices: true, groups: true,
         personal_policy: true, password: true, otp: true, certs: true,
+        webvpn: true,
       },
       dashCardOptions: [
         { key: "devices", label: "在线设备" },
@@ -603,6 +604,7 @@ export default {
         { key: "password", label: "修改密码" },
         { key: "otp", label: "二次验证(OTP)" },
         { key: "certs", label: "我的证书" },
+        { key: "webvpn", label: "WebVPN 应用" },
       ],
       brandFeatures: [
         { label: "账号状态", desc: "查看在线设备与连接状态" },
@@ -868,6 +870,7 @@ export default {
       const def = {
         devices: true, groups: true,
         personal_policy: true, password: true, otp: true, certs: true,
+        webvpn: true,
       };
       return Object.assign(def, m);
     },

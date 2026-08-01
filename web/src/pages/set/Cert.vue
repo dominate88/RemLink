@@ -9,6 +9,15 @@
             <div class="setting-card">
               <div class="setting-card-title"><i class="el-icon-lock"></i> 上传自定义 SSL 证书</div>
               <el-form ref="customCert" :model="customCert" label-width="100px" size="small">
+                <el-form-item label="证书槽位">
+                  <el-radio-group v-model="customCert.slot">
+                    <el-radio label="">主证书（门户/登录）</el-radio>
+                    <el-radio label="wild">WebVPN 泛域名（*.{{ webvpnDomain }}）</el-radio>
+                  </el-radio-group>
+                  <div class="form-tip" v-if="customCert.slot === 'wild'">
+                    泛域名证书用于 WebVPN 子域（如 app.{{ webvpnDomain }}）。上传的证书必须包含 <b>*.</b>{{ webvpnDomain }} 的 SAN，否则浏览器会报证书不匹配。
+                  </div>
+                </el-form-item>
                 <el-form-item label="证书文件">
                   <el-upload class="uploadCert" :before-upload="beforeCertUpload" :action="certUpload" :limit="1"
                     accept=".pem,.crt,.cer">
@@ -55,6 +64,15 @@
                     <el-radio label="txcloud">腾讯云</el-radio>
                     <el-radio label="cfcloud">Cloudflare</el-radio>
                   </el-radio-group>
+                </el-form-item>
+                <el-form-item label="证书类型">
+                  <el-radio-group v-model="letsCert.certType">
+                    <el-radio label="main">主证书（{{ letsCert.domain }}）</el-radio>
+                    <el-radio label="wild">WebVPN 泛域名（*.{{ webvpnDomain }}）</el-radio>
+                  </el-radio-group>
+                  <div class="form-tip" v-if="letsCert.certType === 'wild'">
+                    泛域名证书会向 Let's Encrypt 申请 <b>*.</b>{{ webvpnDomain }}，需 DNS 挑战（已自动配置）。申请后 WebVPN 子域无需逐应用配置证书。
+                  </div>
                 </el-form-item>
                 <el-form-item v-for="component in dnsProvider[letsCert.name]" :key="component.prop"
                   :label="component.label" :rules="component.rules">
@@ -288,6 +306,10 @@ export default {
   },
   mounted() {
     this.getletsCert();
+    // 获取 WebVPN 域名用于证书槽位提示
+    axios.get("/webvpn/domain").then(resp => {
+      if (resp.data.code === 0) this.webvpnDomain = resp.data.data.domain || "";
+    }).catch(() => {});
     // 初始加载客户端证书状态（如果当前是客户端证书tab）
     if (this.activeTab === 'clientCert') {
       this.checkCAStatus();
@@ -306,9 +328,11 @@ export default {
   data() {
     return {
       activeTab: "customCert",
-      customCert: { cert: "", key: "" },
+      webvpnDomain: "",
+      customCert: { slot: "", cert: "", key: "" },
       letsCert: {
         domain: "", legomail: "", name: "", renew: "", dnsResolver: "",
+        certType: "main",
         aliyun: { apiKey: "", secretKey: "" },
         txcloud: { secretId: "", secretKey: "" },
         cfcloud: { authToken: "" },
@@ -371,7 +395,12 @@ export default {
     beforeCertUpload(file) { this.customCert.cert = file; },
     beforeKeyUpload(file) { this.customCert.key = file; },
     submitCustomCert() {
+      if (!this.customCert.slot) {
+        this.$message.error("请选择证书槽位");
+        return;
+      }
       const formData = new FormData();
+      formData.append("slot", this.customCert.slot);
       formData.append("cert", this.customCert.cert);
       formData.append("key", this.customCert.key);
       axios.post(this.certUpload, formData).then(resp => {

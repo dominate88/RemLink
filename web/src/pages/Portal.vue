@@ -291,6 +291,24 @@
           </div>
         </el-card>
 
+      <!-- WebVPN 应用：单点登录后可一键跳转内网 Web 应用（受门户卡片显隐开关 cards_visible.webvpn 控制） -->
+      <el-card shadow="never" class="webvpn-card" v-if="cardVisible('webvpn') && webvpnApps.length">
+          <div slot="header" class="card-header">
+            <span class="card-title"><i class="el-icon-connection"></i> WebVPN 应用</span>
+            <el-button type="text" size="mini" @click="loadWebVpnApps" :loading="webvpnLoading">
+              <i class="el-icon-refresh"></i>
+            </el-button>
+          </div>
+          <div class="webvpn-body">
+            <a v-for="a in webvpnApps" :key="a.name" class="webvpn-item" :href="a.url" target="_blank"
+              rel="noopener" :title="a.note || a.backend">
+              <i class="el-icon-s-promotion webvpn-icon"></i>
+              <span class="webvpn-name">{{ a.note || a.name }}</span>
+              <span class="webvpn-host">{{ a.name }}.{{ webvpnDomain }}</span>
+            </a>
+          </div>
+        </el-card>
+
         <!-- 在线设备：与统计卡片同级，醒目展示 -->
         <el-card shadow="never" class="devices-card"
           v-if="(devices.length > 0 || devicesLoading) && cardVisible('devices')">
@@ -734,6 +752,9 @@ export default {
       devices: [],
       devicesLoading: false,
       devicesTimer: null,
+      webvpnApps: [],
+      webvpnLoading: false,
+      webvpnDomain: "",
       loginForm: { username: "", password: "" },
       smsForm: { phone: "", code: "" },
       smsSending: false,
@@ -980,9 +1001,18 @@ export default {
           this.dashboard = resp.data.data.dashboard || {}
           this.applyDashboardTheme()
           this.loggedIn = true
+          // 已登录且从 WebVPN 子站点跳转过来带 redirect 参数时，自动回跳，
+          // 不必停留在门户首页（用户本来想访问的是 WebVPN 应用）。
+          // redirect 仅含路径，基于当前 origin 补全，规避反代 Host 透传问题。
+          const redirect = this.$route.query.redirect
+          if (redirect) {
+            window.location.href = window.location.origin + redirect
+            return
+          }
           this.loadCerts()
           this.loadDevices()
           this.startDevicesPoll()
+          this.loadWebVpnApps()
         }
       }).catch(() => {
         this.loggedIn = false
@@ -1110,6 +1140,13 @@ export default {
         this.loginForm.password = ""
         this.loggedIn = true
         this.loadMe()
+        // WebVPN 子站点未登录跳转过来时带了 redirect 参数，登录成功后自动回跳，
+        // 避免用户停在门户首页还得手动再访问一次。redirect 仅含路径，基于 origin 补全。
+        const redirect = this.$route.query.redirect
+        if (redirect) {
+          window.location.href = window.location.origin + redirect
+          return
+        }
         this.$message.success("登录成功")
         return
       }
@@ -1448,6 +1485,22 @@ export default {
         this.devicesLoading = false
       })
     },
+    loadWebVpnApps() {
+      this.webvpnLoading = true
+      // 先取域名，再取应用列表
+      this.portalApi("get", "/webvpn/login-config").then(cfgResp => {
+        if (cfgResp.data.code === 0) {
+          this.webvpnDomain = cfgResp.data.data.domain || ""
+        }
+      }).catch(() => { })
+      this.portalApi("get", "/webvpn/my-apps").then(resp => {
+        if (resp.data.code === 0) {
+          this.webvpnApps = resp.data.data || []
+        }
+      }).catch(() => { }).finally(() => {
+        this.webvpnLoading = false
+      })
+    },
     kickDevice(device) {
       device._kicking = true
       this.portalApi("post", "/portal/api/devices/offline", { token: device.token }).then(resp => {
@@ -1528,12 +1581,15 @@ export default {
     },
     logout() {
       this.stopDevicesPoll()
+      // WebVPN 单点登出：清除独立 webvpn_session，不影响门户登录态
+      this.portalApi("post", "/webvpn/logout").catch(() => {})
       this.portalApi("post", "/portal/api/logout").finally(() => {
         this.loggedIn = false
         this.user = {}
         this.dashboard = {}
         this.applyDashboardTheme()
         this.devices = []
+        this.webvpnApps = []
         this.loginMode = "login"
         this.challengeCode = ""
         this.challengeSession = ""
@@ -3304,6 +3360,50 @@ export default {
   font-size: 14px;
   line-height: 1;
 }
+
+.webvpn-card {
+  margin-bottom: 16px;
+}
+
+.webvpn-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.webvpn-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  color: var(--color-primary);
+  text-decoration: none;
+  background: var(--color-primary-bg);
+  transition: all 0.2s;
+}
+
+.webvpn-item:hover {
+  border-color: var(--color-primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.webvpn-icon {
+  font-size: 18px;
+}
+
+.webvpn-name {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.webvpn-host {
+  font-size: 12px;
+  color: var(--text-color-secondary);
+  word-break: break-all;
+}
+
 </style>
 
 <style>

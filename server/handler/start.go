@@ -20,6 +20,7 @@ func Start() {
 	auth.GetLockManager().Init()  // 初始化防爆破定时器和IP白名单
 	SessStore.StartCleanup()      // 启动认证会话定期清理
 	sessdata.CleanupAllNatRules() // 清理所有防火墙残留规则
+	webVpnAuditStart()            // 启动webvpn审计日志批量写入
 
 	// 开启服务器转发
 	err := sysctlSet("net.ipv4.ip_forward", "1")
@@ -92,6 +93,7 @@ func Stop() {
 	cron.Stop()                  // 停止定时任务
 	SessStore.StopCleanup()      // 停止认证会话定期清理
 	auth.GetLockManager().Stop() // 停止防暴力破解清理协程
+	webVpnAuditStop()            // 停止webvpn审计日志批量写入
 	dbdata.Stop()                // 停止数据库
 	destroyVtap()                // 销毁虚拟网卡
 	// 停止 FakeDNS 管理器

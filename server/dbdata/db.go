@@ -36,6 +36,8 @@ func TableModels() []any {
 		&PasswordReset{},
 		&ClientCertData{},
 		&Provider{},
+		&WebVpnApp{},
+		&WebVpnAudit{},
 	}
 }
 

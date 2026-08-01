@@ -35,6 +35,9 @@ const routes = [
             { path: 'policy/list', component: () => import('@/pages/policy/List') },
             { path: 'provider/list', component: () => import('@/pages/provider/List') },
 
+            { path: 'webvpn', component: () => import('@/pages/webvpn/AppList') },
+            { path: 'webvpn/audit', component: () => import('@/pages/webvpn/AuditList') },
+
         ],
     },
 
@@ -49,7 +52,7 @@ const router = new VueRouter({
 
 // 路由守卫
 router.beforeEach(async (to, from, next) => {
-    // 未知 pathname展示 404 页面
+    // 未知 pathname 展示 404 页面（门户 /portal 走 routes 内已注册路由，正常放行）
     const pn = window.location.pathname
     const validPn = pn === '/' || pn === '/ui' || pn === '/ui/' || pn === '/login' || pn.startsWith('/web-auth')
     if (!validPn && to.path !== '/404') {
