@@ -43,9 +43,14 @@ func startTls() {
 	if err != nil {
 		base.Fatal("证书加载失败", err)
 	}
-	dbdata.LoadCertificate(tlscert)
+	// 主证书作为 default；WebVPN 泛域名证书并存
+	certs := []*tls.Certificate{tlscert}
+	if wildCert, _, werr := dbdata.ParseCertWild(); werr == nil && wildCert != nil {
+		certs = append(certs, wildCert)
+	}
+	dbdata.LoadCertificates(certs)
 
-	// 计算证书hash值
+	// 证书的 SHA1 指纹，只用主证书
 	s1 := sha1.New()
 	s1.Write(tlscert.Certificate[0])
 	h2s := hex.EncodeToString(s1.Sum(nil))
@@ -69,12 +74,12 @@ func startTls() {
 			return dbdata.GetCertificateBySNI(chi.ServerName)
 		},
 	}
-	// 请求客户端证书（TLS 层不验证，由认证管道处理）
-	tlsConfig.ClientAuth = tls.RequestClientCert
-	tlsConfig.ClientCAs = dbdata.LoadClientCAPool()
+	// WebVPN HTTP 监听器不请求客户端证书：客户端证书登录走 CSTP/WebAuth 各自的 TLS 握手，
+	// 此处若请求会导致浏览器每次打开站点都弹出「选择证书」对话框。
+	tlsConfig.ClientAuth = tls.NoClientCert
 	srv := &http.Server{
 		Addr:         addr,
-		Handler:      initRoute(),
+		Handler:      webVpnRootHandler(),
 		TLSConfig:    tlsConfig,
 		ErrorLog:     base.GetServerLog(),
 		ReadTimeout:  100 * time.Second,
@@ -101,6 +106,19 @@ func startTls() {
 		base.Error("VPN 服务运行异常:", err)
 		return
 	}
+}
+
+// 外层路由：先判断是否为 WebVPN 子域请求（*.WebVpnDomain）。
+// 是则进入 WebVPN 分支（独立处理，不套全局安全头，避免 CSP 污染被代理内容）；
+// 否则 delegate 回 initRoute()（现有 CSTP/portal/WebAuth 等路由零侵入）。
+func webVpnRootHandler() http.Handler {
+	root := initRoute()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if WebVpnHandler(w, r) {
+			return
+		}
+		root.ServeHTTP(w, r)
+	})
 }
 
 func initRoute() http.Handler {
@@ -137,6 +155,11 @@ func initRoute() http.Handler {
 	r.HandleFunc("/portal/api/certs/download", PortalCertDownload).Methods(http.MethodPost)
 	r.HandleFunc("/portal/api/devices", PortalDevices).Methods(http.MethodGet)
 	r.HandleFunc("/portal/api/devices/offline", PortalDeviceOffline).Methods(http.MethodPost)
+	// WebVPN 用户侧端点（独立会话：webvpn_session）
+	r.HandleFunc("/webvpn/login-config", webVpnLoginConfig).Methods(http.MethodGet)
+	r.HandleFunc("/webvpn/me", webVpnMe).Methods(http.MethodGet)
+	r.HandleFunc("/webvpn/my-apps", webVpnMyApps).Methods(http.MethodGet)
+	r.HandleFunc("/webvpn/logout", webVpnLogout).Methods(http.MethodPost)
 	// WebAuth 端点
 	r.HandleFunc("/web-auth/start", WebAuthStart).Methods(http.MethodGet)
 	r.HandleFunc("/web-auth/identify", WebAuthIdentify).Methods(http.MethodPost)

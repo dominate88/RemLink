@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,12 +26,26 @@ import (
 
 const portalCookieName = "portal_session"
 
+// 计算门户会话 cookie 的 Domain，在门户主域和 WebVPN 子域之间共享，
+func portalCookieDomain(r *http.Request) string {
+	host := stripPort(r.Host)
+	parts := strings.Split(host, ".")
+	if len(parts) < 2 {
+		return ""
+	}
+	return "." + strings.Join(parts[len(parts)-2:], ".")
+}
+
 func PortalHome(w http.ResponseWriter, r *http.Request) {
 	if !base.GetCfg().EnableUserPortal {
 		http.NotFound(w, r)
 		return
 	}
-	http.Redirect(w, r, "/ui/#/portal", http.StatusFound)
+	target := "/ui/#/portal"
+	if redirect := r.URL.Query().Get("redirect"); redirect != "" {
+		target += "?redirect=" + url.QueryEscape(redirect)
+	}
+	http.Redirect(w, r, target, http.StatusFound)
 }
 
 func PortalLogin(w http.ResponseWriter, r *http.Request) {
@@ -348,6 +363,7 @@ func PortalLogout(w http.ResponseWriter, r *http.Request) {
 		Name:     portalCookieName,
 		Value:    "",
 		Path:     "/",
+		Domain:   portalCookieDomain(r),
 		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
@@ -919,6 +935,7 @@ func portalIssueLoginResponse(w http.ResponseWriter, r *http.Request, user *dbda
 			Name:     portalCookieName,
 			Value:    token,
 			Path:     "/",
+			Domain:   portalCookieDomain(r),
 			HttpOnly: true,
 			Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
 			SameSite: http.SameSiteLaxMode,
