@@ -55,8 +55,8 @@ func TestGetTableSizes(t *testing.T) {
 		ast.NotEmpty(s.Group)
 		groups[s.Group]++
 	}
-	ast.Equal(8, groups["business"])
-	ast.Equal(3, groups["log"])
+	ast.Equal(9, groups["business"])
+	ast.Equal(4, groups["log"])
 	ast.Equal(4, groups["stats"])
 }
 
