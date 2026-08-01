@@ -365,9 +365,10 @@ body {
   background: var(--color-primary-bg);
   color: var(--color-primary);
 }
+
 .el-dropdown-menu__item--divided:before {
-  margin: 0;
-  background-color: var(--border-color-light);
+  margin: 0 8px;
+  background-color: var(--bg-card);
 }
 
 /* 折叠侧栏弹出的 Element UI 菜单挂在 body 下，需要全局样式覆盖透明背景 */
@@ -799,9 +800,10 @@ html.dark .el-dropdown-menu__item:hover {
 }
 
 html.dark .el-dropdown-menu__item--divided:before {
-  margin: 0 !important;
-  background-color: var(--border-color) !important;
+  margin: 0 8px !important;
+  background-color: var(--bg-card) !important;
 }
+
 
 html.dark .el-popper[x-placement^="bottom"] .popper__arrow,
 html.dark .el-popper[x-placement^="top"] .popper__arrow {

@@ -82,6 +82,7 @@
               <el-tag v-else-if="scope.row.type === 'radius'" type="info" size="small" effect="plain">RADIUS</el-tag>
               <el-tag v-else-if="scope.row.type === 'wxwork'" size="small" effect="plain">企微</el-tag>
               <el-tag v-else-if="scope.row.type === 'feishu'" size="small" effect="plain">飞书</el-tag>
+              <el-tag v-else-if="scope.row.type === 'dingtalk'" size="small" effect="plain">钉钉</el-tag>
               <el-tag v-else size="small" effect="plain">{{ scope.row.type }}</el-tag>
             </template>
           </el-table-column>

@@ -185,6 +185,8 @@ func initRoute() http.Handler {
 	r.HandleFunc("/WXAuth/callback", WXAuthCallback).Methods(http.MethodGet)
 	// 添加飞书回调路由
 	r.HandleFunc("/FeishuAuth/callback", FeishuAuthCallback).Methods(http.MethodGet)
+	// 添加钉钉回调路由
+	r.HandleFunc("/DingtalkAuth/callback", DingtalkAuthCallback).Methods(http.MethodGet)
 	// 企业微信验证路由（运行时动态匹配文件名，遍历启用的 wxwork 认证源）
 	r.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
 		_, ok := wxworkVerifyFileByPath(r.URL.Path)

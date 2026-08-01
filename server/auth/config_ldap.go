@@ -25,6 +25,9 @@ var (
 type LDAPConfig struct {
 	Addr           string `json:"addr"`
 	Tls            bool   `json:"tls"`
+	// Ldaps 直连 TLS（如 AD 的 636 端口），一上来就做 TLS 握手，不走 StartTLS。
+	// Windows Server 2025 的 AD 已移除 StartTLS，只接受 LDAPS 直连，必须开启此项。
+	Ldaps bool `json:"ldaps"`
 	BindName       string `json:"bind_name"`
 	BindPwd        string `json:"bind_pwd"`
 	BaseDn         string `json:"base_dn"`
@@ -73,23 +76,35 @@ func (c *LDAPConfig) ValidateConfig() error {
 
 // 建立 LDAP 连接
 func (c *LDAPConfig) Connect() (*ldap.Conn, error) {
-	l, err := ldap.Dial("tcp", c.Addr)
-	if err != nil {
-		return nil, fmt.Errorf("LDAP 连接失败: %w", err)
+	// 默认不校验服务端证书（保持历史行为，兼容自签证书）；TlsVerify 开启后校验防中间人
+	tlsCfg := &tls.Config{
+		InsecureSkipVerify: !c.TlsVerify,
+	}
+	if host, _, err := net.SplitHostPort(c.Addr); err == nil {
+		tlsCfg.ServerName = host
+	} else {
+		tlsCfg.ServerName = c.Addr
 	}
 
-	if c.Tls {
-		// 默认不校验服务端证书（保持历史行为，兼容自签证书）；TlsVerify 开启后校验防中间人
-		host, _, err := net.SplitHostPort(c.Addr)
+	var l *ldap.Conn
+	var err error
+	if c.Ldaps {
+		// LDAPS 直连：一上来就完成 TLS 握手（适配 AD 2025 / 自定义 LDAPS 端口）
+		l, err = ldap.DialTLS("tcp", c.Addr, tlsCfg)
 		if err != nil {
-			host = c.Addr
+			return nil, fmt.Errorf("LDAP LDAPS 连接失败: %w", err)
 		}
-		if err := l.StartTLS(&tls.Config{
-			InsecureSkipVerify: !c.TlsVerify,
-			ServerName:         host,
-		}); err != nil {
-			l.Close()
-			return nil, fmt.Errorf("LDAP TLS 连接失败: %w", err)
+	} else {
+		l, err = ldap.Dial("tcp", c.Addr)
+		if err != nil {
+			return nil, fmt.Errorf("LDAP 连接失败: %w", err)
+		}
+		if c.Tls {
+			// StartTLS：在已建立的明文连接上升级加密（OpenLDAP / 旧版 AD）
+			if err := l.StartTLS(tlsCfg); err != nil {
+				l.Close()
+				return nil, fmt.Errorf("LDAP TLS 连接失败: %w", err)
+			}
 		}
 	}
 

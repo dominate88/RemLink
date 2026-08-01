@@ -260,8 +260,8 @@ func PortalChangePassword(w http.ResponseWriter, r *http.Request) {
 }
 
 // 处理门户首次登录强制改密提交（POST /portal/api/force_change_password）。
-// 校验改密会话令牌与密码强度，更新密码并清除 ForcePwd；若用户启用 OTP 则继续 OTP 二次认证，
-// 否则直接签发门户登录令牌。无需旧密码（用户刚通过登录校验）。
+// 复用登录时创建的认证会话（challenge 会话，token 字段即 session_id），更新密码并清除 ForcePwd 后
+// 续跑认证管道：若用户启用 OTP 则继续 OTP 二次认证，否则直接签发门户登录令牌。
 func PortalForceChangePassword(w http.ResponseWriter, r *http.Request) {
 	if !base.GetCfg().EnableUserPortal {
 		http.NotFound(w, r)
@@ -290,19 +290,18 @@ func PortalForceChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, err := admin.GetJwtData(req.Token)
-	if err != nil {
+	sess, err := GetAuthSession(req.Token)
+	if err != nil || sess.Ctx == nil {
 		portalError(w, "改密会话已过期，请重新登录")
 		return
 	}
-	purpose, _ := data["purpose"].(string)
-	if purpose != "portal_force_change_password" {
-		portalError(w, "无效的改密会话")
+	username := sess.Ctx.Conn.Username
+	if username == "" {
+		portalError(w, "改密会话数据异常")
 		return
 	}
-	userId, _ := data["user_id"].(float64)
 	user := &dbdata.User{}
-	if err := dbdata.One("Id", int(userId), user); err != nil || user.Status != 1 {
+	if err := dbdata.One("Username", username, user); err != nil || user.Status != 1 {
 		portalError(w, "用户不存在或已停用")
 		return
 	}
@@ -321,37 +320,54 @@ func PortalForceChangePassword(w http.ResponseWriter, r *http.Request) {
 		portalError(w, "修改密码失败")
 		return
 	}
-	if _, err := dbdata.GetXdb().Where("username = ?", user.Username).Cols("pin_code", "change_pwd").
+	if _, err := dbdata.GetXdb().Where("username = ?", username).Cols("pin_code", "change_pwd").
 		Update(&dbdata.User{PinCode: hashed, ForcePwd: false}); err != nil {
 		base.Error("用户门户强制改密失败:", err)
 		portalError(w, "修改密码失败")
 		return
 	}
+	// 内存对象同步，避免签发令牌时读到过期的 ForcePwd 标记
+	user.PinCode = hashed
+	user.ForcePwd = false
 
-	// 改密后若启用 OTP，继续 OTP 二次认证（与 VPN 管道顺序一致：改密 → OTP）。
-	if user.OtpSecret != "" && !user.DisableOtp {
-		sessionID := portalSaveOTPChallenge(user.Username)
-		if base.GetCfg().SendOtp {
-			go func() {
-				if err := SendOtpToUser(user.ToAuthInfo()); err != nil {
-					base.Error("用户门户强制改密后发送OTP失败:", user.Username, err)
-				}
-			}()
+	// 以数据库为准重载用户信息，续跑管道（forcepwd 步见 ForcePwd=false 通过，继续后续 otp 等步骤）
+	authsrv.ReloadUserInfo(sess.Ctx)
+	sess.Ctx.Conn.RemoteAddr = r.RemoteAddr
+	result := authsrv.Resume(sess.Ctx, auth.PipelineState{
+		StepIdx:     sess.Ctx.StepIdx(),
+		PassedSteps: sess.Ctx.PassedSteps(),
+	})
+	switch result.Result {
+	case auth.StepPass:
+		SessStore.Delete(req.Token)
+		portalUser, err := portalResolveUser(username, result.GroupName, user, true)
+		if err != nil {
+			portalError(w, err.Error())
+			return
 		}
-		portalOK(w, map[string]any{
-			"status":     "otp",
-			"session_id": sessionID,
-			"message":    "密码修改成功，请输入动态验证码",
-		})
-		return
+		lockManager.Success(username, r.RemoteAddr)
+		resp := portalIssueLoginResponse(w, r, portalUser, "首次登录修改密码成功")
+		if resp.Code != 0 {
+			portalError(w, resp.Msg)
+			return
+		}
+		portalOK(w, resp.Data)
+	case auth.StepPending:
+		sess.Ctx.SetStepIdx(result.State.StepIdx)
+		sess.Ctx.SetPassedSteps(result.State.PassedSteps)
+		SaveAuthSession(req.Token, sess)
+		portalOK(w, portalChallengeResponse(req.Token, result, sess.Ctx).Data)
+	case auth.StepFail:
+		if result.Err != nil {
+			base.Warn("用户门户强制改密后续认证失败:", result.Err)
+		}
+		lockManager.Fail(username, r.RemoteAddr)
+		if base.GetCfg().DisplayError && result.Err != nil {
+			portalError(w, result.Err.Error())
+			return
+		}
+		portalError(w, "修改密码失败")
 	}
-
-	resp := portalIssueLoginResponse(w, r, user, "首次登录修改密码成功")
-	if resp.Code != 0 {
-		portalError(w, resp.Msg)
-		return
-	}
-	portalOK(w, resp.Data)
 }
 
 func PortalLogout(w http.ResponseWriter, r *http.Request) {
@@ -392,7 +408,7 @@ func PortalLoginConfig(w http.ResponseWriter, r *http.Request) {
 
 // 返回门户支持且至少存在一个组已配置的 SSO 类型。
 func portalEnabledSSOTypes() []string {
-	supported := []string{"wxwork", "feishu"}
+	supported := []string{"wxwork", "feishu", "dingtalk"}
 	types := make([]string, 0, len(supported))
 	for _, t := range supported {
 		if _, err := portalSSOGroup(t); err == nil {
@@ -407,7 +423,6 @@ var portalForgotLimiter = struct {
 	next map[string]time.Time
 }{next: make(map[string]time.Time)}
 
-// 已消费的重置 token 会写入 Setting，避免重启后被重复使用。
 var portalResetTokens = struct {
 	mu     sync.Mutex
 	used   map[string]int64 // jti -> used_at unix
@@ -708,34 +723,6 @@ func portalStartAuth(w http.ResponseWriter, username, password string, r *http.R
 		user = &dbdata.User{Username: username}
 	}
 
-	if userExists && (user.Type == "" || user.Type == "local") {
-		if err := portalCheckLocalPassword(user, password); err != nil {
-			lockManager.Fail(username, r.RemoteAddr)
-			return portalAuthError("用户名或密码错误")
-		}
-		// 强制改密优先于 OTP：local 用户且 ForcePwd 为真时直接拦截改密。
-		if user.ForcePwd {
-			return portalForceChangeResponse(user)
-		}
-		if user.OtpSecret != "" && !user.DisableOtp {
-			sessionID := portalSaveOTPChallenge(username)
-			if base.GetCfg().SendOtp {
-				go func() {
-					if err := SendOtpToUser(user.ToAuthInfo()); err != nil {
-						base.Error("用户门户发送OTP失败:", username, err)
-					}
-				}()
-			}
-			return portalAuthResponse{Data: map[string]any{
-				"status":     "otp",
-				"session_id": sessionID,
-				"message":    "请输入 6 位动态验证码",
-			}}
-		}
-		lockManager.Success(username, r.RemoteAddr)
-		return portalIssueLoginResponse(w, r, user, "登录成功")
-	}
-
 	var lastErr error
 	for _, group := range portalCandidateGroups(user, userExists) {
 		ctx := &auth.Context{
@@ -783,22 +770,6 @@ func portalResumeAuth(w http.ResponseWriter, sessionID, code string, r *http.Req
 		return portalAuthError("认证会话已过期，请重新登录")
 	}
 
-	if direct := sess.Ctx != nil && sess.Ctx.PortalOTPDirect; direct {
-		SessStore.Delete(sessionID)
-		username := sess.Ctx.Conn.Username
-		user := &dbdata.User{}
-		if err := dbdata.One("Username", username, user); err != nil || user.Status != 1 {
-			lockManager.Fail(username, r.RemoteAddr)
-			return portalAuthError("用户不存在")
-		}
-		if !authsrv.CheckOtp(username, code, user.OtpSecret) {
-			lockManager.Fail(username, r.RemoteAddr)
-			return portalAuthError("动态验证码错误")
-		}
-		lockManager.Success(username, r.RemoteAddr)
-		return portalIssueLoginResponse(w, r, user, "本地密码+OTP认证通过")
-	}
-
 	username := sess.Ctx.Conn.Username
 	ctx := sess.Ctx
 	if ctx == nil {
@@ -816,9 +787,10 @@ func portalResumeAuth(w http.ResponseWriter, sessionID, code string, r *http.Req
 	} else {
 		ctx.Conn.RemoteAddr = r.RemoteAddr
 	}
-	// 注入挑战响应码
+	// 注入挑战响应码（OTP / RADIUS / SMS 复用同一 code 字段）
 	ctx.GetOTP().Code = code
 	ctx.GetRADIUS().ChallengeCode = code
+	ctx.GetSMS().Code = code
 
 	state := auth.PipelineState{
 		StepIdx:     sess.Ctx.StepIdx(),
@@ -855,17 +827,6 @@ func portalResumeAuth(w http.ResponseWriter, sessionID, code string, r *http.Req
 	return portalAuthError("验证失败")
 }
 
-func portalSaveOTPChallenge(username string) string {
-	sessionID := GenerateSessionID()
-	SaveAuthSession(sessionID, &AuthSession{
-		Ctx: &auth.Context{
-			Conn:            auth.ConnInfo{Username: username},
-			PortalOTPDirect: true,
-		},
-	})
-	return sessionID
-}
-
 func portalSaveChallengeSession(result *auth.PipelineResult, ctx *auth.Context) string {
 	sessionID := GenerateSessionID()
 	if ctx == nil {
@@ -900,6 +861,14 @@ func portalChallengeResponse(sessionID string, result *auth.PipelineResult, ctx 
 		case auth.ChallengeSSO:
 			challengeType = "sso"
 			message = "请完成第三方登录"
+		case auth.ChallengeForcePwd:
+			// 复用前端既有 change_pwd 分支：以 session_id 充当 token 字段，前端无需改动
+			return portalAuthResponse{Data: map[string]any{
+				"status":   "change_pwd",
+				"token":    sessionID,
+				"username": ctx.Conn.Username,
+				"message":  "首次登录需修改密码后才能继续使用",
+			}}
 		}
 	}
 	return portalAuthResponse{Data: map[string]any{
@@ -950,23 +919,6 @@ func portalIssueLoginResponse(w http.ResponseWriter, r *http.Request, user *dbda
 
 func portalAuthError(msg string) portalAuthResponse {
 	return portalAuthResponse{Code: 1, Msg: msg}
-}
-
-// 用户首次登录且需改密时返回内联改密挑战。
-func portalForceChangeResponse(user *dbdata.User) portalAuthResponse {
-	token, err := admin.SetJwtData(map[string]any{
-		"purpose": "portal_force_change_password",
-		"user_id": user.Id,
-	}, time.Now().Unix()+900)
-	if err != nil {
-		return portalAuthError("登录失败")
-	}
-	return portalAuthResponse{Data: map[string]any{
-		"status":   "change_pwd",
-		"username": user.Username,
-		"token":    token,
-		"message":  "首次登录需修改密码后才能继续使用",
-	}}
 }
 
 func portalLoadUser(username string) (*dbdata.User, bool, error) {
@@ -1029,8 +981,10 @@ func portalCandidateGroups(user *dbdata.User, userExists bool) []string {
 					names = append(names, name)
 				}
 			} else {
-				// local 用户全部放行
-				names = append(names, name)
+				// 本地用户仅保留含 local 步骤的组，避免给密码登录用户弹出 SSO 等挑战
+				if dbdata.HasAuthType(profile, "local") {
+					names = append(names, name)
+				}
 			}
 		}
 	}
@@ -1270,13 +1224,14 @@ func portalAuthTypeLabels(raw json.RawMessage) []string {
 		return nil
 	}
 	labelMap := map[string]string{
-		"local":  "本地密码",
-		"ldap":   "LDAP",
-		"radius": "RADIUS",
-		"cert":   "TLS证书",
-		"otp":    "动态验证码",
-		"wxwork": "企业微信",
-		"feishu": "飞书",
+		"local":    "本地密码",
+		"ldap":     "LDAP",
+		"radius":   "RADIUS",
+		"cert":     "TLS证书",
+		"otp":      "动态验证码",
+		"wxwork":   "企微",
+		"feishu":   "飞书",
+		"dingtalk": "钉钉",
 	}
 	labels := make([]string, 0, len(profile.Step))
 	for _, step := range profile.Step {

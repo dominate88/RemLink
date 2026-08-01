@@ -47,7 +47,7 @@ StepPass / StepPending / StepFail
 | `pipeline.go`                                                                                     | 管道引擎：`Pipeline` 类型、`GetPipeline`、`Run`/`Resume`/`runFrom`、`ProviderResolverFunc`                                                                                                                                              |
 | `registry.go`                                                                                     | 认证器工厂注册表：`Register`/`GetFactory`/`IsRegistered`/`RegisteredNames`/`IsSSOType`                                                                                                                                                    |
 | `config.go`                                                                                       | `GroupAuthProfile`/`AuthMethodConfig`、`ParseAuthProfile`、`GetProviderConfigFromMap`、Profile 合法性校验                                                                                                                                   |
-| `config_ldap.go`/`config_radius.go`/`config_wxwork.go`/`config_feishu.go`/`config_sso.go` | 各第三方认证的配置结构体（实现`ProviderConfig` 接口，供 dbdata 引用）                                                                                                                                                                             |
+| `config_ldap.go`/`config_radius.go`/`config_wxwork.go`/`config_feishu.go`/`config_dingtalk.go`/`config_sso.go` | 各第三方认证的配置结构体（实现`ProviderConfig` 接口，供 dbdata 引用）                                                                                                                                                                             |
 | `lockmanager.go`                                                                                  | 防暴力破解三级锁定（全局单例）                                                                                                                                                                                                                      |
 
 ---
@@ -167,13 +167,13 @@ type PipelineResult struct {
 | `ldap`              | `Username==""` 或 `len(Password) < 1` → `StepPending`（等待输入） | —           |
 | `radius`            | 缺凭据 →`StepPending`                                                 | —           |
 | `cert`              | 只设`ctx.Identity` + `SetUserInfo`，**不产生密码**             | 否           |
-| `wxwork`/`feishu` | 只设`ctx.Conn.Username = sso.UserID`，**不产生密码**             | 否           |
+| `wxwork`/`feishu`/`dingtalk` | 只设`ctx.Conn.Username = sso.UserID`，**不产生密码**             | 否           |
 
 ### 可行组合
 
 - 单步：`[local]` `[ldap]` `[radius]` `[cert]`
 - 凭据 + OTP：`[local,otp]` `[ldap,otp]` `[cert,otp]`（注意 `radius` 不能与 `otp` 同配）
-- SSO + OTP：`[wxwork,otp]` `[feishu,otp]`
+- SSO + OTP：`[wxwork,otp]` `[feishu,otp]` `[dingtalk,otp]`
 
 ### 不可行组合
 
@@ -196,7 +196,7 @@ dbdata.SyncExternalUsersForOTP(g)（dbdata/group.go）
 
 本地用户名即用 SSO `UserID` 创建，故 `[SSO, otp]` 的 otp 步必能查到用户，不存在"SSO 身份 ≠ 本地用户名"的问题。
 
-> 边角：IdP 中在组保存**之后**新增的用户，需等下次同步（飞书有 cron `SyncFeishuUsers`；企微/LDAP 需重新保存组触发）后才能登录，属运维范畴。
+> 边角：IdP 中在组保存**之后**新增的用户，需等下次同步（飞书有 cron `SyncFeishuUsers`、钉钉有 `SyncDingtalkUsers`；企微/LDAP 需重新保存组触发）后才能登录，属运维范畴。
 
 ---
 
@@ -286,8 +286,8 @@ SSO 认证器必须**实现** `Challenger` 接口（`Challenge().Type == Challen
 
 #### 认证器本体（3 步）
 
-- **第 1 步**：定义 `auth/config_dingtalk.go`（`DingtalkConfig`，含 `UseDefaultBrowser`/`AllowedDepartments` 等，实现 `ProviderConfig`；API 调用如 `GetDingtalkUser` 也写在此文件，因核心 `auth` 包才能被 `dbdata` 引用）。
-- **第 2 步**：实现 `auth/authsrv/dingtalk.go`，`init()+Register("dingtalk", ...)`，**实现 `Challenger`**：`Challenge()` 返回 `ChallengeSSO` 且 `Data` 带 `sso_type:"dingtalk"`；`Authenticate` 处理三条路径——①回调已完成（`ctx.SSO.Authenticated` 直接放行）、②管道内用 OAuth `code` 换用户并校验部门、③首次进入返回 `StepPending` 触发挑战。
+- **第 1 步**：定义 `auth/config_dingtalk.go`（`DingtalkConfig`，含 `UseDefaultBrowser`/`AllowedDepartments`/`BlockedUserIDs` 等，实现 `ProviderConfig`；API 调用如 `GetDingtalkUser` 也写在此文件，因核心 `auth` 包才能被 `dbdata` 引用）。`BlockedUserIDs` 走 `ParseBlockedUserIDs` + `CheckUserID` 在 `Authenticate` 与回调阶段双重校验。
+- **第 2 步**：实现 `auth/authsrv/dingtalk.go`，`init()+Register("dingtalk", ...)`，**实现 `Challenger`**：`Challenge()` 返回 `ChallengeSSO` 且 `Data` 带 `sso_type:"dingtalk"`；`Authenticate` 处理三条路径——①回调已完成（`ctx.SSO.Authenticated` 直接放行）、②管道内用 OAuth `code` 换用户并校验部门/拒绝名单、③首次进入返回 `StepPending` 触发挑战。
 - **第 3 步**：Provider 注入同范式 A（配置经 `dbdata.ResolveProviderConfig` 注入）。
 
 #### 还必须改的（让 OAuth2 回调真正落地）
@@ -296,7 +296,7 @@ SSO 认证器必须**实现** `Challenger` 接口（`Challenge().Type == Challen
 |---|---|---|
 | 1 | `auth/authsrv/authsrv.go` `loadSSOConfig` | 加 `case "dingtalk"` → `dbdata.GetAuthDingtalk` |
 | 2 | `dbdata/provider.go` | `providerTypes`/`providerNames` + `ValidateProviderConfig`/`ResolveProviderConfig` 加 `dingtalk` |
-| 3 | `dbdata/`（新 `GetAuthDingtalk`） | 仿 `GetAuthWework`/`GetAuthFeishu` 读配置 |
+| 3 | `dbdata/userauth_dingtalk.go`（`GetAuthDingtalk`/`SyncDingtalkUsers`） | 仿 `GetAuthWework`/`GetAuthFeishu` 读配置 + 同步用户；`provider.go` 的 `ProvSecretKeys` 注册 `client_secret` 做加密脱敏 |
 | 4 | `handler/link_auth_saml.go` | `SAMLSPLogin` 加 `if ssotype=="dingtalk"` 分发 + 新增 `DingtalkAuthCallback`（code 换 user、部门校验、建 SSO 会话、SetCookie） |
 | 5 | `server/handler/server.go` | 加路由 `/DingtalkAuth/callback` → `DingtalkAuthCallback` |
 | 6 | `handler/link_webauth.go` `webAuthBuildSSOURL` | 分发加 `dingtalk` |
@@ -422,7 +422,8 @@ StepFail   StepPending  StepPass（所有步骤通过 + 身份一致性校验）
 | `otp`    | `authsrv/otp.go`    | TOTP 动态码（独立窗口）                                 |    ✓    | `ChallengeOTP`    |
 | `sms`    | `authsrv/sms.go`    | 短信验证码                                              |    ✓    | `ChallengeSMS`    |
 | `wxwork` | `authsrv/wxwork.go` | 企业微信 OAuth2                                         |    ✓    | `ChallengeSSO`    |
-| `feishu` | `authsrv/feishu.go` | 飞书 OAuth2                                             |    ✓    | `ChallengeSSO`    |
+| `feishu` | `authsrv/feishu.go` | 飞书 OAuth2（支持部门限制 + 拒绝用户名单）             |    ✓    | `ChallengeSSO`    |
+| `dingtalk` | `authsrv/dingtalk.go` | 钉钉 OAuth2（支持部门限制 + 拒绝用户名单）           |    ✓    | `ChallengeSSO`    |
 | `admin`  | `authsrv/admin.go`  | 管理员用户（后台登录，密码 + 可选 OTP）                 |    ✗    | —                  |
 
 > ¹ LDAP 嵌入 `NopChallenger`，无交互挑战。缺少 `Username/Password` 时返回 `StepPending`（等待输入凭据），故只适用于凭据由用户直接提供的管道，**不适用于 SSO/cert 先行**（见「认证组合能力边界」）。
@@ -455,7 +456,7 @@ LockManager 按 username+ip 维度单一计数，不区分认证方法。多步�
 
 ## Provider 配置注入
 
-第三方认证（企微/飞书/LDAP/RADIUS）的服务端配置（AppID、Secret、服务器地址等）通过 Provider 机制统一管理，与认证步骤解耦：
+第三方认证（企微/飞书/钉钉/LDAP/RADIUS）的服务端配置（AppID、Secret、服务器地址等）通过 Provider 机制统一管理，与认证步骤解耦：
 
 ```
 管理后台创建 Provider（如"飞书生产环境"）
@@ -510,7 +511,7 @@ handler/
 ├── link_auth_pipeline.go   # Pipeline 编排调用
 ├── link_auth_tpl.go        # XML 模板 + RequestData
 ├── link_auth_otp.go        # AuthSession + 会话 CRUD
-├── link_auth_saml.go       # SAML/企微/飞书 SSO 端点
+├── link_auth_saml.go       # SAML/企微/飞书/钉钉 SSO 端点
 ├── link_auth_session.go    # CreateSession 创建会话入口
 └── link_auth_*_test.go     # 单元 / 端到端测试
 ```

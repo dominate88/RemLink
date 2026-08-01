@@ -19,6 +19,8 @@ func ProvSecretKeys(typ string) []string {
 		return []string{"secret"}
 	case "feishu":
 		return []string{"app_secret"}
+	case "dingtalk":
+		return []string{"client_secret"}
 	}
 	return nil
 }
@@ -79,6 +81,8 @@ func (p *Provider) NewConfig() (auth.ProviderConfig, error) {
 		return &auth.WXWorkConfig{}, nil
 	case "feishu":
 		return &auth.FeishuConfig{}, nil
+	case "dingtalk":
+		return &auth.DingtalkConfig{}, nil
 	default:
 		return nil, fmt.Errorf("不支持的 Provider 类型: %s", p.Type)
 	}

@@ -185,6 +185,12 @@ func loadSSOConfig(groupName, ssoType string) (bool, error) {
 			return false, err
 		}
 		return cfg.UseDefaultBrowser, nil
+	case "dingtalk":
+		cfg, err := dbdata.GetAuthDingtalk(groupName)
+		if err != nil {
+			return false, err
+		}
+		return cfg.UseDefaultBrowser, nil
 	}
 	return false, fmt.Errorf("不支持的 SSO 类型: %s", ssoType)
 }

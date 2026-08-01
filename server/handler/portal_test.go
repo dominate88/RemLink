@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
 	"github.com/wsczx/remlink/pkg/utils"
+	"github.com/xlzd/gotp"
 )
 
 func TestValidatePasswordStrength(t *testing.T) {
@@ -549,4 +551,107 @@ func TestPortalLogout(t *testing.T) {
 		}
 	}
 	ast.True(found, "should clear portal_session cookie")
+}
+
+// 验证强制改密走认证管道：首次登录返回 change_pwd 挑战，提交新密码后续跑管道并签发令牌。
+func TestPortalLogin_ForcePwd(t *testing.T) {
+	base.Test()
+	preIpData(t)
+	defer closeIpdata()
+	base.UpdateCfg(func(c *base.ServerConfig) { c.EnableUserPortal = true })
+
+	createPortalLoginSetup(t, "forceuser", "oldpass123", "default")
+	ast := assert.New(t)
+	_, err := dbdata.GetXdb().Where("username = ?", "forceuser").Cols("change_pwd").
+		Update(&dbdata.User{ForcePwd: true})
+	ast.Nil(err)
+
+	// 首次登录应返回 change_pwd 挑战（走管道 forcepwd 步骤）
+	loginReq := httptest.NewRequest("POST", "/portal/login", strings.NewReader(`{"username":"forceuser","password":"oldpass123"}`))
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginW := httptest.NewRecorder()
+	PortalLogin(loginW, loginReq)
+	var loginResp map[string]any
+	json.NewDecoder(loginW.Body).Decode(&loginResp)
+	ast.Equal(float64(0), loginResp["code"])
+	data := loginResp["data"].(map[string]any)
+	ast.Equal("change_pwd", data["status"])
+	token, _ := data["token"].(string)
+	ast.NotEmpty(token)
+
+	// 提交新密码，续跑管道后应直接签发登录令牌
+	chgBody := `{"token":"` + token + `","new_password":"newpass123","new_password_confirm":"newpass123"}`
+	chgReq := httptest.NewRequest("POST", "/portal/force_change_password", strings.NewReader(chgBody))
+	chgReq.Header.Set("Content-Type", "application/json")
+	chgW := httptest.NewRecorder()
+	PortalForceChangePassword(chgW, chgReq)
+	var chgResp map[string]any
+	json.NewDecoder(chgW.Body).Decode(&chgResp)
+	ast.Equal(float64(0), chgResp["code"])
+
+	// 用新密码可正常登录
+	login2Req := httptest.NewRequest("POST", "/portal/login", strings.NewReader(`{"username":"forceuser","password":"newpass123"}`))
+	login2Req.Header.Set("Content-Type", "application/json")
+	login2W := httptest.NewRecorder()
+	PortalLogin(login2W, login2Req)
+	var login2Resp map[string]any
+	json.NewDecoder(login2W.Body).Decode(&login2Resp)
+	ast.Equal(float64(0), login2Resp["code"])
+}
+
+// 验证本地用户启用 OTP 时，登录走管道的 otp 步骤：返回 otp 挑战，提交正确动态码后通过。
+func TestPortalLogin_OTP(t *testing.T) {
+	base.Test()
+	preIpData(t)
+	defer closeIpdata()
+	base.UpdateCfg(func(c *base.ServerConfig) {
+		c.EnableUserPortal = true
+		c.SendOtp = false
+	})
+
+	// 组含 local + otp 步骤
+	pt := &dbdata.Policy{Name: "plcy-otp", ClientDns: []dbdata.ValData{{Val: "8.8.8.8"}}, Status: 1}
+	_ = dbdata.SetPolicy(pt)
+	_ = dbdata.SetGroup(&dbdata.Group{
+		Name:        "otpgrp",
+		Status:      1,
+		PolicyId:    pt.Id,
+		AuthProfile: json.RawMessage(`{"step":[{"type":"local"},{"type":"otp"}]}`),
+	})
+	hashed, _ := utils.PasswordHash("oldpass123")
+	u := &dbdata.User{
+		Username:  "otpuser",
+		PinCode:   hashed,
+		Groups:    []string{"otpgrp"},
+		Status:    1,
+		OtpSecret: "JBSWY3DPEHPK3PXP",
+	}
+	_ = dbdata.SetUser(u)
+
+	ast := assert.New(t)
+	// 登录 -> otp 挑战
+	loginReq := httptest.NewRequest("POST", "/portal/login", strings.NewReader(`{"username":"otpuser","password":"oldpass123"}`))
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginW := httptest.NewRecorder()
+	PortalLogin(loginW, loginReq)
+	var loginResp map[string]any
+	json.NewDecoder(loginW.Body).Decode(&loginResp)
+	ast.Equal(float64(0), loginResp["code"])
+	data := loginResp["data"].(map[string]any)
+	ast.Equal("otp", data["status"])
+	sessionID, _ := data["session_id"].(string)
+	ast.NotEmpty(sessionID)
+
+	// 计算当前 TOTP 码并提交
+	code := gotp.NewDefaultTOTP("JBSWY3DPEHPK3PXP").Now()
+	verifyBody := fmt.Sprintf(`{"session_id":"%s","code":"%s"}`, sessionID, code)
+	verifyReq := httptest.NewRequest("POST", "/portal/verify", strings.NewReader(verifyBody))
+	verifyReq.Header.Set("Content-Type", "application/json")
+	verifyW := httptest.NewRecorder()
+	PortalVerify(verifyW, verifyReq)
+	var verifyResp map[string]any
+	json.NewDecoder(verifyW.Body).Decode(&verifyResp)
+	ast.Equal(float64(0), verifyResp["code"])
+	authData := verifyResp["data"].(map[string]any)
+	ast.Equal("pass", authData["status"])
 }
