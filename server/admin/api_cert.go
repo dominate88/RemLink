@@ -46,20 +46,44 @@ func CustomCert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 存入数据库
-	if err := dbdata.SettingSaveTLSCert(string(certBytes), string(keyBytes)); err != nil {
-		RespError(w, RespInternalErr, err)
+	// slot=wild 写入 WebVPN 泛域名证书，否则主证书
+	wild := r.FormValue("slot") == "wild"
+	if err := applyUploadedCert(w, wild, certBytes, keyBytes, r); err != nil {
 		return
 	}
-
-	if tlscert, _, err := dbdata.ParseCert(); err != nil {
-		RespError(w, RespInternalErr, fmt.Sprintf("证书加载失败:%v", err))
-		return
-	} else {
-		dbdata.LoadCertificate(tlscert)
-	}
-	dbdata.AdminLog("证书管理", "TLS证书", "上传了自定义TLS证书", r.RemoteAddr)
 	RespSucess(w, "上传成功")
+}
+
+// 保存上传证书并重载到 SNI 表。wild=true 写 WebVPN 泛域名证书，false 写主证书。
+func applyUploadedCert(w http.ResponseWriter, wild bool, certBytes, keyBytes []byte, r *http.Request) error {
+	certStr, keyStr := string(certBytes), string(keyBytes)
+	if wild {
+		if err := dbdata.SettingSaveTLSCertWild(certStr, keyStr); err != nil {
+			RespError(w, RespInternalErr, err)
+			return err
+		}
+		wildCert, _, err := dbdata.ParseCertWild()
+		if err != nil {
+			RespError(w, RespInternalErr, fmt.Sprintf("泛域名证书加载失败:%v", err))
+			return err
+		} else if wildCert != nil {
+			dbdata.LoadCertificates([]*tls.Certificate{wildCert})
+		}
+		dbdata.AdminLog("证书管理", "WebVPN泛域名证书", "上传了自定义泛域名TLS证书", r.RemoteAddr)
+		return nil
+	}
+	if err := dbdata.SettingSaveTLSCert(certStr, keyStr); err != nil {
+		RespError(w, RespInternalErr, err)
+		return err
+	}
+	tlscert, _, err := dbdata.ParseCert()
+	if err != nil {
+		RespError(w, RespInternalErr, fmt.Sprintf("证书加载失败:%v", err))
+		return err
+	}
+	dbdata.LoadCertificate(tlscert)
+	dbdata.AdminLog("证书管理", "TLS证书", "上传了自定义TLS证书", r.RemoteAddr)
+	return nil
 }
 func GetCertSetting(w http.ResponseWriter, r *http.Request) {
 	data := &dbdata.SettingLetsEncrypt{}
@@ -96,6 +120,16 @@ func CreatCert(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespInternalErr, err)
 		return
 	}
+	// 证书类型：wild=WebVPN 泛域名证书
+	certType := r.FormValue("cert_type")
+	if certType == "" {
+		var certTypeBody struct {
+			CertType string `json:"certType"`
+		}
+		if err := json.Unmarshal(body, &certTypeBody); err == nil {
+			certType = certTypeBody.CertType
+		}
+	}
 	// 保留未修改的 DNS 密钥
 	old := &dbdata.SettingLetsEncrypt{}
 	if dbdata.SettingGet(old) == nil {
@@ -119,12 +153,27 @@ func CreatCert(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespInternalErr, fmt.Sprintf("获取证书失败:%v", err))
 		return
 	}
-	if err := client.GetCert(config.Domain); err != nil {
+	// cert_type=wild 时申请 WebVPN 泛域名证书（*.WebVpnDomain）
+	domain := config.Domain
+	wild := false
+	if certType == "wild" {
+		wild = true
+		domain = base.GetCfg().WebVpnDomain
+		if domain == "" {
+			RespError(w, RespParamErr, "未配置 WebVPN 域名（WebVpnDomain），无法申请泛域名证书")
+			return
+		}
+	}
+	if err := client.GetCert(domain, wild); err != nil {
 		base.Error(err)
 		RespError(w, RespInternalErr, fmt.Sprintf("获取证书失败:%v", err))
 		return
 	}
-	dbdata.AdminLog("证书管理", config.Domain, "通过LetsEncrypt生成了证书", r.RemoteAddr)
+	if wild {
+		dbdata.AdminLog("证书管理", "*."+domain, "通过LetsEncrypt生成了WebVPN泛域名证书", r.RemoteAddr)
+	} else {
+		dbdata.AdminLog("证书管理", config.Domain, "通过LetsEncrypt生成了证书", r.RemoteAddr)
+	}
 	RespSucess(w, "生成证书成功")
 }
 

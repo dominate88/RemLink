@@ -124,12 +124,18 @@ type SettingTLSCert struct {
 	CertKeyContent security.EncryptedString `json:"cert_key_content"`
 }
 
+// WebVPN 泛域名证书，用于 *.WebVpnDomain 子域。
+type SettingTLSCertWild struct {
+	CertContent    string                   `json:"cert_content"`
+	CertKeyContent security.EncryptedString `json:"cert_key_content"`
+}
+
 type SettingClientCA struct {
 	CertContent string                   `json:"cert_content"`
 	KeyContent  security.EncryptedString `json:"key_content"`
 }
 
-// SettingPortalResetTokens 记录已使用的密码重置 token，防止重复使用。
+// 记录已使用的密码重置 token，防止重复使用。
 type SettingPortalResetTokens struct {
 	Tokens map[string]int64 `json:"tokens"` // jti -> used_at unix timestamp
 }
@@ -259,6 +265,15 @@ func saveServerConfig(data *SettingServerConfig) error {
 
 func SettingSaveTLSCert(certContent, keyContent string) error {
 	tls := SettingTLSCert{
+		CertContent:    certContent,
+		CertKeyContent: security.EncryptedString(keyContent),
+	}
+	return SettingSave(&tls)
+}
+
+// 保存 WebVPN 泛域名证书
+func SettingSaveTLSCertWild(certContent, keyContent string) error {
+	tls := SettingTLSCertWild{
 		CertContent:    certContent,
 		CertKeyContent: security.EncryptedString(keyContent),
 	}

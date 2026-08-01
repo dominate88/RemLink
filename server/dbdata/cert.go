@@ -171,32 +171,43 @@ func (l *LegoUserData) GetUserData(d *SettingLetsEncrypt) (*LegoUser, error) {
 
 // 检查证书过期时间，若距过期不足 7 天则自动续期
 func CheckAndRenewCert() {
-	_, certtime, err := ParseCert()
+	config := &SettingLetsEncrypt{}
+	if err := SettingGet(config); err != nil {
+		base.Error(err)
+		return
+	}
+	renewSingleCert("主证书", false, config, ParseCert)
+	renewSingleCert("WebVPN 泛域名证书", true, config, ParseCertWild)
+}
+
+// 距过期不足 7 天则自动续期；slot 决定写回主证书还是泛域名证书，parse 注入对应证书的解析函数。
+func renewSingleCert(name string, slot bool, config *SettingLetsEncrypt, parse func() (*tls.Certificate, *time.Time, error)) {
+	cert, expireAt, err := parse()
 	if err != nil {
 		base.Error(err)
 		return
 	}
-	if certtime.AddDate(0, 0, -7).Before(time.Now()) {
-		config := &SettingLetsEncrypt{}
-		if err := SettingGet(config); err != nil {
-			base.Error(err)
-			return
-		}
-		if config.Renew {
-			client := &LeGoClient{}
-			if err := client.NewClient(config); err != nil {
-				base.Error(err)
-				return
-			}
-			if err := client.RenewCert(); err != nil {
-				base.Error(err)
-				return
-			}
-			base.Info("证书续期成功")
-		}
-	} else {
-		base.Info(fmt.Sprintf("证书过期时间：%s", certtime.Local().Format("2006-1-2 15:04:05")))
+	if cert == nil {
+		base.Info(fmt.Sprintf("未配置%s，跳过续期", name))
+		return
 	}
+	if !expireAt.AddDate(0, 0, -7).Before(time.Now()) {
+		base.Info(fmt.Sprintf("%s过期时间：%s", name, expireAt.Local().Format("2006-1-2 15:04:05")))
+		return
+	}
+	if !config.Renew {
+		return
+	}
+	client := &LeGoClient{}
+	if err := client.NewClient(config); err != nil {
+		base.Error(err)
+		return
+	}
+	if err := client.RenewCert(slot); err != nil {
+		base.Error(err)
+		return
+	}
+	base.Info(fmt.Sprintf("%s续期成功", name))
 }
 
 func (c *LeGoClient) NewClient(l *SettingLetsEncrypt) error {
@@ -243,11 +254,16 @@ func (c *LeGoClient) NewClient(l *SettingLetsEncrypt) error {
 	return nil
 }
 
-func (c *LeGoClient) GetCert(domain string) error {
+func (c *LeGoClient) GetCert(domain string, wild bool) error {
 	// 申请证书
+	domains := []string{domain}
+	// 泛域名证书需申请 *.domain 形式，且需 DNS 挑战
+	if wild {
+		domains = []string{"*." + domain}
+	}
 	certificates, err := c.Client.Certificate.Obtain(
 		certificate.ObtainRequest{
-			Domains: []string{domain},
+			Domains: domains,
 			Bundle:  true,
 		})
 	if err != nil {
@@ -255,19 +271,18 @@ func (c *LeGoClient) GetCert(domain string) error {
 	}
 	c.Cert = certificates
 	// 保存证书
-	if err := c.SaveCert(); err != nil {
+	if err := c.SaveCert(wild); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (c *LeGoClient) RenewCert() error {
-	tlsData := SettingTLSCert{}
-	if err := SettingGet(&tlsData); err != nil {
+// wild=false 续期主证书（vpn 主域），wild=true 续期 WebVPN 泛域名证书（*.WebVpnDomain）。
+func (c *LeGoClient) RenewCert(wild bool) error {
+	cert, key, err := loadStoredCert(wild)
+	if err != nil {
 		return err
 	}
-	cert := tlsData.CertContent
-	key := string(tlsData.CertKeyContent)
 	if cert == "" || key == "" {
 		return fmt.Errorf("证书内容为空，无法续期")
 	}
@@ -281,13 +296,43 @@ func (c *LeGoClient) RenewCert() error {
 	}
 	c.Cert = renewcert
 	// 保存更新证书
-	if err := c.SaveCert(); err != nil {
+	if err := c.SaveCert(wild); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (c *LeGoClient) SaveCert() error {
+// 从数据库读取旧证书内容
+func loadStoredCert(wild bool) (cert, key string, err error) {
+	if wild {
+		tlsData := SettingTLSCertWild{}
+		if err = SettingGet(&tlsData); err != nil {
+			return
+		}
+		return tlsData.CertContent, string(tlsData.CertKeyContent), nil
+	}
+	tlsData := SettingTLSCert{}
+	if err = SettingGet(&tlsData); err != nil {
+		return
+	}
+	return tlsData.CertContent, string(tlsData.CertKeyContent), nil
+}
+
+// wild=false 存主证书，wild=true 存泛域名证书（WebVPN）。
+// 主证书通过 LoadCertificate 清旧映射并设为 default；泛域名证书只追加到 SAN 表（LoadCertificates 不清旧映射），
+// 两者并存，不能互相覆盖
+func (c *LeGoClient) SaveCert(wild bool) error {
+	if wild {
+		if err := SettingSaveTLSCertWild(string(c.Cert.Certificate), string(c.Cert.PrivateKey)); err != nil {
+			return fmt.Errorf("保存泛域名证书失败: %w", err)
+		}
+		if wildCert, _, err := ParseCertWild(); err != nil {
+			return err
+		} else if wildCert != nil {
+			LoadCertificates([]*tls.Certificate{wildCert})
+		}
+		return nil
+	}
 	// 证书 PEM 大字段独立存储
 	if err := SettingSaveTLSCert(string(c.Cert.Certificate), string(c.Cert.PrivateKey)); err != nil {
 		return fmt.Errorf("保存TLS证书失败: %w", err)
@@ -323,6 +368,40 @@ func tryLoadCert() (*tls.Certificate, error) {
 	tlsData := SettingTLSCert{}
 	if err := SettingGet(&tlsData); err != nil {
 		return nil, err
+	}
+	cert, err := tls.X509KeyPair([]byte(tlsData.CertContent), []byte(string(tlsData.CertKeyContent)))
+	if err != nil {
+		return nil, err
+	}
+	return &cert, nil
+}
+
+// 加载 WebVPN 泛域名证书，不存在时返回 nil, nil, nil（不影响主证书）。
+func ParseCertWild() (*tls.Certificate, *time.Time, error) {
+	cert, err := tryLoadCertWild()
+	if err != nil {
+		return nil, nil, err
+	}
+	if cert == nil {
+		return nil, nil, nil
+	}
+	parseCert, err := x509.ParseCertificate(cert.Certificate[0])
+	if err != nil {
+		return nil, nil, err
+	}
+	return cert, &parseCert.NotAfter, nil
+}
+
+func tryLoadCertWild() (*tls.Certificate, error) {
+	tlsData := SettingTLSCertWild{}
+	if err := SettingGet(&tlsData); err != nil {
+		if CheckErrNotFound(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if tlsData.CertContent == "" || tlsData.CertKeyContent == "" {
+		return nil, nil
 	}
 	cert, err := tls.X509KeyPair([]byte(tlsData.CertContent), []byte(string(tlsData.CertKeyContent)))
 	if err != nil {
@@ -407,21 +486,33 @@ func GetCertificateBySNI(commonName string) (*tls.Certificate, error) {
 }
 
 func LoadCertificate(cert *tls.Certificate) {
-	buildNameToCertificate(cert)
+	buildNameToCertificate(cert, true)
+}
+
+// 注入多张证书到 SNI 表（不清旧映射，实现多证书并存）。
+// 用于 WebVPN 泛域名证书与主证书同时生效。
+func LoadCertificates(certs []*tls.Certificate) {
+	for _, c := range certs {
+		if c != nil {
+			buildNameToCertificate(c, false)
+		}
+	}
 }
 
 // Copy from tls.Config BuildNameToCertificate()
-func buildNameToCertificate(cert *tls.Certificate) {
+// setDefault=true 时该证书作为默认证书（default ），false 时仅按 SAN 注册
+func buildNameToCertificate(cert *tls.Certificate, setDefault bool) {
 	ntcMux.Lock()
 	defer ntcMux.Unlock()
 
-	// 清理旧映射，避免换证书后残留域名指向旧证书
-	for k := range nameToCertificate {
-		delete(nameToCertificate, k)
+	if setDefault {
+		// 清理旧映射，避免换证书后残留域名指向旧证书
+		for k := range nameToCertificate {
+			delete(nameToCertificate, k)
+		}
+		// 设置默认证书
+		nameToCertificate["default"] = cert
 	}
-
-	// 设置默认证书
-	nameToCertificate["default"] = cert
 
 	x509Cert, err := x509.ParseCertificate(cert.Certificate[0])
 	if err != nil {

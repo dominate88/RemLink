@@ -11,6 +11,11 @@ const PageSize = 10
 
 var ErrNotFound = errors.New("ErrNotFound")
 
+// XdbSet 替换全局数据库引擎（仅供测试初始化内存库使用）
+func XdbSet(e *xorm.Engine) {
+	xdb = e
+}
+
 func Add(data any) error {
 	_, err := xdb.InsertOne(data)
 	return err
@@ -78,8 +83,8 @@ func CountAll(data any) int {
 }
 
 func Find(data any, limit, page int) error {
-	if limit == 0 {
-		// 默认按主键排序，确保结果一致性
+	if limit <= 0 {
+		// 默认按主键排序，确保结果一致性；limit<=0 视为查全部（无序分页参数兼容 -1 等）
 		return xdb.OrderBy("id ASC").Find(data)
 	}
 

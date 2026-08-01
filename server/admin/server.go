@@ -82,6 +82,16 @@ func StartAdmin() {
 	r.HandleFunc("/set/portal_brand", SetPortalBrand)
 	r.HandleFunc("/set/portal_brand/edit", SetPortalBrandEdit).Methods(http.MethodPost)
 	r.HandleFunc("/set/portal_dashboard", SetPortalDashboard)
+
+	// WebVPN 应用管理
+	r.HandleFunc("/webvpn/domain", WebVpnDomain)
+	r.HandleFunc("/webvpn/app/list", WebVpnAppList)
+	r.HandleFunc("/webvpn/app/detail", WebVpnAppDetail)
+	r.HandleFunc("/webvpn/app/set", WebVpnAppSet).Methods(http.MethodPost)
+	r.HandleFunc("/webvpn/app/del", WebVpnAppDel).Methods(http.MethodPost)
+	r.HandleFunc("/webvpn/audit/list", WebVpnAuditList)
+	r.HandleFunc("/webvpn/audit/export", WebVpnAuditExport)
+	r.HandleFunc("/webvpn/session/kick", WebVpnSessionKick).Methods(http.MethodPost)
 	r.HandleFunc("/set/portal_dashboard/edit", SetPortalDashboardEdit).Methods(http.MethodPost)
 	r.HandleFunc("/set/audit/list", SetAuditList)
 	r.HandleFunc("/set/audit/export", SetAuditExport)

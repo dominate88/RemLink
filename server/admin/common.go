@@ -58,13 +58,45 @@ func RevokeJwtToken(tokenString string) {
 func SetJwtData(data map[string]any, expiresAt int64) (string, error) {
 	// jti 用于支持单条 JWT 吊销
 	jti := utils.RandomRunes(16)
-	jwtData := jwt.MapClaims{"exp": expiresAt, "jti": jti}
+	jwtData := jwt.MapClaims{"exp": expiresAt, "jti": jti, "iat": time.Now().Unix()}
 	maps.Copy(jwtData, data)
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwtData)
 
 	// Sign and get the complete encoded token as a string using the secret
 	tokenString, err := token.SignedString([]byte(base.GetCfg().JwtSecret))
 	return tokenString, err
+}
+
+// 从 JWT 字符串解析 jti（用于单条/全量吊销），解析失败返回空串。
+func JtiOf(tokenString string) (string, error) {
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {
+		return []byte(base.GetCfg().JwtSecret), nil
+	})
+	if err != nil {
+		return "", err
+	}
+	if claims, ok := token.Claims.(jwt.MapClaims); ok {
+		if jti, _ := claims["jti"].(string); jti != "" {
+			return jti, nil
+		}
+	}
+	return "", errors.New("JWT 无 jti")
+}
+
+// 从 WebVPN 会话 JWT 解析 webvpn_user（全量登出时定位索引）。
+func UsernameOf(tokenString string) (string, error) {
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {
+		return []byte(base.GetCfg().JwtSecret), nil
+	})
+	if err != nil {
+		return "", err
+	}
+	if claims, ok := token.Claims.(jwt.MapClaims); ok {
+		if u, _ := claims["webvpn_user"].(string); u != "" {
+			return u, nil
+		}
+	}
+	return "", errors.New("JWT 无 webvpn_user")
 }
 
 func GetJwtData(jwtToken string) (map[string]any, error) {
