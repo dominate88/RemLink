@@ -37,6 +37,10 @@ func setupWebVpnTest(t *testing.T) (backend *httptest.Server, teardown func()) {
 	})
 	base.ReinitLog() // 初始化日志器，避免 base.Info/Error 在测试中 nil panic
 
+	// 清空跨测试残留的整用户吊销阈值，避免前一个测试 WebVpnRevokeAllForUser 的副作用
+	// 导致本测试会话被误判为已吊销（吊销状态存于包级全局 map，需显式重置）。
+	dbdata.WebVpnRevokeReset()
+
 	// 建表
 	eng, err := xorm.NewEngine("sqlite3", base.GetCfg().DbSource)
 	if err != nil {
@@ -213,12 +217,21 @@ func newWebVpnReqEx(t *testing.T, opts webVpnReqOpts) (*http.Request, *httptest.
 
 // issueWebVpnTokenForTest 直接签发 WebVPN 会话 JWT，可精确控制 iat/exp。
 func issueWebVpnTokenForTest(t *testing.T, user string, groups []string, iat, exp int64) string {
+	return issueWebVpnTokenWithIssued(t, user, groups, iat, exp, 0)
+}
+
+// issueWebVpnTokenWithIssued 在 issueWebVpnTokenForTest 基础上可额外控制 webvpn_issued 锚点
+// （首次登录时间）。issued=0 时不写入该锚点（旧 token 行为）。
+func issueWebVpnTokenWithIssued(t *testing.T, user string, groups []string, iat, exp, issued int64) string {
 	data := map[string]any{
-		"webvpn_user":  user,
-		"webvpn_type":  "local",
+		"webvpn_user":   user,
+		"webvpn_type":   "local",
 		"webvpn_groups": groups,
-		"iat":          iat,
-		"exp":          exp,
+		"iat":           iat,
+		"exp":           exp,
+	}
+	if issued > 0 {
+		data["webvpn_issued"] = issued
 	}
 	tok, err := admin.SetJwtData(data, exp)
 	assert.NoError(t, err)
@@ -535,7 +548,7 @@ func TestWebVpnExchangeFromPortal(t *testing.T) {
 	for _, c := range rec.Result().Cookies() {
 		if c.Name == webVpnSessionCookie {
 			gotWebVpn = true
-			assert.Equal(t, "wv.example.com", c.Domain, "会话 cookie 应为跨子域 Domain（前导点被标准库归一化）")
+			assert.Equal(t, "example.com", c.Domain, "会话 cookie 应与门户共用父域 Domain（前导点被标准库归一化）")
 		}
 	}
 	assert.True(t, gotWebVpn, "应种回 webvpn_session cookie")
@@ -586,4 +599,179 @@ func TestWebVpnProxyAuditLogged(t *testing.T) {
 		}
 		return false
 	}, 3*time.Second, 100*time.Millisecond, "审计记录应落库且含真实客户端 IP")
+}
+
+// TestWebVpnRevokedPersistAcrossRestart 验证 P1-8 修复：
+// 整用户踢出（webVpnRevokeAllForUser）的阈值持久化到 DB；
+// 即使进程内存被清空（模拟重启，WebVpnRevokeReset 清内存缓存），旧 token 仍应被判定为失效，
+// 解决原纯内存方案「重启后已踢用户旧会话又能用」的问题。
+func TestWebVpnRevokedPersistAcrossRestart(t *testing.T) {
+	_, teardown := setupWebVpnTest(t)
+	defer teardown()
+	ast := assert.New(t)
+
+	// 签发 alice 的 WebVPN 会话
+	tok := issueWebVpnTokenForTest(t, "alice", []string{"alice-group"},
+		time.Now().Add(-time.Minute).Unix(), time.Now().Add(2*time.Hour).Unix())
+
+	// 未吊销前应可解析
+	u, ok := webVpnUserFromToken(tok)
+	ast.True(ok, "未吊销前会话应可用")
+	ast.Equal("alice", u.Username)
+
+	// 整用户踢出（写入 DB + 内存缓存）
+	webVpnRevokeAllForUser("alice")
+
+	// 同一次进程内：旧 token 立即失效
+	_, ok = webVpnUserFromToken(tok)
+	ast.False(ok, "踢出后同进程内旧会话应立即失效")
+
+	// 模拟重启：清空内存中的吊销阈值缓存（DB 仍有记录）
+	dbdata.WebVpnRevokeReset()
+
+	// 重启后：从 DB 读回阈值，旧 token 仍应失效（P1-8 核心断言）
+	_, ok = webVpnUserFromToken(tok)
+	ast.False(ok, "重启（内存清空）后旧会话应仍按 DB 阈值失效")
+}
+
+// TestWebVpnRevokedBeforeThreshold 验证整用户踢出仅使「踢出前签发」的会话失效，
+// 「踢出后新签发」的会话不受影响（保证管理员踢人后本人重新登录仍可正常使用）。
+func TestWebVpnRevokedBeforeThreshold(t *testing.T) {
+	_, teardown := setupWebVpnTest(t)
+	defer teardown()
+	ast := assert.New(t)
+
+	// 早于踢出时间签发的旧会话
+	oldTok := issueWebVpnTokenForTest(t, "bob", []string{"g"},
+		time.Now().Add(-10*time.Minute).Unix(), time.Now().Add(2*time.Hour).Unix())
+	ast.True(webVpnUserFromTokenOK(oldTok), "踢出前旧会话应可用")
+
+	// 踢出 bob（阈值 = 当前秒级时间戳 T）
+	webVpnRevokeAllForUser("bob")
+
+	// 旧会话失效
+	ast.False(webVpnUserFromTokenOK(oldTok), "踢出后旧会话应失效")
+
+	// 跨过一秒，确保新会话的 iat 严格晚于阈值 T（否则会误判为踢出前签发）
+	time.Sleep(1100 * time.Millisecond)
+
+	// 踢出后新签发的会话（iat 晚于阈值、且不超过当前时刻以满足 JWT iat<=now 校验）仍可用
+	newTok := issueWebVpnTokenForTest(t, "bob", []string{"g"},
+		time.Now().Unix(), time.Now().Add(2*time.Hour).Unix())
+	ast.True(webVpnUserFromTokenOK(newTok), "踢出后新会话应可用")
+}
+
+// TestWebVpnSessionAbsoluteMaxLifetime 验证 WebVPN 会话绝对寿命上限：
+// 会话自首次登录（webvpn_issued 锚点）起算，超过 WebVpnSessionMaxLifetime（默认 480 分钟）
+// 后无论是否持续活跃、不断滑动续期都强制失效，必须重新登录。
+func TestWebVpnSessionAbsoluteMaxLifetime(t *testing.T) {
+	_, teardown := setupWebVpnTest(t)
+	defer teardown()
+	ast := assert.New(t)
+
+	now := time.Now().Unix()
+	exp := now + int64((2 * time.Hour).Seconds())
+
+	// 未超寿命：webvpn_issued 在 1 小时前（远小于默认 480 分钟），iat 近期 → 仍可用
+	within := issueWebVpnTokenWithIssued(t, "alice", []string{"alice-group"},
+		now, exp, now-int64(time.Hour.Seconds()))
+	ast.True(webVpnUserFromTokenOK(within), "会话寿命内（issued 1h 前）应可用")
+
+	// 超过绝对寿命：webvpn_issued 在 9 小时前（> 480 分钟），但 iat 近期（模拟刚滑动续期过）
+	// → 虽 iat 新鲜，但首次登录已过上限，应强制失效
+	expired := issueWebVpnTokenWithIssued(t, "alice", []string{"alice-group"},
+		now, exp, now-int64((9*time.Hour).Seconds()))
+	ast.False(webVpnUserFromTokenOK(expired), "会话超绝对寿命（issued 9h 前）应强制失效")
+
+	// 旧 token 无锚点（webvpn_issued 缺失）：以 iat 兜底，iat 近期未超寿命 → 可用
+	legacy := issueWebVpnTokenForTest(t, "alice", []string{"alice-group"}, now, exp)
+	ast.True(webVpnUserFromTokenOK(legacy), "无锚点旧 token 以 iat 兜底、寿命内应可用")
+}
+
+// webVpnUserFromTokenOK 是 webVpnUserFromToken 的布尔包装，便于断言。
+func webVpnUserFromTokenOK(token string) bool {
+	_, ok := webVpnUserFromToken(token)
+	return ok
+}
+
+// TestWebVpnHandlerSubdomainPortalApiForbidden 验证 P1-6 修复：
+// WebVPN 子域（*.WebVpnDomain）请求门户写接口 /portal/api/* 必须被拒绝（403），
+// 不得 delegate 回主路由（否则会带上 .WebVpnDomain 通配的 portal_session cookie，
+// 形成跨子域门户越权调用，如登出/改密码）。
+func TestWebVpnHandlerSubdomainPortalApiForbidden(t *testing.T) {
+	_, teardown := setupWebVpnTest(t)
+	defer teardown()
+	ast := assert.New(t)
+
+	for _, p := range []string{
+		"/portal/api/logout",
+		"/portal/api/change_password",
+		"/portal/api/devices/offline",
+		"/portal/api/login",
+	} {
+		req := httptest.NewRequest(http.MethodPost, p, nil)
+		req.Host = "evil.wv.example.com" // 任意 WebVPN 子域
+		rec := httptest.NewRecorder()
+		handled := WebVpnHandler(rec, req)
+		ast.True(handled, "子域 /portal/api/* 应由 WebVpnHandler 拦截（不应 delegate），path=%s", p)
+		ast.Equal(http.StatusForbidden, rec.Code, "子域 /portal/api/* 应返回 403，path=%s", p)
+	}
+}
+
+// TestWebVpnHandlerSubdomainWhitelistAllowed 验证 P1-6 白名单放行：
+// WebVPN 子域下仅以下路径可 delegate 回主路由（WebVpnHandler 返回 false）：
+//   - /webvpn/*  —— WebVPN 自有 API（登录/登出/me）
+//   - /ui/*      —— 门户前端静态资源（登录卡片需要）
+//   - /portal GET —— 登录页壳（只读重定向目标）
+func TestWebVpnHandlerSubdomainWhitelistAllowed(t *testing.T) {
+	_, teardown := setupWebVpnTest(t)
+	defer teardown()
+	ast := assert.New(t)
+
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/webvpn/me"},
+		{http.MethodPost, "/webvpn/logout"},
+		{http.MethodGet, "/ui/static/js/app.js"},
+		{http.MethodGet, "/portal"},
+	}
+	for _, c := range cases {
+		req := httptest.NewRequest(c.method, c.path, nil)
+		req.Host = "app.wv.example.com"
+		rec := httptest.NewRecorder()
+		handled := WebVpnHandler(rec, req)
+		ast.False(handled, "子域白名单路径应 delegate 回主路由，method=%s path=%s", c.method, c.path)
+	}
+}
+
+// TestWebVpnHandlerSubdomainNonWhitelistProxy 验证 P1-6：
+// WebVPN 子域下非白名单的普通路径（如 /admin）不应落入门户接口，
+// 而是由 WebVpnHandler 转交代理（返回 true，最终因无对应应用而 404），
+// 避免被路由到门户的 /portal/* 处理器。
+func TestWebVpnHandlerSubdomainNonWhitelistProxy(t *testing.T) {
+	_, teardown := setupWebVpnTest(t)
+	defer teardown()
+	ast := assert.New(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/some/random/path", nil)
+	req.Host = "app.wv.example.com"
+	rec := httptest.NewRecorder()
+	handled := WebVpnHandler(rec, req)
+	ast.True(handled, "子域非白名单路径应由 WebVpnHandler 转交代理")
+}
+
+// TestWebVpnHandlerNonSubdomainIgnored 验证 WebVpnHandler 仅处理 WebVPN 子域请求：
+// 主域名（非 *.WebVpnDomain）的 /portal/api/* 请求应不被拦截，delegate 回主路由。
+func TestWebVpnHandlerNonSubdomainIgnored(t *testing.T) {
+	_, teardown := setupWebVpnTest(t)
+	defer teardown()
+	ast := assert.New(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/portal/api/logout", nil)
+	req.Host = "www.example.com" // 非 WebVPN 子域
+	rec := httptest.NewRecorder()
+	handled := WebVpnHandler(rec, req)
+	ast.False(handled, "非 WebVPN 子域请求不应由 WebVpnHandler 处理")
 }

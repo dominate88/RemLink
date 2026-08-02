@@ -234,7 +234,7 @@ export default {
     loadUsers () {
       axios.get('/user/list?page_size=200').then(resp => {
         if (resp.data.code === 0) {
-          this.allUsers = (resp.data.data.datas || []).map(u => u.Username)
+          this.allUsers = (resp.data.data.datas || []).map(u => u.username)
         }
       }).catch(() => {})
     },
