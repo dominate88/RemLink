@@ -36,8 +36,8 @@ type ConnSession struct {
 	Mtu                 int
 	IfName              string
 	Client              string // 客户端  mobile pc
-	UserAgent           string // 客户端信息
-	UserLogoutCode      uint8  // 用户/客户端主动登出
+	UserAgent           string        // 客户端信息
+	userLogoutCode      atomic.Uint32 // 登出原因码，多 goroutine 并发写，只保留首次设置的值
 	CstpDpd             int
 	Group               *dbdata.Group
 	Policy              *dbdata.Policy // 运行时生效策略（由 NewConn 解析）
@@ -184,6 +184,8 @@ func (s *Session) NewConn() *ConnSession {
 	uniqueMac := s.UniqueMac
 	s.mux.RUnlock()
 	if active {
+		// 同一 session token 重连，旧链接被顶替，不是真正的掉线
+		s.CSess.SetLogoutCode(dbdata.UserLogoutReconn)
 		s.CSess.Close()
 	}
 
@@ -287,6 +289,22 @@ func (s *Session) NewConn() *ConnSession {
 	s.CSess = cSess
 	s.mux.Unlock()
 	return cSess
+}
+
+// SetLogoutCode 记录登出原因。只有首次设置生效：具体原因（主动断开、配额超限等）
+// 总是先于 defer 里的兜底原因写入，后到的兜底不应覆盖它。
+func (cs *ConnSession) SetLogoutCode(code uint8) {
+	// code+1 存储，使零值可区分「未设置」与 UserLogoutLose(0)
+	cs.userLogoutCode.CompareAndSwap(0, uint32(code)+1)
+}
+
+// LogoutCode 返回登出原因码，未设置过则返回 UserLogoutLose。
+func (cs *ConnSession) LogoutCode() uint8 {
+	v := cs.userLogoutCode.Load()
+	if v == 0 {
+		return dbdata.UserLogoutLose
+	}
+	return uint8(v - 1)
 }
 
 func (cs *ConnSession) Close() {
@@ -558,7 +576,7 @@ func CloseSess(token string, code ...uint8) {
 
 	if sess.CSess != nil {
 		if len(code) > 0 {
-			sess.CSess.UserLogoutCode = code[0]
+			sess.CSess.SetLogoutCode(code[0])
 		}
 		sess.CSess.Close()
 		return
@@ -599,7 +617,7 @@ func AddUserActLog(cs *ConnSession, loginTime time.Time) {
 		PlatformVersion: cs.Sess.PlatformVersion,
 		Status:          dbdata.UserLogout,
 	}
-	info := dbdata.UserActLogIns.GetInfoOpsById(cs.UserLogoutCode)
+	info := dbdata.UserActLogIns.GetInfoOpsById(cs.LogoutCode())
 	// 追加流量和在线时长信息
 	duration := time.Since(loginTime)
 	upStr := utils.HumanByte(cs.BandwidthUpAll.Load())

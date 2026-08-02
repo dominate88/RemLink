@@ -20,6 +20,9 @@ func LinkCstp(conn net.Conn, bufRW *bufio.ReadWriter, cSess *sessdata.ConnSessio
 			base.Error("LinkCstp panic", cSess.Username, err)
 		}
 		base.Debug("LinkCstp return", cSess.Username, cSess.IpAddr)
+		// 兜底原因码：读超时/读错误等链路异常。若上面已设置过更具体的原因
+		// （如客户端 DISCONNECT），SetLogoutCode 不会覆盖。
+		cSess.SetLogoutCode(dbdata.UserLogoutLink)
 		_ = conn.Close()
 		cSess.Close()
 	}()
@@ -78,7 +81,7 @@ func LinkCstp(conn net.Conn, bufRW *bufio.ReadWriter, cSess *sessdata.ConnSessio
 				}
 			}
 		case 0x05: // DISCONNECT
-			cSess.UserLogoutCode = dbdata.UserLogoutClient
+			cSess.SetLogoutCode(dbdata.UserLogoutClient)
 			base.Debug("DISCONNECT", cSess.Username, cSess.IpAddr, conn.RemoteAddr())
 			sessdata.CloseSess(cSess.Sess.Token, dbdata.UserLogoutClient)
 			return

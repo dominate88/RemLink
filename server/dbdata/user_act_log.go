@@ -26,6 +26,9 @@ const (
 	UserIdleTimeout    = 6 // 用户空闲链接超时
 	UserLogoutOneAdmin = 7 // 账号被管理员一键下线
 	UserLogoutQuota    = 8 // 流量配额超限被踢下线
+	UserLogoutReconn   = 9 // 客户端自动重连，旧连接已关闭
+	UserLogoutLink     = 10 // 链路读写异常/超时断开
+	UserLogoutTunErr   = 11 // 虚拟网卡建立失败
 
 	UserPortalClient = 4 // 门户/浏览器登录
 	UserPortalOs     = 6 // 门户登录操作系统
@@ -74,6 +77,9 @@ var (
 			UserIdleTimeout:    "用户空闲链接超时",
 			UserLogoutOneAdmin: "账号被管理员一键下线",
 			UserLogoutQuota:    "流量配额超限被踢下线",
+			UserLogoutReconn:   "客户端自动重连，旧连接已关闭",
+			UserLogoutLink:     "链路异常断开",
+			UserLogoutTunErr:   "虚拟网卡建立失败",
 		},
 	}
 )
