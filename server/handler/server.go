@@ -74,9 +74,9 @@ func startTls() {
 			return dbdata.GetCertificateBySNI(chi.ServerName)
 		},
 	}
-	// WebVPN HTTP 监听器不请求客户端证书：客户端证书登录走 CSTP/WebAuth 各自的 TLS 握手，
-	// 此处若请求会导致浏览器每次打开站点都弹出「选择证书」对话框。
-	tlsConfig.ClientAuth = tls.NoClientCert
+	// 请求客户端证书（TLS 层不验证，由认证管道处理）。
+	tlsConfig.ClientAuth = tls.RequestClientCert
+	tlsConfig.ClientCAs = dbdata.LoadClientCAPool()
 	srv := &http.Server{
 		Addr:         addr,
 		Handler:      webVpnRootHandler(),

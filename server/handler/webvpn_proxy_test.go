@@ -133,11 +133,11 @@ func setupWebVpnTest(t *testing.T) (backend *httptest.Server, teardown func()) {
 	return backend, teardown
 }
 
-// newWebVpnReq 构造一个带 webvpn_session 的代理请求
-func newWebVpnReq(t *testing.T, backend *httptest.Server, user, path string) (*http.Request, *httptest.ResponseRecorder) {
+// 构造一个带 webvpn_session 的代理请求
+func newWebVpnReq(t *testing.T, _ *httptest.Server, user, path string) (*http.Request, *httptest.ResponseRecorder) {
 	token, err := admin.SetJwtData(map[string]any{
-		"webvpn_user":  user,
-		"webvpn_type":  "local",
+		"webvpn_user":   user,
+		"webvpn_type":   "local",
 		"webvpn_groups": []string{},
 	}, time.Now().Add(3*time.Hour).Unix())
 	assert.NoError(t, err)
@@ -157,15 +157,15 @@ func newWebVpnReq(t *testing.T, backend *httptest.Server, user, path string) (*h
 
 // webVpnReqOpts 构造代理请求的自定义选项
 type webVpnReqOpts struct {
-	host       string   // 子域名，默认 app1
-	user       string   // webvpn_user，默认 alice
-	groups     []string // webvpn_groups，默认空
-	path       string   // 请求路径，默认 /
-	clientIP   string   // RemoteAddr 的 IP 部分，默认 203.0.113.9
-	portal     string   // 附加的 portal_session cookie 值（用于兑换测试）
-	iatOffset  int64    // 签发 iat 相对现在的偏移（秒），默认 0
-	expOffset  int64    // 过期时间相对现在偏移（秒），默认 +3h
-	noSession  bool     // 不带 webvpn_session cookie
+	host      string   // 子域名，默认 app1
+	user      string   // webvpn_user，默认 alice
+	groups    []string // webvpn_groups，默认空
+	path      string   // 请求路径，默认 /
+	clientIP  string   // RemoteAddr 的 IP 部分，默认 203.0.113.9
+	portal    string   // 附加的 portal_session cookie 值（用于兑换测试）
+	iatOffset int64    // 签发 iat 相对现在的偏移（秒），默认 0
+	expOffset int64    // 过期时间相对现在偏移（秒），默认 +3h
+	noSession bool     // 不带 webvpn_session cookie
 }
 
 // newWebVpnReqEx 通用请求构造：支持组授权、来源 IP、门户兑换、滑动续期等场景。
@@ -201,8 +201,8 @@ func newWebVpnReqEx(t *testing.T, opts webVpnReqOpts) (*http.Request, *httptest.
 	}
 	req.Host = opts.host + ".wv.example.com"
 	req.Header.Set("X-Forwarded-Proto", "https")
-	req.Header.Set("X-Forwarded-For", "1.2.3.4")    // 伪造，应被清洗
-	req.Header.Set("X-Real-IP", "9.9.9.9")          // 伪造，应被清洗
+	req.Header.Set("X-Forwarded-For", "1.2.3.4") // 伪造，应被清洗
+	req.Header.Set("X-Real-IP", "9.9.9.9")       // 伪造，应被清洗
 	// 注意：必须用 AddCookie 追加，不能用 Header.Set("Cookie",...) 覆盖已设置的会话 cookie
 	req.AddCookie(&http.Cookie{Name: "theme", Value: "dark"})
 	if opts.portal != "" {
@@ -287,6 +287,26 @@ func TestWebVpnProxyLocationRewrite(t *testing.T) {
 		"302 Location 应改写回子域名，实际: %s", loc)
 	assert.False(t, strings.Contains(loc, "127.0.0.1"),
 		"Location 不应残留后端地址，实际: %s", loc)
+}
+
+// 验证 Location 改写的主机匹配逻辑：
+// 仅当 Location 主机与后端主机相等或为其后缀子域时改写，避免 strings.Contains 误配无关域名。
+func TestWebVpnHostMatchesBackend(t *testing.T) {
+	ast := assert.New(t)
+	// 相等
+	ast.True(webVpnHostMatchesBackend("10.0.0.5:8080", "10.0.0.5:8080"))
+	ast.True(webVpnHostMatchesBackend("backend.internal", "backend.internal"))
+	// 后缀子域
+	ast.True(webVpnHostMatchesBackend("app.backend.internal", "backend.internal"))
+	ast.True(webVpnHostMatchesBackend("api.10.0.0.5", "10.0.0.5"))
+	// 无关域名（包含子串但非后缀子域）——必须为 false
+	ast.False(webVpnHostMatchesBackend("badexample.com.evil.org", "example.com"))
+	ast.False(webVpnHostMatchesBackend("notbackend.internal", "backend.internal"))
+	// IP 尾缀误配：10.0.0.50 不应命中 10.0.0.5（点边界分隔）
+	ast.False(webVpnHostMatchesBackend("10.0.0.50", "10.0.0.5"))
+	// 空值
+	ast.False(webVpnHostMatchesBackend("", "10.0.0.5"))
+	ast.False(webVpnHostMatchesBackend("10.0.0.5", ""))
 }
 
 func TestWebVpnProxyStripSecurityHeaders(t *testing.T) {
@@ -715,6 +735,15 @@ func TestWebVpnHandlerSubdomainPortalApiForbidden(t *testing.T) {
 		handled := WebVpnHandler(rec, req)
 		ast.True(handled, "子域 /portal/api/* 应由 WebVpnHandler 拦截（不应 delegate），path=%s", p)
 		ast.Equal(http.StatusForbidden, rec.Code, "子域 /portal/api/* 应返回 403，path=%s", p)
+	}
+	// 精确 /portal 仅放行 GET（登录页壳）；非 GET（POST/DELETE 等）一律 403，不得反代/委托。
+	for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+		req := httptest.NewRequest(m, "/portal", nil)
+		req.Host = "evil.wv.example.com"
+		rec := httptest.NewRecorder()
+		handled := WebVpnHandler(rec, req)
+		ast.True(handled, "子域非 GET /portal 应由 WebVpnHandler 拦截，method=%s", m)
+		ast.Equal(http.StatusForbidden, rec.Code, "子域非 GET /portal 应返回 403，method=%s", m)
 	}
 }
 

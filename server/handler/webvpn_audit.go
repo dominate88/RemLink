@@ -27,7 +27,7 @@ func webVpnAuditLog(rec dbdata.WebVpnAudit) {
 }
 
 func webVpnAuditBatchWriter() {
-	base.Info("WebVPN 审计批处理已启动")
+	base.Debug("WebVPN 审计批处理已启动")
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	var batch []dbdata.WebVpnAudit
@@ -48,7 +48,7 @@ func webVpnAuditBatchWriter() {
 			if len(batch) > 0 {
 				flushWebVpnAudit(batch)
 			}
-			base.Info("WebVPN 审计批处理已退出")
+			base.Debug("WebVPN 审计批处理已退出")
 			close(webVpnAuditDone)
 			return
 		}

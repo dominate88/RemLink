@@ -15,7 +15,8 @@
                     <el-radio label="wild">WebVPN 泛域名（*.{{ webvpnDomain }}）</el-radio>
                   </el-radio-group>
                   <div class="form-tip" v-if="customCert.slot === 'wild'">
-                    泛域名证书用于 WebVPN 子域（如 app.{{ webvpnDomain }}）。上传的证书必须包含 <b>*.</b>{{ webvpnDomain }} 的 SAN，否则浏览器会报证书不匹配。
+                    泛域名证书用于 WebVPN 子域（如 app.{{ webvpnDomain }}）。上传的证书必须包含 <b>*.</b>{{ webvpnDomain }} 的
+                    SAN，否则浏览器会报证书不匹配。
                   </div>
                 </el-form-item>
                 <el-form-item label="证书文件">
@@ -52,11 +53,25 @@
             <div class="setting-card">
               <div class="setting-card-title"><i class="el-icon-s-promotion"></i> 通过 Let's Encrypt 申请免费 SSL 证书</div>
               <el-form :model="letsCert" ref="letsCert" :rules="rules" label-width="120px" size="small">
+                <el-form-item label="证书类型">
+                  <el-radio-group v-model="letsCert.certType">
+                    <el-radio label="main">主证书（门户/登录）</el-radio>
+                    <el-radio label="wild">WebVPN 泛域名（*.{{ webvpnDomain }}）</el-radio>
+                  </el-radio-group>
+                  <div class="form-tip" v-if="letsCert.certType === 'wild'">
+                    泛域名证书会向 Let's Encrypt 申请 <b>*.</b>{{ webvpnDomain }}
+                  </div>
+                </el-form-item>
                 <el-form-item label="域名" prop="domain">
-                  <el-input v-model="letsCert.domain" placeholder="如 vpn.example.com"></el-input>
+                  <el-input v-if="letsCert.certType === 'wild'" :value="wildDomainText" disabled></el-input>
+                  <el-input v-else v-model="letsCert.domain" placeholder="如 vpn.example.com"></el-input>
+                  <div class="form-tip" v-if="letsCert.certType === 'wild'">
+                    泛域名证书的域名由「WebVPN 域名」自动决定，无需填写。如需修改请前往 WebVPN 设置页调整。
+                  </div>
                 </el-form-item>
                 <el-form-item label="邮箱" prop="legomail">
                   <el-input v-model="letsCert.legomail" placeholder="admin@example.com"></el-input>
+                  <div class="form-tip">用于注册 Let's Encrypt 账号并接收证书到期提醒。</div>
                 </el-form-item>
                 <el-form-item label="DNS 服务商" prop="name">
                   <el-radio-group v-model="letsCert.name">
@@ -64,15 +79,7 @@
                     <el-radio label="txcloud">腾讯云</el-radio>
                     <el-radio label="cfcloud">Cloudflare</el-radio>
                   </el-radio-group>
-                </el-form-item>
-                <el-form-item label="证书类型">
-                  <el-radio-group v-model="letsCert.certType">
-                    <el-radio label="main">主证书（{{ letsCert.domain }}）</el-radio>
-                    <el-radio label="wild">WebVPN 泛域名（*.{{ webvpnDomain }}）</el-radio>
-                  </el-radio-group>
-                  <div class="form-tip" v-if="letsCert.certType === 'wild'">
-                    泛域名证书会向 Let's Encrypt 申请 <b>*.</b>{{ webvpnDomain }}，需 DNS 挑战（已自动配置）。申请后 WebVPN 子域无需逐应用配置证书。
-                  </div>
+                  <div class="form-tip">用于自动添加 DNS 记录完成域名验证，需填写对应密钥。</div>
                 </el-form-item>
                 <el-form-item v-for="component in dnsProvider[letsCert.name]" :key="component.prop"
                   :label="component.label" :rules="component.rules">
@@ -80,7 +87,8 @@
                     v-model="letsCert[letsCert.name][component.prop]"></component>
                 </el-form-item>
                 <el-form-item label="DNS 服务器">
-                  <el-input v-model="letsCert.dnsResolver" placeholder="多个用逗号分隔，留空默认用阿里 DNS (223.6.6.6,223.5.5.5)"></el-input>
+                  <el-input v-model="letsCert.dnsResolver"
+                    placeholder="多个用逗号分隔，留空默认用阿里 DNS (223.6.6.6,223.5.5.5)"></el-input>
                 </el-form-item>
                 <el-form-item>
                   <el-switch v-model="letsCert.renew" active-color="#13ce66" inactive-color="#ff4949"
@@ -222,64 +230,64 @@
 
               <!-- 证书列表 -->
               <div class="cert-table-wrap">
-              <el-table ref="certTable" :data="clientCertList" style="width: 100%" border
-                :header-cell-style="{ background: 'var(--bg-header)', color: 'var(--text-primary)', fontWeight: '600', fontSize: '13px' }"
-                @selection-change="handleSelectionChange">
-                <el-table-column type="selection" width="45" align="center"></el-table-column>
-                <el-table-column prop="username" label="用户名" width="115"></el-table-column>
-                <el-table-column prop="groupname" label="用户组" width="100"></el-table-column>
-                <el-table-column label="设备绑定" width="75" align="center">
-                  <template slot-scope="scope">
-                    <el-tag :type="scope.row.device_binding_enabled ? 'success' : 'info'" size="small"
-                      @click="editDeviceBinding(scope.row)" style="cursor: pointer;">
-                      {{ scope.row.device_binding_enabled ? '开启' : '关闭' }}
-                    </el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column label="设备ID" min-width="160">
-                  <template slot-scope="scope">
-                    <div v-if="scope.row.device_id && scope.row.device_id.length > 0">
-                      <div v-for="(deviceId, index) in scope.row.device_id" :key="index" class="device-item">
-                        <span class="device-id-text">{{ deviceId }}</span>
-                        <el-button size="mini" type="text" class="device-unbind-btn"
-                          @click="unbindDevice(scope.row, deviceId)" title="解绑此设备">
-                          <i class="el-icon-unlock"></i>
-                        </el-button>
+                <el-table ref="certTable" :data="clientCertList" style="width: 100%" border
+                  :header-cell-style="{ background: 'var(--bg-header)', color: 'var(--text-primary)', fontWeight: '600', fontSize: '13px' }"
+                  @selection-change="handleSelectionChange">
+                  <el-table-column type="selection" width="45" align="center"></el-table-column>
+                  <el-table-column prop="username" label="用户名" width="115"></el-table-column>
+                  <el-table-column prop="groupname" label="用户组" width="100"></el-table-column>
+                  <el-table-column label="设备绑定" width="75" align="center">
+                    <template slot-scope="scope">
+                      <el-tag :type="scope.row.device_binding_enabled ? 'success' : 'info'" size="small"
+                        @click="editDeviceBinding(scope.row)" style="cursor: pointer;">
+                        {{ scope.row.device_binding_enabled ? '开启' : '关闭' }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="设备ID" min-width="160">
+                    <template slot-scope="scope">
+                      <div v-if="scope.row.device_id && scope.row.device_id.length > 0">
+                        <div v-for="(deviceId, index) in scope.row.device_id" :key="index" class="device-item">
+                          <span class="device-id-text">{{ deviceId }}</span>
+                          <el-button size="mini" type="text" class="device-unbind-btn"
+                            @click="unbindDevice(scope.row, deviceId)" title="解绑此设备">
+                            <i class="el-icon-unlock"></i>
+                          </el-button>
+                        </div>
                       </div>
-                    </div>
-                    <span v-else class="text-muted">未绑定</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="最大设备" width="80" align="center">
-                  <template slot-scope="scope">
-                    <span>{{ scope.row.max_devices }}</span>
-                    <el-button size="mini" type="text" @click="editMaxDevices(scope.row)"
-                      class="edit-link">改</el-button>
-                  </template>
-                </el-table-column>
-                <el-table-column prop="created_at" label="创建时间" :formatter="dateFormat" width="140"></el-table-column>
-                <el-table-column prop="not_after" label="过期时间" :formatter="dateFormat" width="140"></el-table-column>
-                <el-table-column label="状态" width="65" align="center">
-                  <template slot-scope="scope">
-                    <el-tag :type="getStatusType(scope.row.status)" size="small">
-                      {{ getStatusText(scope.row.status) }}
-                    </el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column label="操作" min-width="200" class-name="col-ops">
-                  <template slot-scope="scope">
-                    <div class="action-btns">
-                      <el-button size="mini" @click="downloadCert(scope.row)">下载</el-button>
-                      <el-button size="mini" @click="sendCertMail(scope.row)">发送邮件</el-button>
-                      <el-button size="mini" :type="scope.row.status === 0 ? 'warning' : 'success'"
-                        @click="changeCertStatus(scope.row)" :disabled="scope.row.status === 2">
-                        {{ scope.row.status === 0 ? '禁用' : '启用' }}
-                      </el-button>
-                      <el-button size="mini" type="danger" @click="deleteCert(scope.row)">删除</el-button>
-                    </div>
-                  </template>
-                </el-table-column>
-              </el-table>
+                      <span v-else class="text-muted">未绑定</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="最大设备" width="80" align="center">
+                    <template slot-scope="scope">
+                      <span>{{ scope.row.max_devices }}</span>
+                      <el-button size="mini" type="text" @click="editMaxDevices(scope.row)"
+                        class="edit-link">改</el-button>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="created_at" label="创建时间" :formatter="dateFormat" width="140"></el-table-column>
+                  <el-table-column prop="not_after" label="过期时间" :formatter="dateFormat" width="140"></el-table-column>
+                  <el-table-column label="状态" width="65" align="center">
+                    <template slot-scope="scope">
+                      <el-tag :type="getStatusType(scope.row.status)" size="small">
+                        {{ getStatusText(scope.row.status) }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="操作" min-width="200" class-name="col-ops">
+                    <template slot-scope="scope">
+                      <div class="action-btns">
+                        <el-button size="mini" @click="downloadCert(scope.row)">下载</el-button>
+                        <el-button size="mini" @click="sendCertMail(scope.row)">发送邮件</el-button>
+                        <el-button size="mini" :type="scope.row.status === 0 ? 'warning' : 'success'"
+                          @click="changeCertStatus(scope.row)" :disabled="scope.row.status === 2">
+                          {{ scope.row.status === 0 ? '禁用' : '启用' }}
+                        </el-button>
+                        <el-button size="mini" type="danger" @click="deleteCert(scope.row)">删除</el-button>
+                      </div>
+                    </template>
+                  </el-table-column>
+                </el-table>
               </div>
 
               <div class="pagination-wrap">
@@ -309,7 +317,7 @@ export default {
     // 获取 WebVPN 域名用于证书槽位提示
     axios.get("/webvpn/domain").then(resp => {
       if (resp.data.code === 0) this.webvpnDomain = resp.data.data.domain || "";
-    }).catch(() => {});
+    }).catch(() => { });
     // 初始加载客户端证书状态（如果当前是客户端证书tab）
     if (this.activeTab === 'clientCert') {
       this.checkCAStatus();
@@ -323,7 +331,13 @@ export default {
         this.checkCAStatus();
         this.loadClientCertList();
       }
-    }
+    },
+    // 切换证书类型时清除域名的残留校验提示
+    "letsCert.certType"() {
+      this.$nextTick(() => {
+        if (this.$refs.letsCert) this.$refs.letsCert.clearValidate("domain");
+      });
+    },
   },
   data() {
     return {
@@ -338,7 +352,18 @@ export default {
         cfcloud: { authToken: "" },
       },
       rules: {
-        domain: { required: true, message: "请输入域名", trigger: "blur" },
+        domain: {
+          validator: (rule, value, callback) => {
+            // 泛域名证书的域名由 WebVPN 域名决定，无需校验输入框
+            if (this.letsCert.certType === "wild") {
+              if (!this.webvpnDomain) return callback(new Error("未配置 WebVPN 域名，无法申请泛域名证书"));
+              return callback();
+            }
+            if (!value) return callback(new Error("请输入域名"));
+            callback();
+          },
+          trigger: "blur",
+        },
         legomail: { required: true, message: "请输入邮箱", trigger: "blur" },
         name: { required: true, message: "请选择DNS服务商", trigger: "blur" },
       },
@@ -389,6 +414,12 @@ export default {
       sendMailLoading: false,
       sendMailForm: { password: '', certs: [] },
     };
+  },
+  computed: {
+    // 泛域名模式下域名输入框的只读展示值
+    wildDomainText() {
+      return this.webvpnDomain ? "*." + this.webvpnDomain : "未配置 WebVPN 域名";
+    },
   },
   methods: {
     // ===== 自定义证书 =====
@@ -864,6 +895,7 @@ export default {
   gap: 4px;
   white-space: nowrap;
 }
+
 .action-btns .el-button--mini {
   padding: 5px 10px;
 }
@@ -880,12 +912,14 @@ export default {
     padding: 4px 6px;
     font-size: 11px;
   }
+
   .cert-table-wrap ::v-deep .col-ops {
     min-width: 250px !important;
   }
 }
 
 @media (max-width: 880px) {
+
   /* 操作列按钮折行为两行 */
   .action-btns {
     flex-wrap: wrap;
@@ -893,12 +927,14 @@ export default {
     white-space: normal;
     justify-content: center;
   }
+
   .action-btns .el-button--mini {
     padding: 3px 5px;
     font-size: 11px;
     line-height: 1.2;
     min-height: 26px;
   }
+
   .cert-table-wrap ::v-deep .col-ops {
     min-width: 180px !important;
   }
@@ -907,6 +943,7 @@ export default {
     flex-wrap: wrap;
     gap: 6px;
   }
+
   .setting-card ::v-deep .el-form-item__label {
     float: none;
     display: block;
@@ -914,21 +951,25 @@ export default {
     padding-bottom: 6px;
     line-height: 1.5;
   }
+
   .setting-card ::v-deep .el-form-item__content {
     margin-left: 0 !important;
   }
 }
 
 @media (max-width: 600px) {
+
   /* 操作列极致缩小 */
   .action-btns {
     gap: 2px;
   }
+
   .action-btns .el-button--mini {
     padding: 2px 3px;
     font-size: 10px;
     min-height: 22px;
   }
+
   .cert-table-wrap ::v-deep .col-ops {
     min-width: 140px !important;
   }
@@ -939,6 +980,7 @@ export default {
     margin-bottom: 8px;
     display: block;
   }
+
   .search-bar ::v-deep .el-form-item__content {
     margin-left: 0 !important;
   }
@@ -950,6 +992,7 @@ export default {
     gap: 6px;
     padding: 10px 12px;
   }
+
   .action-bar .el-button {
     width: 100%;
     margin: 0 !important;

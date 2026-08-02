@@ -57,7 +57,30 @@ var (
 	webVpnUserCacheMu  sync.Mutex
 	webVpnUserCache    = map[string]*webVpnUserCacheEntry{}
 	webVpnUserCacheTTL = 60 * time.Second
+
+	// 防无界增长：条目数超过该阈值时，惰性清理过期条目（最多每 minCleanInterval 一次）。
+	webVpnUserCacheMaxSize   = 1000
+	webVpnUserCacheMinClean  = time.Minute
+	webVpnUserCacheLastClean time.Time
 )
+
+// 惰性清理过期缓存条目，防止长时间运行后 map 无界膨胀。
+// 调用方须已持有 webVpnUserCacheMu 写锁。仅当条目数超阈值且距上次清理足够久才扫描，
+// 避免高频请求下每次写入都遍历全表。
+func webVpnUserCacheMaybeClean(now time.Time) {
+	if len(webVpnUserCache) <= webVpnUserCacheMaxSize {
+		return
+	}
+	if now.Sub(webVpnUserCacheLastClean) < webVpnUserCacheMinClean {
+		return
+	}
+	webVpnUserCacheLastClean = now
+	for k, e := range webVpnUserCache {
+		if !e.expire.After(now) {
+			delete(webVpnUserCache, k)
+		}
+	}
+}
 
 type webVpnUserCacheEntry struct {
 	user   *dbdata.User
@@ -177,11 +200,13 @@ func webVpnUserFromToken(token string) (*dbdata.User, bool) {
 		if err := dbdata.One("Username", username, u); err != nil || u.Status != 1 {
 			webVpnUserCacheMu.Lock()
 			webVpnUserCache[username] = &webVpnUserCacheEntry{user: nil, expire: time.Now().Add(webVpnUserCacheTTL)}
+			webVpnUserCacheMaybeClean(time.Now())
 			webVpnUserCacheMu.Unlock()
 			return nil, false
 		}
 		webVpnUserCacheMu.Lock()
 		webVpnUserCache[username] = &webVpnUserCacheEntry{user: u, expire: time.Now().Add(webVpnUserCacheTTL)}
+		webVpnUserCacheMaybeClean(time.Now())
 		webVpnUserCacheMu.Unlock()
 		user = u
 	}
@@ -398,13 +423,14 @@ func WebVpnHandler(w http.ResponseWriter, r *http.Request) bool {
 	if strings.HasPrefix(r.URL.Path, "/ui/") {
 		return false
 	}
-	// 未登录时 redirectToWebVpnLogin 会 302 到 /portal（GET，登录页壳，只读），放行；
-	// 门户写接口（/portal/api/*）一律禁止在 WebVPN 子域下访问
-	// 否则子域请求会带上 .WebVpnDomain 通配的 portal_session cookie，越权调用门户 API（跨子域 CSRF）。
+	// 门户相关路径一律禁止在 WebVPN 子域下访问：
+	// 子域请求会带上 .WebVpnDomain 通配的 portal_session cookie，若放行到门户路由，可越权调用门户
+	// 接口（跨子域 CSRF）。仅放行 GET /portal（登录页壳，只读，未登录时 redirect 302 到这里）；
+	// 其余 /portal 任意路径、任意方法（含非 GET 的精确 /portal）一律 403，不 delegate、不反代。
 	if r.URL.Path == "/portal" && r.Method == http.MethodGet {
 		return false
 	}
-	if strings.HasPrefix(r.URL.Path, "/portal/api/") || strings.HasPrefix(r.URL.Path, "/portal/") {
+	if r.URL.Path == "/portal" || strings.HasPrefix(r.URL.Path, "/portal/") {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return true
 	}
@@ -524,11 +550,13 @@ func webVpnProxy(w http.ResponseWriter, r *http.Request, prefix string) {
 			req.Header.Set("X-RemLink-WebVpn", "1")
 		},
 		ModifyResponse: func(resp *http.Response) error {
-			// 302 等 Location 指向后端地址时，改写回子域名
+			// 302 等 Location 指向后端地址时，改写回子域名。
+			// 仅当 Location 的主机与后端主机一致或是其后缀子域（如 back.internal / app.back.internal）
+			// 才改写；用精确/后缀匹配而非子串包含，避免把 badexample.com.evil.org 之类误判为后端地址。
 			loc := resp.Header.Get("Location")
 			if loc != "" {
 				if u, e := url.Parse(loc); e == nil && u.Host != "" {
-					if strings.Contains(u.Host, target.Host) {
+					if webVpnHostMatchesBackend(u.Host, target.Host) {
 						u.Host = r.Host
 						resp.Header.Set("Location", u.String())
 					}
@@ -622,6 +650,22 @@ func webVpnScrubSetCookieDomain(resp *http.Response, backendHost string) {
 		}
 		resp.Header.Add("Set-Cookie", c)
 	}
+}
+
+// 判断 Location 主机是否应改写为 WebVPN 子域：仅当它指向后端主机（相等或是其后缀子域）时改写。
+// 用「相等或 .backend 后缀」精确匹配，避免 strings.Contains 把 badexample.com.evil.org
+// 这类包含后端主机的无关域名误判。host 可带端口，比较时剥离；大小写不敏感。
+func webVpnHostMatchesBackend(locHost, backendHost string) bool {
+	lh := strings.ToLower(stripPort(locHost))
+	bh := strings.ToLower(stripPort(backendHost))
+	if lh == "" || bh == "" {
+		return false
+	}
+	if lh == bh {
+		return true
+	}
+	// 后缀子域匹配，须以 . 边界分隔，避免 IP 尾缀误配（如 10.0.0.50 不应命中 10.0.0.5）
+	return strings.HasSuffix(lh, "."+bh)
 }
 
 // skipVerify 为真（且后端为 https）时跳过对端证书校验，用于后端使用自签/内网证书的场景。
