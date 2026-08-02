@@ -27,13 +27,25 @@ import (
 const portalCookieName = "portal_session"
 
 // 计算门户会话 cookie 的 Domain，在门户主域和 WebVPN 子域之间共享，
+// 未配置 WebVpnDomain、IP 访问、或当前 host 不属于该注册域时返回 ""（按当前 host 存储）。
 func portalCookieDomain(r *http.Request) string {
+	domain := base.GetCfg().WebVpnDomain
+	if domain == "" {
+		return ""
+	}
 	host := stripPort(r.Host)
-	parts := strings.Split(host, ".")
+	if net.ParseIP(host) != nil {
+		return ""
+	}
+	parts := strings.Split(strings.TrimSuffix(domain, "."), ".")
 	if len(parts) < 2 {
 		return ""
 	}
-	return "." + strings.Join(parts[len(parts)-2:], ".")
+	base2 := strings.Join(parts[len(parts)-2:], ".")
+	if host == base2 || strings.HasSuffix(host, "."+base2) {
+		return "." + base2
+	}
+	return ""
 }
 
 func PortalHome(w http.ResponseWriter, r *http.Request) {
