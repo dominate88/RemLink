@@ -84,23 +84,23 @@ func setupWebVpnTest(t *testing.T) (backend *httptest.Server, teardown func()) {
 	assert.NoError(t, dbdata.SetWebVpnApp(&dbdata.WebVpnApp{
 		Name: "app2", Backend: beURL.String(), Status: 1, Users: []string{"bob"},
 	}))
-	// appG：仅授权给 ops 组（alice 无该组应 403）
+	// appg：仅授权给 ops 组（alice 无该组应 403）
 	assert.NoError(t, dbdata.SetWebVpnApp(&dbdata.WebVpnApp{
-		Name: "appG", Backend: beURL.String(), Status: 1, Users: []string{"alice"}, Groups: []string{"ops"},
+		Name: "appg", Backend: beURL.String(), Status: 1, Users: []string{"alice"}, Groups: []string{"ops"},
 	}))
-	// appIp：仅允许来源 IP 在 10.0.0.0/8（客户端 203.0.113.9 不在内，应 403）
+	// appip：仅允许来源 IP 在 10.0.0.0/8（客户端 203.0.113.9 不在内，应 403）
 	assert.NoError(t, dbdata.SetWebVpnApp(&dbdata.WebVpnApp{
-		Name: "appIp", Backend: beURL.String(), Status: 1, Users: []string{"alice"},
+		Name: "appip", Backend: beURL.String(), Status: 1, Users: []string{"alice"},
 		IpAllowList: []string{"10.0.0.0/8"},
 	}))
-	// appPath：仅允许路径前缀 /api/（访问 /admin 应 403）
+	// apppath：仅允许路径前缀 /api/（访问 /admin 应 403）
 	assert.NoError(t, dbdata.SetWebVpnApp(&dbdata.WebVpnApp{
-		Name: "appPath", Backend: beURL.String(), Status: 1, Users: []string{"alice"},
+		Name: "apppath", Backend: beURL.String(), Status: 1, Users: []string{"alice"},
 		AllowPath: []string{"/api/"},
 	}))
-	// appHost：反向代理时改写后端 Host 为 backend.internal
+	// apphost：反向代理时改写后端 Host 为 backend.internal
 	assert.NoError(t, dbdata.SetWebVpnApp(&dbdata.WebVpnApp{
-		Name: "appHost", Backend: beURL.String(), Status: 1, Users: []string{"alice"},
+		Name: "apphost", Backend: beURL.String(), Status: 1, Users: []string{"alice"},
 		HostRewrite: "backend.internal",
 	}))
 	// 禁用应用：先创建（默认启用），再更新为禁用
@@ -133,7 +133,7 @@ func setupWebVpnTest(t *testing.T) (backend *httptest.Server, teardown func()) {
 	return backend, teardown
 }
 
-// 构造一个带 webvpn_session 的代理请求
+// newWebVpnReq 构造一个带 webvpn_session 的代理请求
 func newWebVpnReq(t *testing.T, _ *httptest.Server, user, path string) (*http.Request, *httptest.ResponseRecorder) {
 	token, err := admin.SetJwtData(map[string]any{
 		"webvpn_user":   user,
@@ -381,20 +381,20 @@ func TestWebVpnProxySkipVerify(t *testing.T) {
 
 	// 关闭 skip_verify：证书不受信任，应 502
 	assert.NoError(t, dbdata.SetWebVpnApp(&dbdata.WebVpnApp{
-		Name: "tlsNoSkip", Backend: tlsBackend.URL, Status: 1, Users: []string{"alice"},
+		Name: "tlsnoskip", Backend: tlsBackend.URL, Status: 1, Users: []string{"alice"},
 	}))
 	req, rec := newWebVpnReq(t, backend, "alice", "/")
 	req.Host = "tlsnoskip.wv.example.com"
-	webVpnProxy(rec, req, "tlsNoSkip")
+	webVpnProxy(rec, req, "tlsnoskip")
 	assert.Equal(t, http.StatusBadGateway, rec.Code, "自签证书且未开启跳过校验应 502")
 
 	// 开启 skip_verify：应成功反代
 	assert.NoError(t, dbdata.SetWebVpnApp(&dbdata.WebVpnApp{
-		Name: "tlsSkip", Backend: tlsBackend.URL, Status: 1, Users: []string{"alice"}, SkipVerify: true,
+		Name: "tlsskip", Backend: tlsBackend.URL, Status: 1, Users: []string{"alice"}, SkipVerify: true,
 	}))
 	req2, rec2 := newWebVpnReq(t, backend, "alice", "/")
 	req2.Host = "tlsskip.wv.example.com"
-	webVpnProxy(rec2, req2, "tlsSkip")
+	webVpnProxy(rec2, req2, "tlsskip")
 	assert.Equal(t, http.StatusOK, rec2.Code, "开启跳过校验后自签后端应可访问")
 	assert.Equal(t, "tls-ok", rec2.Body.String())
 }
@@ -472,13 +472,13 @@ func TestWebVpnProxyGroupAuthorization(t *testing.T) {
 	defer teardown()
 
 	// alice 无 ops 组 → 403
-	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "appG", groups: []string{"dev"}})
-	webVpnProxy(rec, req, "appG")
+	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "appg", groups: []string{"dev"}})
+	webVpnProxy(rec, req, "appg")
 	assert.Equal(t, http.StatusForbidden, rec.Code, "无授权组的用户应 403")
 
 	// alice 有 ops 组 → 200
-	req2, rec2, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "appG", groups: []string{"ops"}})
-	webVpnProxy(rec2, req2, "appG")
+	req2, rec2, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "appg", groups: []string{"ops"}})
+	webVpnProxy(rec2, req2, "appg")
 	assert.Equal(t, http.StatusOK, rec2.Code, "命中授权组的用户应放行")
 }
 
@@ -488,13 +488,13 @@ func TestWebVpnProxyIpAllowList(t *testing.T) {
 	defer teardown()
 
 	// 客户端 203.0.113.9 不在 10.0.0.0/8 → 403
-	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "appIp", clientIP: "203.0.113.9"})
-	webVpnProxy(rec, req, "appIp")
+	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "appip", clientIP: "203.0.113.9"})
+	webVpnProxy(rec, req, "appip")
 	assert.Equal(t, http.StatusForbidden, rec.Code, "不在 IP 白名单应 403")
 
 	// 客户端 10.1.2.3 在 10.0.0.0/8 → 200
-	req2, rec2, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "appIp", clientIP: "10.1.2.3"})
-	webVpnProxy(rec2, req2, "appIp")
+	req2, rec2, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "appip", clientIP: "10.1.2.3"})
+	webVpnProxy(rec2, req2, "appip")
 	assert.Equal(t, http.StatusOK, rec2.Code, "命中 IP 白名单应放行")
 }
 
@@ -504,13 +504,13 @@ func TestWebVpnProxyPathAllowList(t *testing.T) {
 	defer teardown()
 
 	// /admin 不在 /api/ 前缀 → 403
-	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "appPath", path: "/admin"})
-	webVpnProxy(rec, req, "appPath")
+	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "apppath", path: "/admin"})
+	webVpnProxy(rec, req, "apppath")
 	assert.Equal(t, http.StatusForbidden, rec.Code, "越权路径应 403")
 
 	// /api/users 命中前缀 → 200
-	req2, rec2, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "appPath", path: "/api/users"})
-	webVpnProxy(rec2, req2, "appPath")
+	req2, rec2, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "apppath", path: "/api/users"})
+	webVpnProxy(rec2, req2, "apppath")
 	assert.Equal(t, http.StatusOK, rec2.Code, "命中路径白名单应放行")
 }
 
@@ -531,8 +531,8 @@ func TestWebVpnProxyHostRewrite(t *testing.T) {
 	_, teardown := setupWebVpnTest(t)
 	defer teardown()
 
-	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "appHost"})
-	webVpnProxy(rec, req, "appHost")
+	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "apphost"})
+	webVpnProxy(rec, req, "apphost")
 
 	backendSeen.Lock()
 	got := backendSeen.last
@@ -803,4 +803,33 @@ func TestWebVpnHandlerNonSubdomainIgnored(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handled := WebVpnHandler(rec, req)
 	ast.False(handled, "非 WebVPN 子域请求不应由 WebVpnHandler 处理")
+}
+
+// TestWebVpnSameOrigin 覆盖注销端点的 CSRF 同源校验：
+// 同域 Origin / 同域 Referer / 无来源头应放行；跨站 Origin 必须拒绝。
+func TestWebVpnSameOrigin(t *testing.T) {
+	ast := assert.New(t)
+
+	// 同域 http Origin（测试请求 TLS==nil，与 http 同源匹配）放行
+	r1 := httptest.NewRequest(http.MethodPost, "/webvpn/logout", nil)
+	r1.Host = "app.wv.example.com"
+	r1.Header.Set("Origin", "http://app.wv.example.com")
+	ast.True(webVpnSameOrigin(r1), "同域 Origin 应放行")
+
+	// 跨站 Origin（evil.com）必须拒绝
+	r2 := httptest.NewRequest(http.MethodPost, "/webvpn/logout", nil)
+	r2.Host = "app.wv.example.com"
+	r2.Header.Set("Origin", "https://evil.com")
+	ast.False(webVpnSameOrigin(r2), "跨站 Origin 必须拒绝")
+
+	// 无 Origin，但有同域 Referer 应放行
+	r3 := httptest.NewRequest(http.MethodPost, "/webvpn/logout", nil)
+	r3.Host = "app.wv.example.com"
+	r3.Header.Set("Referer", "https://app.wv.example.com/some/page")
+	ast.True(webVpnSameOrigin(r3), "同域 Referer 应放行")
+
+	// 无 Origin 无 Referer（同域原生导航）应放行
+	r4 := httptest.NewRequest(http.MethodPost, "/webvpn/logout", nil)
+	r4.Host = "app.wv.example.com"
+	ast.True(webVpnSameOrigin(r4), "无来源头应放行（同域原生导航）")
 }

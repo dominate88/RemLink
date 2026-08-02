@@ -1012,8 +1012,9 @@ export default {
           // 已登录且从 WebVPN 子站点跳转过来带 redirect 参数时，自动回跳，
           // 不必停留在门户首页（用户本来想访问的是 WebVPN 应用）。
           // redirect 仅含路径，基于当前 origin 补全，规避反代 Host 透传问题。
+          // 安全：仅允许本站相对路径（以单 "/" 开头，不以 "//" 开头避免协议相对地址跳转外部站）。
           const redirect = this.$route.query.redirect
-          if (redirect) {
+          if (redirect && redirect.startsWith("/") && !redirect.startsWith("//")) {
             window.location.href = window.location.origin + redirect
             return
           }
@@ -1150,8 +1151,9 @@ export default {
         this.loadMe()
         // WebVPN 子站点未登录跳转过来时带了 redirect 参数，登录成功后自动回跳，
         // 避免用户停在门户首页还得手动再访问一次。redirect 仅含路径，基于 origin 补全。
+        // 安全：仅允许本站相对路径（以单 "/" 开头，不以 "//" 开头避免协议相对地址跳转外部站）。
         const redirect = this.$route.query.redirect
-        if (redirect) {
+        if (redirect && redirect.startsWith("/") && !redirect.startsWith("//")) {
           window.location.href = window.location.origin + redirect
           return
         }

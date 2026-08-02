@@ -13,9 +13,25 @@ import (
 
 var (
 	errWebVpnEmptyName    = errors.New("应用名称不能为空")
+	errWebVpnInvalidName  = errors.New("应用名称仅允许小写字母、数字与中划线")
 	errWebVpnEmptyBackend = errors.New("后端地址不能为空")
 	errWebVpnInvalidId    = errors.New("无效的 ID")
 )
+
+// 校验应用名是否仅含小写字母、数字与中划线，
+// 用于作为 WebVPN 子域前缀（a.Name + "." + 域名）时的安全过滤。
+func webVpnAppNameValid(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, c := range name {
+		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
 
 // 应用配置的进程内缓存，避免每个请求都查库。
 // Set/Del 后通过 InvalidateWebVpnAppCache 主动失效；TTL 兜底防止遗漏。
@@ -71,6 +87,11 @@ func WebVpnAppList(pageSize, page int, name string) ([]WebVpnApp, int, error) {
 func SetWebVpnApp(a *WebVpnApp) error {
 	if a.Name == "" {
 		return errWebVpnEmptyName
+	}
+	// 应用名作为 WebVPN 子域名前缀使用（a.Name + "." + 域名），
+	// 仅允许小写字母、数字与中划线，避免拼接出非预期主机或注入。
+	if !webVpnAppNameValid(a.Name) {
+		return errWebVpnInvalidName
 	}
 	if a.Backend == "" {
 		return errWebVpnEmptyBackend

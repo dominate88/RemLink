@@ -17,12 +17,17 @@ var (
 	webVpnAuditDone  = make(chan struct{})
 )
 
-// 非阻塞投递：队列满则丢弃，审计不应影响代理主路径。
+// 非阻塞投递：队列满则降级处理，审计不应影响代理主路径。
+// 普通记录（risk=0）直接丢弃；可疑/高危记录（risk>=1，含 4xx/5xx）降级为本地日志打印，
+// 避免突发高并发或 DB 写入慢时安全审计盲区（被攻击期间恰好是最需要审计的时候）。
 func webVpnAuditLog(rec dbdata.WebVpnAudit) {
 	select {
 	case webVpnAuditQueue <- rec:
 	default:
-		base.Warn("WebVPN 审计队列已满，丢弃一条记录")
+		if rec.RiskLevel >= 1 {
+			base.Warn("WebVPN 审计队列已满，降级本地记录:",
+				rec.Username, rec.Method, rec.Host, rec.Path, rec.StatusCode, rec.RiskLevel)
+		}
 	}
 }
 

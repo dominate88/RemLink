@@ -83,3 +83,18 @@ func TestWebVpnRevokeUserRemoveUnset(t *testing.T) {
 	ast.Equal(int64(0), WebVpnRevokeBeforeOf("never-kicked"))
 	ast.Equal(int64(0), WebVpnRevokeBeforeOf(""))
 }
+
+// TestWebVpnAppNameValid 验证应用名仅允许小写字母/数字/中划线，
+// 防止作为子域前缀拼接出非预期主机或注入。
+func TestWebVpnAppNameValid(t *testing.T) {
+	ast := assert.New(t)
+	ast.True(webVpnAppNameValid("app1"))
+	ast.True(webVpnAppNameValid("my-app"))
+	ast.True(webVpnAppNameValid("oa-2024"))
+	ast.False(webVpnAppNameValid(""))
+	ast.False(webVpnAppNameValid("App1"), "大写应拒绝")
+	ast.False(webVpnAppNameValid("my_app"), "下划线应拒绝")
+	ast.False(webVpnAppNameValid("a.b"), "点号应拒绝")
+	ast.False(webVpnAppNameValid("a b"), "空格应拒绝")
+}
+

@@ -529,10 +529,13 @@ func webVpnProxy(w http.ResponseWriter, r *http.Request, prefix string) {
 			// 入站头清洗：完全剥掉客户端伪造的 X-Forwarded-*/X-Real-IP。
 			// 注意：不要手动 Set X-Forwarded-For —— httputil.ReverseProxy 会在发送时
 			// 自动把真实客户端 IP 追加到该头，从而后端只看到真实来源，不会被伪造值污染。
+			// 同时剥掉客户端伪造的 X-RemLink-WebVpn（否则攻击者可直接给自己打标“来自可信网关”，
+			// 若后端据此放宽鉴权则会绕过）。该头由下方统一注入，客户端无法伪造。
 			req.Header.Del("X-Forwarded-For")
 			req.Header.Del("X-Forwarded-Proto")
 			req.Header.Del("X-Forwarded-Host")
 			req.Header.Del("X-Real-IP")
+			req.Header.Del("X-RemLink-WebVpn")
 
 			req.URL.Scheme = target.Scheme
 			req.URL.Host = target.Host
@@ -927,7 +930,39 @@ func webVpnMe(w http.ResponseWriter, r *http.Request) {
 // 单点登出：清除 WebVPN 会话 cookie 并吊销当前 jti。
 // 仅影响 WebVPN 访问，门户登录态不受影响。
 func webVpnLogout(w http.ResponseWriter, r *http.Request) {
+	// CSRF 防护：注销会改变服务端状态，要求请求来源必须是本站域。
+	// 浏览器跨站表单/脚本发起的 POST 不会携带与本域匹配的 Origin，从而被拒绝，
+	// 避免恶意页面诱导已登录用户强制下线。
+	if !webVpnSameOrigin(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
 	webVpnRevokeCurrentSession(r)
 	webVpnClearSessionCookie(w, r)
 	portalOK(w, nil)
+}
+
+// 校验请求来源是否属于本站域（协议+主机一致）。
+// 优先比对 Origin 头（跨站请求才会带、且不可被前端 JS 伪造到其它域）；
+// 无 Origin（同源传统表单/同域 fetch）时退化为 Referer 同域校验，均不满足则拒绝。
+func webVpnSameOrigin(r *http.Request) bool {
+	host := r.Host
+	if host == "" {
+		return false
+	}
+	if origin := r.Header.Get("Origin"); origin != "" {
+		if u, err := url.Parse(origin); err == nil {
+			return strings.EqualFold(u.Host, host) &&
+				(u.Scheme == "https" || (u.Scheme == "http" && r.TLS == nil))
+		}
+		return false
+	}
+	if ref := r.Header.Get("Referer"); ref != "" {
+		if u, err := url.Parse(ref); err == nil {
+			return strings.EqualFold(u.Host, host)
+		}
+		return false
+	}
+	// 既无 Origin 也无 Referer：同域浏览器原生导航行为，放行。
+	return true
 }
