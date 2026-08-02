@@ -26,8 +26,30 @@ import (
 // 用户退出 WebVPN 不影响门户登录态，反之亦然。
 const webVpnSessionCookie = "webvpn_session"
 
-// WebVPN 会话有效期：3h，与门户会话一致。
-const webVpnSessionTTL = 3 * time.Hour
+// WebVPN 会话滑动续期周期（分钟），默认 60。用户持续活跃时按此周期刷新登录态。
+// 0 表示未配置，回退默认值。
+const webVpnSessionTTLDefaultMin = 60
+
+// WebVPN 会话绝对寿命上限（分钟），默认 480（8h）。自首次登录起算，超过后强制重新登录。
+const webVpnSessionMaxLifetimeDefaultMin = 480
+
+// WebVPN 会话滑动续期周期
+func webVpnSessionTTL() time.Duration {
+	min := base.GetCfg().WebVpnSessionTTL
+	if min <= 0 {
+		min = webVpnSessionTTLDefaultMin
+	}
+	return time.Duration(min) * time.Minute
+}
+
+// WebVPN 会话绝对寿命上限
+func webVpnSessionMaxLifetime() time.Duration {
+	min := base.GetCfg().WebVpnSessionMaxLifetime
+	if min <= 0 {
+		min = webVpnSessionMaxLifetimeDefaultMin
+	}
+	return time.Duration(min) * time.Minute
+}
 
 // 进程内用户缓存，避免每次请求回查 DB。
 // WebVPN 反代命中率高（同一用户连续访问），TTL 60s。
@@ -43,13 +65,19 @@ type webVpnUserCacheEntry struct {
 }
 
 // 签发 WebVPN 会话 JWT 并设置 cookie。
-func webVpnIssueSession(w http.ResponseWriter, r *http.Request, user *dbdata.User) (string, error) {
+// issuedAt 为会话首次登录时间（unix 秒）；续期时传入旧 token 的 webvpn_issued 锚点，
+// 保证绝对寿命从首次登录起算、滑动续期不重置寿命计时。
+func webVpnIssueSession(w http.ResponseWriter, r *http.Request, user *dbdata.User, issuedAt int64) (string, error) {
 	now := time.Now()
-	expiresAt := now.Add(webVpnSessionTTL).Unix()
+	if issuedAt <= 0 {
+		issuedAt = now.Unix()
+	}
+	expiresAt := now.Add(webVpnSessionTTL()).Unix()
 	token, err := admin.SetJwtData(map[string]any{
 		"webvpn_user":   user.Username,
 		"webvpn_type":   user.Type,
 		"webvpn_groups": user.Groups,
+		"webvpn_issued": issuedAt,
 	}, expiresAt)
 	if err != nil {
 		return "", err
@@ -108,6 +136,7 @@ func jwtInt64(data map[string]any, key string) int64 {
 func webVpnUserFromToken(token string) (*dbdata.User, bool) {
 	data, err := admin.GetJwtData(token)
 	if err != nil {
+		base.Warn("DEBUG webVpnUserFromToken: GetJwtData err=", err)
 		return nil, false
 	}
 	username, _ := data["webvpn_user"].(string)
@@ -120,6 +149,16 @@ func webVpnUserFromToken(token string) (*dbdata.User, bool) {
 		before := dbdata.WebVpnRevokeBeforeOf(username)
 		if before > 0 && iat <= before {
 			return nil, false
+		}
+	}
+
+	// 绝对寿命上限：会话自首次登录（webvpn_issued）起算，超过上限强制重新登录，
+	// 即使持续活跃、不断滑动续期也会到期。无锚点（旧 token）按 iat 兜底。
+	if issued := jwtInt64(data, "webvpn_issued"); issued > 0 {
+		if max := webVpnSessionMaxLifetime(); max > 0 {
+			if time.Since(time.Unix(issued, 0)) > max {
+				return nil, false
+			}
 		}
 	}
 
@@ -174,6 +213,19 @@ func webVpnUserFromToken(token string) (*dbdata.User, bool) {
 	return user, true
 }
 
+// 从数据库重新加载用户当前状态
+// 用于会话续期时以服务端权威数据重新签发，避免沿用 token 内固化的旧权限快照。用户不存在或已禁用时返回 nil。
+func webVpnFreshUser(username string) *dbdata.User {
+	if username == "" {
+		return nil
+	}
+	u := &dbdata.User{}
+	if err := dbdata.One("Username", username, u); err != nil || u.Status != 1 {
+		return nil
+	}
+	return u
+}
+
 // 若用户持有门户 portal_session 但无 webvpn_session，
 // 则兑换签发独立 WebVPN 会话。用于首次访问免重复登录。
 func webVpnExchangeFromPortal(r *http.Request) (*dbdata.User, string, bool) {
@@ -185,7 +237,7 @@ func webVpnExchangeFromPortal(r *http.Request) (*dbdata.User, string, bool) {
 	if !ok || puser == nil {
 		return nil, "", false
 	}
-	token, err := webVpnIssueSession(nil, r, puser)
+	token, err := webVpnIssueSession(nil, r, puser, 0)
 	if err != nil {
 		return nil, "", false
 	}
@@ -208,6 +260,19 @@ func webVpnSessionClaims(r *http.Request) (jti string, iat, exp int64, ok bool) 
 		return "", 0, 0, false
 	}
 	return jti, iat, exp, true
+}
+
+// 取当前请求的 WebVPN 会话 token claims（未登录/解析失败返回 nil）。
+func getWebVpnTokenClaims(r *http.Request) map[string]any {
+	cookie, err := r.Cookie(webVpnSessionCookie)
+	if err != nil || cookie.Value == "" {
+		return nil
+	}
+	data, err := admin.GetJwtData(cookie.Value)
+	if err != nil {
+		return nil
+	}
+	return data
 }
 
 // 吊销当前请求的 WebVPN 会话（单点登出）。
@@ -271,8 +336,8 @@ func webVpnHostPrefix(host string) string {
 }
 
 func stripPort(host string) string {
-	if before, _, ok := strings.Cut(host, ":"); ok {
-		return before
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return h
 	}
 	return host
 }
@@ -280,8 +345,8 @@ func stripPort(host string) string {
 // 从 host:port 取出端口部分，无端口返回 ""。
 // 用于自定义端口（如 :8443）场景，保证跳转链接/登录回跳沿用用户真实端口。
 func portOf(host string) string {
-	if i := strings.LastIndexByte(host, ':'); i >= 0 {
-		return host[i+1:]
+	if _, port, err := net.SplitHostPort(host); err == nil {
+		return port
 	}
 	return ""
 }
@@ -314,18 +379,8 @@ func (rw *webVpnRespWriter) Unwrap() http.ResponseWriter {
 	return rw.ResponseWriter
 }
 
-// 仅当配置了 WebVpnDomain 且当前请求属于该域名体系时返回 "."+domain（跨子域共享），
-// 否则返回 ""（仅当前 host）。
 func webVpnCookieDomain(r *http.Request) string {
-	domain := base.GetCfg().WebVpnDomain
-	if domain == "" {
-		return ""
-	}
-	host := stripPort(r.Host)
-	if host == domain || strings.HasSuffix(host, "."+domain) {
-		return "." + domain
-	}
-	return ""
+	return portalCookieDomain(r)
 }
 
 // WebVPN 分支入口：*.WebVpnDomain 请求在此处理，不进入 initRoute（避免被全局安全头污染）。
@@ -339,10 +394,19 @@ func WebVpnHandler(w http.ResponseWriter, r *http.Request) bool {
 	if strings.HasPrefix(r.URL.Path, "/webvpn/") {
 		return false
 	}
-	// 门户 SPA 及其静态资源必须放行：未登录时 redirectToWebVpnLogin 会 302 到 /portal，
-	// 若不放行则 /portal 仍被 webVpnProxy 拦截 → 再次 302 → ERR_TOO_MANY_REDIRECTS。
-	if strings.HasPrefix(r.URL.Path, "/portal") || strings.HasPrefix(r.URL.Path, "/ui") {
+	// 门户静态资源（/ui/*）必须放行：WebVPN 登录卡片前端由此加载
+	if strings.HasPrefix(r.URL.Path, "/ui/") {
 		return false
+	}
+	// 未登录时 redirectToWebVpnLogin 会 302 到 /portal（GET，登录页壳，只读），放行；
+	// 门户写接口（/portal/api/*）一律禁止在 WebVPN 子域下访问
+	// 否则子域请求会带上 .WebVpnDomain 通配的 portal_session cookie，越权调用门户 API（跨子域 CSRF）。
+	if r.URL.Path == "/portal" && r.Method == http.MethodGet {
+		return false
+	}
+	if strings.HasPrefix(r.URL.Path, "/portal/api/") || strings.HasPrefix(r.URL.Path, "/portal/") {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return true
 	}
 	webVpnProxy(w, r, prefix)
 	return true
@@ -367,6 +431,7 @@ func webVpnProxy(w http.ResponseWriter, r *http.Request, prefix string) {
 			BytesSent:  rw.bytesWritten,
 			ClientIP:   webVpnRealClientIP(r),
 			DurationMs: time.Since(start).Milliseconds(),
+			RiskLevel:  webVpnAuditRisk(rw.statusCode),
 		})
 	}()
 
@@ -412,9 +477,15 @@ func webVpnProxy(w http.ResponseWriter, r *http.Request, prefix string) {
 	}
 
 	// 滑动续期：距签发已超过 TTL-1h（即剩余 <1h）时重签并刷新 cookie。
+	// 续期以数据库当前用户状态为准重新签发，避免 token 内固化的旧组/权限快照被无限延续。
+	// 绝对寿命上限：从首次登录（webvpn_issued）起算，超过则不再续期、强制重新登录
 	if jti, iat, _, claimsOk := webVpnSessionClaims(r); claimsOk && jti != "" && iat > 0 {
-		if time.Since(time.Unix(iat, 0)) > webVpnSessionTTL-time.Hour {
-			_, _ = webVpnIssueSession(rw, r, user) // cookie 已写入 rw
+		if time.Since(time.Unix(iat, 0)) > webVpnSessionTTL()-time.Hour {
+			issued := jwtInt64(getWebVpnTokenClaims(r), "webvpn_issued")
+			if fresh := webVpnFreshUser(user.Username); fresh != nil {
+				user = fresh
+			}
+			_, _ = webVpnIssueSession(rw, r, user, issued) // cookie 已写入 rw
 		}
 	}
 
@@ -564,24 +635,9 @@ func webVpnBackendTransport(skipVerify bool) *http.Transport {
 
 // 校验用户/组/IP/路径白名单
 func webVpnAuthorized(app *dbdata.WebVpnApp, user *dbdata.User, r *http.Request) bool {
-	// 用户白名单：空=全部用户
-	if len(app.Users) > 0 {
-		if !contains(app.Users, user.Username) {
-			return false
-		}
-	}
-	// 组白名单：空=不限组
-	if len(app.Groups) > 0 {
-		hit := false
-		for _, g := range user.Groups {
-			if contains(app.Groups, g) {
-				hit = true
-				break
-			}
-		}
-		if !hit {
-			return false
-		}
+	// 用户/组白名单：空=全部用户/不限组
+	if !dbdata.WebVpnUserAllowed(app, user) {
+		return false
 	}
 	// 来源 IP 白名单：空=不限制
 	if len(app.IpAllowList) > 0 {
@@ -802,10 +858,9 @@ func webVpnMyApps(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		datas = append(datas, map[string]any{
-			"name":    a.Name,
-			"note":    a.Note,
-			"url":     urlStr,
-			"backend": a.Backend,
+			"name": a.Name,
+			"note": a.Note,
+			"url":  urlStr,
 		})
 	}
 	portalOK(w, datas)

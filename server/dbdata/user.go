@@ -67,6 +67,11 @@ func SetUser(v *User) error {
 	} else {
 		err = Add(v)
 	}
+	if err == nil {
+		// 用户组/状态变更后，该用户已签发的 WebVPN 会话立即失效，
+		// 下次访问须重新登录并带入最新授权
+		WebVpnRevokeUser(v.Username)
+	}
 
 	return err
 }

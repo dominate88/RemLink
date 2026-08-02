@@ -250,10 +250,22 @@ func SetGroup(g *Group) error {
 	}
 
 	g.UpdatedAt = time.Now()
+	// 记录旧组名：组名变更后，需按旧组名定位成员并吊销其会话
+	oldName := g.Name
+	if g.Id > 0 {
+		var old Group
+		if err := One("Id", g.Id, &old); err == nil {
+			oldName = old.Name
+		}
+	}
 	if g.Id > 0 {
 		err = Set(g)
 	} else {
 		err = Add(g)
+	}
+	if err == nil {
+		// 组配置/状态/名称变更后，组内成员重新签发 WebVPN 会话
+		WebVpnRevokeGroupMembers([]string{oldName})
 	}
 
 	return err

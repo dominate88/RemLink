@@ -186,6 +186,9 @@ func GroupDel(w http.ResponseWriter, r *http.Request) {
 	// 清理该组在防火墙里的 NAT/转发规则，避免删除后规则残留至整机重启
 	sessdata.RemoveGroupNAT(g.ClientCidr, g.ClientCidr6, g.OutDev)
 
+	// 删除用户组后，组内成员重新签发 WebVPN 会话
+	dbdata.WebVpnRevokeGroupMembers([]string{g.Name})
+
 	dbdata.AdminLog("用户组管理", g.Name, "删除了用户组", r.RemoteAddr)
 	RespSucess(w, nil)
 }

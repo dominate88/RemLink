@@ -90,3 +90,16 @@ func webVpnAuditStop() {
 	<-done                          // 等待 writer flush 完毕，避免在 DB 关闭后写入
 	webVpnAuditStarted.Store(false) // 允许后续重启（测试场景用）
 }
+
+// 依据响应状态码给出审计风险等级：0=正常 1=可疑 2=高危。
+// 4xx（客户端被拒/未找到等异常访问）归为可疑，5xx（后端异常）归为高危，其余正常。
+func webVpnAuditRisk(statusCode int) int8 {
+	switch {
+	case statusCode >= 500:
+		return 2
+	case statusCode >= 400:
+		return 1
+	default:
+		return 0
+	}
+}

@@ -51,6 +51,7 @@ var backupTables = []backupTable{
 	{"stats_mem", "内存使用率统计", "stats", StatsMem{}},
 	{"webvpn_app", "WebVPN应用", "business", WebVpnApp{}},
 	{"webvpn_audit", "WebVPN审计", "log", WebVpnAudit{}},
+	{"webvpn_revoke", "WebVPN会话吊销", "business", WebVpnRevoke{}},
 }
 
 var backupTableByName = func() map[string]backupTable {

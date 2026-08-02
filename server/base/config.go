@@ -108,6 +108,10 @@ type ServerConfig struct {
 
 	WebVpnDomain string `json:"webvpn_domain"` // Web VPN域名
 
+	// WebVPN 会话时效
+	WebVpnSessionTTL         int `json:"webvpn_session_ttl"`          // 滑动续期周期(分钟)，距签发超过该值-1h 时续期；0 取默认 60
+	WebVpnSessionMaxLifetime int `json:"webvpn_session_max_lifetime"` // 绝对寿命上限(分钟)，首次登录起算，超过强制重新登录；0 取默认 480
+
 	// 高级功能可见性
 	ShowFakeDNS bool `json:"show_fakedns"`
 }
@@ -203,6 +207,8 @@ var configMetas = map[string]configMeta{
 	"web_auth_browser_mode":        {usage: "Web 认证浏览器模式", group: "门户设置", defaultVal: "external", options: map[string]string{"内置": "internal", "系统": "external"}},
 	"enable_web_auth_group_filter": {usage: "Web 认证先输入用户名，按所属用户组过滤组列表（仅支持本地用户）;关闭则展示全部启用组", group: "门户设置"},
 	"webvpn_domain":                {usage: "WebVPN 子域名反代根域名（如 wv.example.com）。解析 *.wv.example.com 到本机，访问 <应用名>.wv.example.com 即反代到对应内网 Web 应用", group: "门户设置"},
+	"webvpn_session_ttl":           {usage: "WebVPN 会话滑动续期周期（分钟）。用户持续活跃时按此周期刷新登录态，到期前 1 小时触发续期；建议 30~120", group: "门户设置", defaultVal: "60"},
+	"webvpn_session_max_lifetime":  {usage: "WebVPN 会话绝对寿命上限（分钟）。自首次登录起算，超过后无论是否活跃都强制重新登录；建议 240~1440", group: "门户设置", defaultVal: "480"},
 
 	"show_fakedns": {usage: "在管理界面显示 FakeDNS 功能入口", group: "高级功能可见性", defaultVal: "false"},
 }

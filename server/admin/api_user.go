@@ -166,6 +166,8 @@ func UserDel(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespInternalErr, err)
 		return
 	}
+	// 删除用户后，令其已签发的 WebVPN 会话立即失效，避免旧会话在有效期内仍可访问
+	dbdata.WebVpnRevokeUser(user.Username)
 	dbdata.AdminLog("用户管理", user.Username, "删除了用户", r.RemoteAddr)
 	RespSucess(w, nil)
 }
@@ -376,6 +378,8 @@ func UserBatchDelete(w http.ResponseWriter, r *http.Request) {
 			base.Error("批量删除用户失败:", user.Username, err)
 			failCount++
 		} else {
+			// 删除用户后，令其已签发的 WebVPN 会话立即失效
+			dbdata.WebVpnRevokeUser(user.Username)
 			successCount++
 		}
 	}

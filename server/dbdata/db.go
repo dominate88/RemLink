@@ -38,6 +38,7 @@ func TableModels() []any {
 		&Provider{},
 		&WebVpnApp{},
 		&WebVpnAudit{},
+		&WebVpnRevoke{},
 	}
 }
 

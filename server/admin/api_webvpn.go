@@ -165,14 +165,16 @@ func WebVpnAuditList(w http.ResponseWriter, r *http.Request) {
 
 // 踢出指定用户的全部 WebVPN 会话（整用户下线）
 func WebVpnSessionKick(w http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
-	username := r.FormValue("username")
-	if username == "" {
+	var req struct {
+		Username string `json:"username"`
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil || json.Unmarshal(body, &req) != nil || req.Username == "" {
 		RespError(w, RespParamErr, "用户名不能为空")
 		return
 	}
-	dbdata.WebVpnRevokeUser(username)
-	dbdata.AdminLog("WebVPN应用管理", username, "踢出了该用户的所有WebVPN会话", r.RemoteAddr)
+	dbdata.WebVpnRevokeUser(req.Username)
+	dbdata.AdminLog("WebVPN应用管理", req.Username, "踢出了该用户的所有WebVPN会话", r.RemoteAddr)
 	RespSucess(w, nil)
 }
 

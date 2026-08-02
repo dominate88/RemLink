@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wsczx/remlink/base"
 	"xorm.io/xorm"
 )
 
@@ -74,6 +75,14 @@ func SetWebVpnApp(a *WebVpnApp) error {
 	if a.Backend == "" {
 		return errWebVpnEmptyBackend
 	}
+	// 记录变更前的授权范围，用于权限收窄/调整时吊销相关用户会话
+	var oldUsers, oldGroups []string
+	if a.Id > 0 {
+		var old WebVpnApp
+		if err := One("Id", a.Id, &old); err == nil {
+			oldUsers, oldGroups = old.Users, old.Groups
+		}
+	}
 	a.UpdatedAt = time.Now()
 	var err error
 	if a.Id > 0 {
@@ -88,6 +97,8 @@ func SetWebVpnApp(a *WebVpnApp) error {
 	}
 	if err == nil {
 		InvalidateWebVpnAppCache()
+		// 权限白名单变更后，令新旧授权范围内的用户重新签发会话，使权限立即生效
+		revokeAffectedWebVpnUsers(oldUsers, oldGroups, a.Users, a.Groups)
 	}
 	return err
 }
@@ -97,11 +108,64 @@ func DelWebVpnApp(id int) error {
 	if id < 1 {
 		return errWebVpnInvalidId
 	}
+	// 删除前取出授权范围，删除后吊销相关用户会话
+	var delUsers, delGroups []string
+	var old WebVpnApp
+	if err := One("Id", id, &old); err == nil {
+		delUsers, delGroups = old.Users, old.Groups
+	}
 	err := Del(&WebVpnApp{Id: id})
 	if err == nil {
 		InvalidateWebVpnAppCache()
+		revokeAffectedWebVpnUsers(delUsers, delGroups, nil, nil)
 	}
 	return err
+}
+
+// 权限白名单（用户/组）变更后，仅吊销「被移除授权」的用户 WebVPN 会话，
+// 使已签发的会话（token 内固化的 webvpn_groups）立即失效，下次访问须重新授权。
+func revokeAffectedWebVpnUsers(oldUsers, oldGroups, newUsers, newGroups []string) {
+	keepUsers := make(map[string]bool, len(newUsers))
+	for _, u := range newUsers {
+		if u != "" {
+			keepUsers[u] = true
+		}
+	}
+	keepGroups := make(map[string]bool, len(newGroups))
+	for _, g := range newGroups {
+		if g != "" {
+			keepGroups[g] = true
+		}
+	}
+
+	seen := make(map[string]bool)
+	var toKick []string
+	add := func(u string) {
+		if u != "" && !seen[u] {
+			seen[u] = true
+			toKick = append(toKick, u)
+		}
+	}
+	// 仅吊销：旧用户白名单中、已不在新白名单里的
+	for _, u := range oldUsers {
+		if !keepUsers[u] {
+			add(u)
+		}
+	}
+	// 仅吊销：旧组白名单中、且不在新组/新用户白名单里的成员
+	for _, g := range oldGroups {
+		if g == "" || keepGroups[g] {
+			continue
+		}
+		for _, u := range UsernamesOfGroup(g) {
+			if !keepUsers[u] {
+				add(u)
+			}
+		}
+	}
+	if len(toKick) > 0 {
+		WebVpnRevokeUsers(toKick)
+	}
 }
 
 // 按子域名前缀（Name）查找应用，带进程内缓存
@@ -145,7 +209,7 @@ func WebVpnAppsForUser(user *User) ([]WebVpnApp, error) {
 		if a.Status != 1 {
 			continue
 		}
-		if !webVpnUserAllowed(&a, user) {
+		if !WebVpnUserAllowed(&a, user) {
 			continue
 		}
 		result = append(result, a)
@@ -154,7 +218,7 @@ func WebVpnAppsForUser(user *User) ([]WebVpnApp, error) {
 }
 
 // 空白名单=全部放行；用户维度判断与 handler 层 webVpnAuthorized 保持一致。
-func webVpnUserAllowed(a *WebVpnApp, user *User) bool {
+func WebVpnUserAllowed(a *WebVpnApp, user *User) bool {
 	if len(a.Users) > 0 {
 		if !contains(a.Users, user.Username) {
 			return false
@@ -187,7 +251,7 @@ type WebVpnAudit struct {
 	AppName    string    `json:"app_name" xorm:"varchar(60) not null"` // 子域名前缀（应用标识）
 	Host       string    `json:"host" xorm:"varchar(255) not null"`    // 原始 Host 请求头
 	Method     string    `json:"method" xorm:"varchar(16) not null"`   // GET/POST...
-	Path       string    `json:"path" xorm:"varchar(1024) not null"`   // 请求路径（含 query）
+	Path       string    `json:"path" xorm:"varchar(1024) not null"`   // 请求路径（不含 query，避免敏感信息入库）
 	StatusCode int       `json:"status_code" xorm:"Int not null default 0"`
 	BytesSent  int64     `json:"bytes_sent" xorm:"BigInt not null default 0"`
 	BytesRecv  int64     `json:"bytes_recv" xorm:"BigInt not null default 0"`
@@ -300,22 +364,65 @@ var (
 	webVpnRevokeBefore   = map[string]int64{}
 )
 
+// 在服务启动时将 DB 中的吊销记录加载到内存缓存，保证重启后旧 token 仍按上次吊销阈值失效
+func LoadWebVpnRevoke() {
+	var rows []WebVpnRevoke
+	if err := Find(&rows, -1, 0); err != nil {
+		base.Error("加载 WebVPN 吊销记录失败:", err)
+		return
+	}
+	webVpnRevokeBeforeMu.Lock()
+	for _, r := range rows {
+		webVpnRevokeBefore[r.Username] = r.RevokedAt
+	}
+	webVpnRevokeBeforeMu.Unlock()
+}
+
 // 吊销指定用户的全部 WebVPN 会话（整用户下线）。
 // 通过抬高吊销阈值实现：此后该用户签名时间早于阈值的会话都将被拒绝。
 func WebVpnRevokeUser(username string) {
 	if username == "" {
 		return
 	}
+	ts := time.Now().Unix()
+
+	// 写内存缓存
 	webVpnRevokeBeforeMu.Lock()
-	webVpnRevokeBefore[username] = time.Now().Unix()
+	webVpnRevokeBefore[username] = ts
 	webVpnRevokeBeforeMu.Unlock()
+
+	// 持久化到 DB
+	rec := &WebVpnRevoke{Username: username, RevokedAt: ts}
+	var probe WebVpnRevoke
+	var err error
+	if e := One("Username", username, &probe); e == nil {
+		err = Update("Username", username, rec)
+	} else {
+		err = Add(rec)
+	}
+	if err != nil {
+		base.Error("持久化 WebVPN 吊销记录失败:", err)
+	}
 }
 
 // 返回指定用户的吊销阈值（0 表示未吊销）。
+// 优先读内存缓存；未命中时回查 DB 并回填缓存。
 func WebVpnRevokeBeforeOf(username string) int64 {
 	webVpnRevokeBeforeMu.Lock()
-	defer webVpnRevokeBeforeMu.Unlock()
-	return webVpnRevokeBefore[username]
+	ts, ok := webVpnRevokeBefore[username]
+	webVpnRevokeBeforeMu.Unlock()
+	if ok {
+		return ts
+	}
+	rec := &WebVpnRevoke{}
+	if err := One("Username", username, rec); err != nil {
+		return 0
+	}
+	// 回查命中，回填内存缓存
+	webVpnRevokeBeforeMu.Lock()
+	webVpnRevokeBefore[username] = rec.RevokedAt
+	webVpnRevokeBeforeMu.Unlock()
+	return rec.RevokedAt
 }
 
 // 清空全部吊销阈值（取消整用户下线状态）。
@@ -324,4 +431,59 @@ func WebVpnRevokeReset() {
 	webVpnRevokeBeforeMu.Lock()
 	webVpnRevokeBefore = map[string]int64{}
 	webVpnRevokeBeforeMu.Unlock()
+}
+
+// 批量吊销一批用户的 WebVPN 会话（权限变更后让已签发会话立即失效）。
+func WebVpnRevokeUsers(usernames []string) {
+	for _, u := range usernames {
+		WebVpnRevokeUser(u)
+	}
+}
+
+// 吊销指定用户组全部成员的 WebVPN 会话。
+// 改/删用户组后，成员 token 内固化的 webvpn_groups 已过期，须令其重新签发。
+func WebVpnRevokeGroupMembers(groupNames []string) {
+	if len(groupNames) == 0 {
+		return
+	}
+	want := make(map[string]bool, len(groupNames))
+	for _, g := range groupNames {
+		want[g] = true
+	}
+	var users []User
+	if err := Find(&users, -1, 0); err != nil {
+		base.Error("WebVPN 查询组成员失败:", err)
+		return
+	}
+	kicked := make(map[string]bool)
+	for _, u := range users {
+		for _, g := range u.Groups {
+			if want[g] {
+				if !kicked[u.Username] {
+					WebVpnRevokeUser(u.Username)
+					kicked[u.Username] = true
+				}
+				break
+			}
+		}
+	}
+}
+
+// 返回某用户组下的全部用户名（内存过滤，因 Groups 以 Text 序列化存储）。
+func UsernamesOfGroup(groupName string) []string {
+	if groupName == "" {
+		return nil
+	}
+	var users []User
+	if err := Find(&users, -1, 0); err != nil {
+		base.Error("查询用户组成员失败:", err)
+		return nil
+	}
+	names := make([]string, 0)
+	for _, u := range users {
+		if slices.Contains(u.Groups, groupName) {
+			names = append(names, u.Username)
+		}
+	}
+	return names
 }

@@ -164,6 +164,14 @@ type PasswordReset struct {
 	LastRequestTime int    `json:"last_request_time" xorm:"int default 0"`
 }
 
+// 记录每个用户最近一次「整用户会话吊销」的时间戳（unix 秒）。
+// 该时间戳之前签发的 WebVPN 会话一律视为已吊销（O(1) 整用户下线）。
+// 持久化到 DB，使吊销在重启、多实例部署下依然有效
+type WebVpnRevoke struct {
+	Username  string `json:"username" xorm:"varchar(60) not null pk"`
+	RevokedAt int64  `json:"revoked_at" xorm:"BigInt not null"`
+}
+
 // Provider 第三方认证配置，Pipeline 通过 name 引用。
 type Provider struct {
 	Id        int                                     `json:"id" xorm:"pk autoincr not null"`

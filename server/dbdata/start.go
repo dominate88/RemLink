@@ -17,6 +17,8 @@ func Start() {
 		base.Fatal(err)
 	}
 
+	LoadWebVpnRevoke()
+
 	SyncLdapUsers()
 	SyncWXworkUsers()
 	SyncFeishuUsers()
