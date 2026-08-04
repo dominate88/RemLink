@@ -3,9 +3,11 @@ package admin
 import (
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 
+	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
 	"github.com/wsczx/remlink/pkg/mask"
 )
@@ -80,9 +82,10 @@ func ProviderList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	RespSucess(w, map[string]any{
-		"count":     count,
-		"page_size": pageSize,
-		"datas":     datas,
+		"count":        count,
+		"page_size":    pageSize,
+		"datas":        datas,
+		"callbackBase": providerCallbackUrl(r),
 	})
 }
 
@@ -117,7 +120,31 @@ func ProviderDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	maskProviderSecrets(&data)
-	RespSucess(w, data)
+	// 下发各第三方认证源的回调url
+	RespSucess(w, map[string]any{
+		"provider":     data,
+		"callbackBase": providerCallbackUrl(r),
+	})
+}
+
+// 生成第三方认证源的回调Url
+func providerCallbackUrl(r *http.Request) string {
+	addr := base.GetCfg().ServerAddr
+	host, port, err := net.SplitHostPort(base.FormatListenAddr(addr))
+	if err != nil || port == "" {
+		return "https://" + r.Host
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		reqHost, _, herr := net.SplitHostPort(r.Host)
+		if herr != nil {
+			reqHost = r.Host
+		}
+		host = reqHost
+	}
+	if port == "443" {
+		return "https://" + host
+	}
+	return "https://" + net.JoinHostPort(host, port)
 }
 
 // 新增或更新 Provider

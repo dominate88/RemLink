@@ -91,8 +91,10 @@ func SAMLSPLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		startSSO(w, r, tgname, "dingtalk", "DingtalkAuth", func(redirectUri, state string) string {
-			return fmt.Sprintf("https://login.dingtalk.com/oauth2/auth?redirect_uri=%s&response_type=code&client_id=%s&state=%s&scope=openid",
-				url.QueryEscape(redirectUri), dingtalkConfig.ClientID, url.QueryEscape(state))
+			// 使用 %20 分隔 scope 作用域，或者显式指定 prompt=consent
+			scope := "openid%20Contact.User.Read"
+			return fmt.Sprintf("https://login.dingtalk.com/oauth2/auth?redirect_uri=%s&response_type=code&client_id=%s&state=%s&scope=%s&prompt=consent",
+				url.QueryEscape(redirectUri), dingtalkConfig.ClientID, url.QueryEscape(state), scope)
 		})
 		return
 	}

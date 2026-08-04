@@ -65,14 +65,15 @@ func (a *AuthWXwork) SaveUsers(g *Group) error {
 		return fmt.Errorf("获取企微 access_token 失败: %w", err)
 	}
 
+	needOTP := HasAuthType(g.AuthProfile, "otp")
+	blocked := a.ParseBlockedUserIDs()
+
+	// 拉取允许部门内的成员；未配置部门时拉取权限范围内全部用户
 	departments := a.ParseDepartments()
 	if len(departments) == 0 {
-		return fmt.Errorf("未配置允许的部门，无法同步用户")
+		base.Debug("企微未配置允许部门，同步权限范围内全部用户")
+		departments = []int{1} // 企微根部门
 	}
-
-	needOTP := HasAuthType(g.AuthProfile, "otp")
-
-	// 拉取所有允许部门的成员（去重）
 	wxUserMap := make(map[string]auth.WXWorkDepartmentUser)
 	for _, deptID := range departments {
 		users, err := a.GetDepartmentUsers(accessToken, deptID)
@@ -90,12 +91,20 @@ func (a *AuthWXwork) SaveUsers(g *Group) error {
 	// 同步到本地 DB
 	syncedUsers := make(map[string]bool)
 	for _, wxUser := range wxUserMap {
+		// 拒绝名单：同步时跳过
+		if a.CheckUserID(wxUser.UserID, blocked) {
+			base.Debug("企微同步跳过拒绝用户:", wxUser.UserID)
+			continue
+		}
 		syncedUsers[wxUser.UserID] = true
 
+		mobile, email := a.GetUserDetail(accessToken, wxUser.UserID)
 		newUser := &User{
 			Type:       "wxwork",
 			Username:   wxUser.UserID,
 			Nickname:   wxUser.Name,
+			Phone:      mobile,
+			Email:      email,
 			Groups:     []string{g.Name},
 			DisableOtp: !needOTP,
 			OtpSecret:  gotp.RandomSecret(32),
@@ -122,6 +131,12 @@ func (a *AuthWXwork) SaveUsers(g *Group) error {
 		}
 		// 更新现有企微用户字段
 		u.Nickname = wxUser.Name
+		if mobile != "" {
+			u.Phone = mobile
+		}
+		if email != "" {
+			u.Email = email
+		}
 		u.DisableOtp = !needOTP
 		if u.OtpSecret == "" {
 			u.OtpSecret = gotp.RandomSecret(32)

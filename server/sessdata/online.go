@@ -14,6 +14,7 @@ import (
 type Online struct {
 	Token             string    `json:"token"`
 	Username          string    `json:"username"`
+	Nickname          string    `json:"nickname"`
 	Group             string    `json:"group"`
 	MacAddr           string    `json:"mac_addr"`
 	UniqueMac         bool      `json:"unique_mac"`
@@ -96,18 +97,18 @@ func GetOnlineSess(search_cate string, search_text string, show_sleeper bool) []
 					transportProtocol = "UDP"
 				}
 				quotaStr, usedStr, resetStr := "", "", ""
+				u := &dbdata.User{}
+				dbdata.One("Username", v.Username, u)
 				if cSess.Policy != nil && cSess.Policy.TrafficQuota > 0 {
 					quotaStr = utils.HumanByte(uint64(cSess.Policy.TrafficQuota))
-					u := &dbdata.User{}
-					if err := dbdata.One("Username", v.Username, u); err == nil {
-						usedStr = utils.HumanByte(uint64(u.TrafficUsed))
-					}
+					usedStr = utils.HumanByte(uint64(u.TrafficUsed))
 					resetStr = cSess.Policy.TrafficReset
 				}
 				val := Online{
 					Token:             v.Token,
 					Ip:                cSess.IpAddr,
 					Username:          v.Username,
+					Nickname:          u.Nickname,
 					Group:             v.Group,
 					MacAddr:           v.MacAddr,
 					UniqueMac:         v.UniqueMac,
