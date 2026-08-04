@@ -727,7 +727,6 @@ func TestWebVpnHandlerSubdomainPortalApiForbidden(t *testing.T) {
 		"/portal/api/logout",
 		"/portal/api/change_password",
 		"/portal/api/devices/offline",
-		"/portal/api/login",
 	} {
 		req := httptest.NewRequest(http.MethodPost, p, nil)
 		req.Host = "evil.wv.example.com" // 任意 WebVPN 子域
@@ -744,6 +743,39 @@ func TestWebVpnHandlerSubdomainPortalApiForbidden(t *testing.T) {
 		handled := WebVpnHandler(rec, req)
 		ast.True(handled, "子域非 GET /portal 应由 WebVpnHandler 拦截，method=%s", m)
 		ast.Equal(http.StatusForbidden, rec.Code, "子域非 GET /portal 应返回 403，method=%s", m)
+	}
+}
+
+// TestWebVpnHandlerSubdomainPortalLoginAllowed 验证：
+// WebVPN 子域名登录页需在子域直接完成账号密码/短信/OTP 登录，并加载登录配置、检测登录态。
+// 因此以下「未登录状态下登录流程必需、且不依赖已登录 portal_session」的门户接口应在子域放行
+// （WebVpnHandler 返回 false，delegate 回主路由），否则登录会被 403 拦死，
+// 表现为「网络请求失败」且第三方/短信登录配置加载不出来。
+func TestWebVpnHandlerSubdomainPortalLoginAllowed(t *testing.T) {
+	_, teardown := setupWebVpnTest(t)
+	defer teardown()
+	ast := assert.New(t)
+
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/portal/api/login"},
+		{http.MethodPost, "/portal/api/verify"},
+		{http.MethodPost, "/portal/api/sms/send"},
+		{http.MethodPost, "/portal/api/sms/verify"},
+		{http.MethodGet, "/portal/api/login-config"},
+		{http.MethodGet, "/portal/api/me"},
+		{http.MethodGet, "/portal/api/otp/status"},
+		{http.MethodGet, "/portal/api/sso"},
+	}
+	for _, c := range cases {
+		req := httptest.NewRequest(c.method, c.path, nil)
+		req.Host = "app.wv.example.com" // 任意 WebVPN 子域
+		rec := httptest.NewRecorder()
+		handled := WebVpnHandler(rec, req)
+		ast.False(handled, "子域登录前置接口应 delegate 回主路由，method=%s path=%s", c.method, c.path)
+		ast.NotEqual(http.StatusForbidden, rec.Code, "子域登录前置接口不应 403，method=%s path=%s", c.method, c.path)
 	}
 }
 
@@ -832,4 +864,134 @@ func TestWebVpnSameOrigin(t *testing.T) {
 	r4 := httptest.NewRequest(http.MethodPost, "/webvpn/logout", nil)
 	r4.Host = "app.wv.example.com"
 	ast.True(webVpnSameOrigin(r4), "无来源头应放行（同域原生导航）")
+}
+
+// TestWebVpnSafeRedirect 验证第三方登录成功后的回跳地址校验：
+// 仅放行 https 且 host 属于 .WebVpnDomain 后缀（主域或其子域），拒绝外部/非 https/相对地址。
+func TestWebVpnSafeRedirect(t *testing.T) {
+	_, teardown := setupWebVpnTest(t) // WebVpnDomain = "wv.example.com"
+	defer teardown()
+	ast := assert.New(t)
+
+	// 子域（WebVPN 应用）应放行，且允许带端口（自定义端口场景）
+	ast.True(webVpnSafeRedirect("https://app.wv.example.com/foo"), "子域 https 应放行")
+	ast.True(webVpnSafeRedirect("https://app.wv.example.com:4343/foo"), "子域带端口 https 应放行")
+	// 主域应放行
+	ast.True(webVpnSafeRedirect("https://wv.example.com/foo"), "主域 https 应放行")
+	// 外部域名拒绝
+	ast.False(webVpnSafeRedirect("https://evil.com/foo"), "外部域名应拒绝")
+	// 子域混淆（后缀匹配误判）拒绝
+	ast.False(webVpnSafeRedirect("https://wv.example.com.evil.org/foo"), "子域混淆应拒绝")
+	// 非 https 拒绝
+	ast.False(webVpnSafeRedirect("http://app.wv.example.com/foo"), "非 https 应拒绝")
+	// 空/相对地址拒绝
+	ast.False(webVpnSafeRedirect(""), "空地址应拒绝")
+	ast.False(webVpnSafeRedirect("/foo"), "相对地址应拒绝")
+}
+
+// TestWebVpnPortalMainDomain 验证第三方登录子域跳主域时主域地址计算：
+// portalMainDomain 仅取配置项 webvpn_sso_domain（WebVPN 第三方登录专用门户域名），
+// 无端口时沿用请求来源端口；未配置返回 ""（子域名三方登录不可用）。
+func TestWebVpnPortalMainDomain(t *testing.T) {
+	_, teardown := setupWebVpnTest(t)
+	defer teardown()
+	ast := assert.New(t)
+
+	base.UpdateCfg(func(c *base.ServerConfig) {
+		c.WebVpnSsoDomain = "vpntest.example.com"
+	})
+
+	// 请求带端口：门户域名沿用该端口
+	r1 := httptest.NewRequest(http.MethodGet, "/portal/api/sso", nil)
+	r1.Host = "app.wv.example.com:4343"
+	ast.Equal("https://vpntest.example.com:4343", portalMainDomain(r1), "子域带端口应沿用端口")
+
+	// 请求无端口：门户域名不带端口
+	r2 := httptest.NewRequest(http.MethodGet, "/portal/api/sso", nil)
+	r2.Host = "app.wv.example.com"
+	ast.Equal("https://vpntest.example.com", portalMainDomain(r2), "子域无端口时门户域名不带端口")
+
+	// 未配置 webvpn_sso_domain：返回空（三方登录不可用）
+	base.UpdateCfg(func(c *base.ServerConfig) {
+		c.WebVpnSsoDomain = ""
+	})
+	r3 := httptest.NewRequest(http.MethodGet, "/portal/api/sso", nil)
+	r3.Host = "app.wv.example.com:4343"
+	ast.Equal("", portalMainDomain(r3), "未配置 webvpn_sso_domain 应返回空")
+}
+
+// TestWebVpnPortalSSOSubdomainRedirect 验证子域名发起第三方登录时 PortalSSO 的行为：
+// 应 302 跳转到「WebVPN 第三方登录专用门户域名」（webvpn_sso_domain）完成认证，
+// 且透传 redirect（回跳子域名的完整 URL），保证认证成功后能回跳回原 WebVPN 子域名。
+func TestWebVpnPortalSSOSubdomainRedirect(t *testing.T) {
+	_, teardown := setupWebVpnTest(t)
+	defer teardown()
+	ast := assert.New(t)
+
+	base.UpdateCfg(func(c *base.ServerConfig) {
+		c.EnableUserPortal = true
+		c.WebVpnSsoDomain = "vpntest.example.com"
+	})
+
+	// 子域名发起第三方登录，携带回跳地址（子域完整 URL，含端口）
+	req := httptest.NewRequest(http.MethodGet,
+		"/portal/api/sso?type=wxwork&redirect="+url.QueryEscape("https://app.wv.example.com:4343/"),
+		nil)
+	req.Host = "app.wv.example.com:4343"
+	rec := httptest.NewRecorder()
+	PortalSSO(rec, req)
+
+	ast.Equal(http.StatusFound, rec.Code, "子域第三方登录应 302 跳门户域名")
+	loc := rec.Header().Get("Location")
+	ast.Contains(loc, "https://vpntest.example.com:4343/portal/api/sso", "应跳转到门户域名 sso 接口，实际: %s", loc)
+	ast.Contains(loc, "redirect="+url.QueryEscape("https://app.wv.example.com:4343/"), "应透传回跳地址，实际: %s", loc)
+
+	// 未配置 webvpn_sso_domain：子域三方登录应返回 400（不可用），而非跳到错误域名
+	base.UpdateCfg(func(c *base.ServerConfig) {
+		c.WebVpnSsoDomain = ""
+	})
+	req2 := httptest.NewRequest(http.MethodGet,
+		"/portal/api/sso?type=wxwork&redirect="+url.QueryEscape("https://app.wv.example.com:4343/"),
+		nil)
+	req2.Host = "app.wv.example.com:4343"
+	rec2 := httptest.NewRecorder()
+	PortalSSO(rec2, req2)
+	ast.Equal(http.StatusBadRequest, rec2.Code, "未配置 webvpn_sso_domain 时子域三方登录应返回 400")
+}
+
+// TestWebVpnHostPrefixCaseInsensitive 验证大小写 Host 不会被绕过 WebVPN 分支：
+// DNS 主机名大小写不敏感，大写 Host（如 APP.WV.EXAMPLE.COM）应仍被识别为 WebVPN 子域，
+// 返回小写前缀，避免落入主路由绕过授权/审计/代理边界。
+func TestWebVpnHostPrefixCaseInsensitive(t *testing.T) {
+	_, teardown := setupWebVpnTest(t) // WebVpnDomain = "wv.example.com"
+	defer teardown()
+	ast := assert.New(t)
+
+	ast.Equal("app", webVpnHostPrefix("app.wv.example.com"), "小写子域应识别")
+	ast.Equal("app", webVpnHostPrefix("APP.WV.EXAMPLE.COM"), "大写 Host 应识别为小写前缀（防绕过）")
+	ast.Equal("app", webVpnHostPrefix("App.wv.example.com:4343"), "混合大小写带端口应识别")
+	// 非本域/混淆仍应拒绝
+	ast.Equal("", webVpnHostPrefix("www.example.com"), "非本域应拒绝")
+	ast.Equal("", webVpnHostPrefix("app.wv.example.com.evil.org"), "子域混淆应拒绝")
+}
+
+// TestWebVpnStripRemLinkCookies 验证反向代理会剥离所有 RemLink 自有会话 cookie，
+// 避免把网关会话令牌透传给被代理的内网后端。
+func TestWebVpnStripRemLinkCookies(t *testing.T) {
+	ast := assert.New(t)
+
+	cookies := []*http.Cookie{
+		{Name: "webvpn_session", Value: "s1"},
+		{Name: "portal_session", Value: "s2"},
+		{Name: "auth-session-id", Value: "s3"},
+		{Name: "acSamlv2Token", Value: "s4"},
+		{Name: "jsessionid", Value: "backend-java"}, // 后端自身 cookie 应保留
+	}
+	kept := stripRemLinkCookies(cookies)
+	ast.NotContains(kept, "webvpn_session", "应剥离 webvpn_session")
+	ast.NotContains(kept, "portal_session", "应剥离 portal_session")
+	ast.NotContains(kept, "auth-session-id", "应剥离 auth-session-id")
+	ast.NotContains(kept, "acSamlv2Token", "应剥离 acSamlv2Token")
+	ast.Contains(kept, "jsessionid", "后端自身 cookie 应保留")
+	ast.Contains(kept, "backend-java", "后端自身 cookie 值应保留")
 }

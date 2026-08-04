@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,6 +24,16 @@ import (
 // 复用 admin 的 JWT 签发/吊销基础设施，但使用独立的 cookie 名与 claim 前缀，
 // 用户退出 WebVPN 不影响门户登录态，反之亦然。
 const webVpnSessionCookie = "webvpn_session"
+
+// remLinkSessionCookies 是 RemLink 自有会话 cookie 名清单。
+// WebVPN 反代转发给后端时必须剥离这些 cookie，避免把网关的会话令牌泄漏给被代理的内网应用
+// （若内部应用被攻破或存在 XSS，可能借这些令牌冒充用户/重放认证流程）。
+var remLinkSessionCookies = []string{
+	webVpnSessionCookie,             // webvpn_session
+	portalCookieName,                // portal_session
+	"auth-session-id",               // WebAuth/OTP 认证会话
+	"acSamlv2Token",                 // SAML SSO 会话令牌
+}
 
 // WebVPN 会话滑动续期周期（分钟），默认 60。用户持续活跃时按此周期刷新登录态。
 // 0 表示未配置，回退默认值。
@@ -343,12 +352,15 @@ func webVpnRealClientIP(r *http.Request) string {
 
 // 从 Host 提取 WebVPN 子域名前缀。
 // 命中 *.WebVpnDomain 返回前缀；否则返回 ""（非 WebVPN 请求）。
+// DNS 主机名大小写不敏感，统一转小写比较，避免 `Host: APP.WV.EXAMPLE.COM` 等大写写法
+// 绕过 WebVPN 分支落入主路由（审计/授权/代理边界被跳过）。
 func webVpnHostPrefix(host string) string {
 	domain := base.GetCfg().WebVpnDomain
 	if domain == "" {
 		return ""
 	}
-	host = stripPort(host)
+	host = strings.ToLower(stripPort(host))
+	domain = strings.ToLower(domain)
 	// 必须 .domain 结尾，且前缀非空、不含点（子域名只一层）
 	if !strings.HasSuffix(host, "."+domain) {
 		return ""
@@ -425,17 +437,58 @@ func WebVpnHandler(w http.ResponseWriter, r *http.Request) bool {
 	}
 	// 门户相关路径一律禁止在 WebVPN 子域下访问：
 	// 子域请求会带上 .WebVpnDomain 通配的 portal_session cookie，若放行到门户路由，可越权调用门户
-	// 接口（跨子域 CSRF）。仅放行 GET /portal（登录页壳，只读，未登录时 redirect 302 到这里）；
-	// 其余 /portal 任意路径、任意方法（含非 GET 的精确 /portal）一律 403，不 delegate、不反代。
+	// 接口（跨子域 CSRF）。仅放行：
+	//   - GET /portal（登录页壳，只读，未登录时 redirect 302 到这里）；
+	//   - 登录前置接口（未登录状态下登录流程必需，不依赖已登录 portal_session，
+	//     放行不会构成越权）：账号密码/短信/OTP 登录、登录配置、me 登录态检测。
+	// 其余 /portal 任意路径、任意方法（含非 GET 的精确 /portal，以及 logout/change_password/
+	// devices/offline/certs 等已登录才用到的写接口）一律 403，不 delegate、不反代。
 	if r.URL.Path == "/portal" && r.Method == http.MethodGet {
 		return false
 	}
 	if r.URL.Path == "/portal" || strings.HasPrefix(r.URL.Path, "/portal/") {
+		if webVpnPortalLoginEndpoint(r.URL.Path, r.Method) {
+			return false
+		}
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return true
 	}
 	webVpnProxy(w, r, prefix)
 	return true
+}
+
+// 描述一个「子域名可放行的门户登录前置接口」。
+// 这类接口仅在未登录状态下登录流程必需、且不依赖已登录 portal_session，
+// 放行它们保证 WebVPN 子域名登录页可正常加载配置、完成登录并检测登录态；
+// 其余门户写接口（登出/改密/设备/证书等）仍由 WebVpnHandler 403 拦截，杜绝越权。
+type portalLoginEndpoint struct {
+	path    string
+	method  string
+	handler func(http.ResponseWriter, *http.Request)
+}
+
+// 是 WebVPN 子域名登录所放行的门户接口唯一来源：
+// initRoute 据此注册路由（见 server.go），WebVpnHandler 据此判断放行（webVpnPortalLoginEndpoint）。
+// 新增子域名登录必需的门户接口只需改此处。
+var portalLoginEndpoints = []portalLoginEndpoint{
+	{"/portal/api/login", http.MethodPost, PortalLogin},
+	{"/portal/api/verify", http.MethodPost, PortalVerify},
+	{"/portal/api/sms/send", http.MethodPost, PortalSmsSend},
+	{"/portal/api/sms/verify", http.MethodPost, PortalSmsVerify},
+	{"/portal/api/login-config", http.MethodGet, PortalLoginConfig},
+	{"/portal/api/me", http.MethodGet, PortalMe},
+	{"/portal/api/otp/status", http.MethodGet, PortalOTPStatus},
+	{"/portal/api/sso", http.MethodGet, PortalSSO},
+}
+
+// 判断子域名下是否放行某门户登录接口（以 portalLoginEndpoints 为唯一来源）。
+func webVpnPortalLoginEndpoint(path, method string) bool {
+	for _, ep := range portalLoginEndpoints {
+		if ep.path == path && ep.method == method {
+			return true
+		}
+	}
+	return false
 }
 
 func webVpnProxy(w http.ResponseWriter, r *http.Request, prefix string) {
@@ -592,9 +645,14 @@ func webVpnProxy(w http.ResponseWriter, r *http.Request, prefix string) {
 	proxy.ServeHTTP(rw, r)
 }
 
-// 从客户端请求里删除 RemLink 自有会话 cookie（portal_session、webvpn_session）
+// 从客户端请求里删除 RemLink 自有会话 cookie（remLinkSessionCookies 清单）。
+// 避免把网关的 portal_session / webvpn_session / auth-session-id / acSamlv2Token 等令牌
+// 透传给被代理的内网后端。
 func stripRemLinkCookies(cookies []*http.Cookie) string {
-	drop := map[string]bool{portalCookieName: true, webVpnSessionCookie: true}
+	drop := make(map[string]bool, len(remLinkSessionCookies))
+	for _, n := range remLinkSessionCookies {
+		drop[n] = true
+	}
 	var kept []*http.Cookie
 	for _, c := range cookies {
 		if drop[c.Name] {
@@ -718,10 +776,6 @@ func redirectToWebVpnLogin(w http.ResponseWriter, r *http.Request) {
 	redirect := url.QueryEscape(r.URL.RequestURI())
 	loginURL := "/portal?redirect=" + redirect
 	http.Redirect(w, r, loginURL, http.StatusFound)
-}
-
-func contains(slice []string, s string) bool {
-	return slices.Contains(slice, s)
 }
 
 func ipInAllowList(ip net.IP, list []string) bool {

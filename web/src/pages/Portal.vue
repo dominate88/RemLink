@@ -759,6 +759,7 @@ export default {
       webvpnApps: [],
       webvpnLoading: false,
       webvpnDomain: "",
+      webvpnMode: false, // 是否 WebVPN 子域名验证场景（登录页仅验证访问权限，不进入门户首页）
       loginForm: { username: "", password: "" },
       smsForm: { phone: "", code: "" },
       smsSending: false,
@@ -833,7 +834,11 @@ export default {
     },
     hasSso() {
       const t = this.brand.sso_types || []
-      return t.includes("wxwork") || t.includes("feishu") || t.includes("dingtalk")
+      const has = t.includes("wxwork") || t.includes("feishu") || t.includes("dingtalk")
+      // WebVPN 子域名验证场景：三方登录需跳转到专用门户域名（webvpn_sso_domain）完成认证，
+      // 未配置该域名时入口不可用（避免跳到错误域名导致三方认证失败）。
+      if (this.webvpnMode && !this.brand.webvpn_sso_domain) return false
+      return has
     },
     ssoCount() {
       const t = this.brand.sso_types || []
@@ -927,6 +932,13 @@ export default {
   mounted() {
     this.isDark = document.documentElement.classList.contains('dark');
     this.checkResetToken()
+    // 初步判断 WebVPN 子域名验证场景：URL 携带 redirect 参数（网关 302 到登录页时总带，
+    // 主域门户登录无此参数）。此处同步设置，避免 loadBrand（异步取 domain）与 loadMe 竞态，
+    // 已登录用户访问子域名时不会闪现门户首页；loadBrand 成功后会用 domain 精确复核。
+    const qr = this.$route.query.redirect
+    if (qr && qr.startsWith("/") && !qr.startsWith("//")) {
+      this.webvpnMode = true
+    }
     this.loadBrand()
     this.loadMe()
     this.resumeCallbackChallenge()
@@ -994,11 +1006,22 @@ export default {
     loadBrand() {
       this.portalApi("get", "/portal/api/login-config").then(resp => {
         if (resp.data.code === 0 && resp.data.data) {
+          const d = resp.data.data
           this.brand = Object.assign(
-            { title: "", logo: "", favicon: "", footer: "", sso_types: [], sms_enabled: false, features_enabled: 0, features: "" },
-            resp.data.data
+            { title: "", logo: "", favicon: "", footer: "", sso_types: [], sms_enabled: false, features_enabled: 0, features: "", domain: "", webvpn_sso_domain: "" },
+            d
           )
           applyBrandToDocument(this.brand)
+          // 复核是否为 WebVPN 子域名验证场景：当前 host 是 WebVPN 主域的子域。
+          // 仅当尚未判定为子域（mounted 已按 redirect 参数判过一次）时再据此确认，
+          // 避免已判定的场景被反向覆盖。
+          if (!this.webvpnMode && d.domain) {
+            const host = window.location.hostname
+            const main = String(d.domain).replace(/^\./, "").split(":")[0]
+            if (main && host !== main && host.endsWith("." + main)) {
+              this.webvpnMode = true
+            }
+          }
         }
       }).catch(() => { })
     },
@@ -1006,6 +1029,12 @@ export default {
       this.portalApi("get", "/portal/api/me").then(resp => {
         if (resp.data.code === 0) {
           this.user = resp.data.data
+          // WebVPN 子域名验证场景：已登录时不展示门户首页，直接回跳内网应用。
+          // 有 redirect（用户本要访问的内网路径）则回跳该路径；否则回跳子域名根，由网关兑换会话后反代内网应用。
+          if (this.webvpnMode) {
+            this.doWebVpnRedirect()
+            return
+          }
           this.dashboard = resp.data.data.dashboard || {}
           this.applyDashboardTheme()
           this.loggedIn = true
@@ -1028,6 +1057,16 @@ export default {
       }).finally(() => {
         this.checking = false
       })
+    },
+    // WebVPN 子域名验证场景的统一回跳：回跳到用户本要访问的内网应用。
+    // redirect 仅含路径且必须以单 "/" 开头（不含 "//" 协议相对地址，防跳转外部站）。
+    // 无有效 redirect 时回跳子域名根路径，由网关完成会话兑换后反代内网应用。
+    doWebVpnRedirect() {
+      const redirect = this.$route.query.redirect
+      const path = redirect && redirect.startsWith("/") && !redirect.startsWith("//")
+        ? redirect
+        : "/"
+      window.location.href = window.location.origin + path
     },
     resumeCallbackChallenge() {
       if (!this.$route.query.session_id) return
@@ -1147,6 +1186,11 @@ export default {
         this.challengeCode = ""
         this.challengeSession = ""
         this.loginForm.password = ""
+        // WebVPN 子域名验证场景：登录成功后直接回跳内网应用，不进入门户首页。
+        if (this.webvpnMode) {
+          this.doWebVpnRedirect()
+          return
+        }
         this.loggedIn = true
         this.loadMe()
         // WebVPN 子站点未登录跳转过来时带了 redirect 参数，登录成功后自动回跳，
@@ -1192,7 +1236,17 @@ export default {
       this.challengeSession = ""
     },
     startSSO(type) {
-      window.location.href = "/portal/api/sso?type=" + encodeURIComponent(type)
+      // 携带回跳地址（当前完整 URL + 原目标路径）发起第三方登录。
+      // 统一请求当前域名的 /portal/api/sso（相对路径）：
+      //   - 门户主域：PortalSSO 直接进入三方平台认证（回调地址即门户域名，与平台绑定一致）。
+      //   - WebVPN 子域名：PortalSSO 识别子域后，后端按 webvpn_sso_domain 跳转到门户域名
+      //     完成三方认证，再由后端回跳回当前子域名。前端不拼域名/端口，避免丢端口。
+      let href = "/portal/api/sso?type=" + encodeURIComponent(type)
+      const rp = this.$route.query.redirect
+      if (rp && rp.startsWith("/") && !rp.startsWith("//")) {
+        href += "&redirect=" + encodeURIComponent(window.location.origin + rp)
+      }
+      window.location.href = href
     },
     changePassword() {
       if (!this.passwordForm.old_password || !this.passwordForm.new_password) {

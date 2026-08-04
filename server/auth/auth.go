@@ -86,6 +86,7 @@ type SSOState struct {
 	WebAuthCompleted bool   // WebAuth 流程已完成
 	WebAuthUsername  string
 	WebAuthGroup     string
+	Redirect         string // 登录成功后回跳地址（如 WebVPN 子域名 URL），空则回门户首页
 }
 
 // 挑战类型

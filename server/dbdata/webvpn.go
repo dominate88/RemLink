@@ -388,7 +388,7 @@ var (
 // 在服务启动时将 DB 中的吊销记录加载到内存缓存，保证重启后旧 token 仍按上次吊销阈值失效
 func LoadWebVpnRevoke() {
 	var rows []WebVpnRevoke
-	if err := Find(&rows, -1, 0); err != nil {
+	if err := xdb.Find(&rows); err != nil {
 		base.Error("加载 WebVPN 吊销记录失败:", err)
 		return
 	}

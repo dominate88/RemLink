@@ -135,18 +135,15 @@ func initRoute() http.Handler {
 	r.HandleFunc("/", LinkAuth).Methods(http.MethodPost)
 	r.HandleFunc("/portal", PortalHome).Methods(http.MethodGet)
 	r.HandleFunc("/portal/", PortalHome).Methods(http.MethodGet)
-	r.HandleFunc("/portal/api/login", PortalLogin).Methods(http.MethodPost)
-	r.HandleFunc("/portal/api/verify", PortalVerify).Methods(http.MethodPost)
-	r.HandleFunc("/portal/api/sms/send", PortalSmsSend).Methods(http.MethodPost)
-	r.HandleFunc("/portal/api/sms/verify", PortalSmsVerify).Methods(http.MethodPost)
-	r.HandleFunc("/portal/api/sso", PortalSSO).Methods(http.MethodGet)
-	r.HandleFunc("/portal/api/me", PortalMe).Methods(http.MethodGet)
+	// 子域名登录可放行的门户接口：与 WebVpnHandler 的放行判断共用 portalLoginEndpoints 单一来源，
+	// 新增子域名登录必需的门户接口只需改 portalLoginEndpoints（webvpn.go）。
+	for _, ep := range portalLoginEndpoints {
+		r.HandleFunc(ep.path, ep.handler).Methods(ep.method)
+	}
 	r.HandleFunc("/portal/api/my_groups", PortalMyGroups).Methods(http.MethodGet)
 	r.HandleFunc("/portal/api/change_password", PortalChangePassword).Methods(http.MethodPost)
 	r.HandleFunc("/portal/api/force_change_password", PortalForceChangePassword).Methods(http.MethodPost)
 	r.HandleFunc("/portal/api/logout", PortalLogout).Methods(http.MethodPost)
-	r.HandleFunc("/portal/api/login-config", PortalLoginConfig).Methods(http.MethodGet)
-	r.HandleFunc("/portal/api/otp/status", PortalOTPStatus).Methods(http.MethodGet)
 	r.HandleFunc("/portal/api/otp/regenerate", PortalOTPRegenerate).Methods(http.MethodPost)
 	r.HandleFunc("/portal/api/forgot_password", PortalForgotPassword).Methods(http.MethodPost)
 	r.HandleFunc("/portal/api/reset_password/verify", PortalResetPasswordVerify).Methods(http.MethodGet)

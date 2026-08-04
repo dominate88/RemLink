@@ -126,8 +126,8 @@ func PortalSmsSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 发送验证码
-	_, err := authsrv.SendSmsCode(req.Phone)
+	// 发送验证码（传入来源 IP 做窗口限流，防多目标短信轰炸）
+	_, err := authsrv.SendSmsCode(req.Phone, r.RemoteAddr)
 	if err != nil {
 		base.Warn("Portal短信登录发送失败:", err)
 		portalError(w, "验证码发送失败，请稍后重试")
@@ -196,6 +196,28 @@ func PortalSSO(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "不支持的第三方登录类型", http.StatusBadRequest)
 		return
 	}
+	redirect := r.URL.Query().Get("redirect")
+
+	// 子域名发起的第三方登录：跳转到「WebVPN 第三方登录专用门户域名」完成认证。
+	// 第三方平台（企微/飞书/钉钉）的 OAuth 回调地址固定绑定门户域名（VPN 服务地址），
+	// 无法为每个 WebVPN 子域单独配置；故未登录用户直接访问子域名时，需先跳到该门户域名
+	// 完成三方认证，设置 .WebVpnDomain 通配的 portal_session cookie，再回跳子域名，
+	// 由 webVpnExchangeFromPortal 兑换独立 WebVPN 会话。
+	// 该门户域名取自配置项 webvpn_sso_domain（仅 WebVPN 三方登录专用）；未配置时子域名三方登录不可用。
+	if webVpnHostPrefix(r.Host) != "" {
+		main := portalMainDomain(r)
+		if main == "" {
+			http.Error(w, "未配置 WebVPN 第三方登录专用门户域名，请先在系统设置中填写 webvpn_sso_domain", http.StatusBadRequest)
+			return
+		}
+		target := main + "/portal/api/sso?type=" + url.QueryEscape(ssoType)
+		if redirect != "" {
+			target += "&redirect=" + url.QueryEscape(redirect)
+		}
+		http.Redirect(w, r, target, http.StatusFound)
+		return
+	}
+
 	group, err := portalSSOGroup(ssoType)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -203,7 +225,29 @@ func PortalSSO(w http.ResponseWriter, r *http.Request) {
 	}
 	target := fmt.Sprintf("/+CSCOE+/saml/sp/login?tgname=%s&ssotype=%s&from=portal",
 		url.QueryEscape(group), url.QueryEscape(ssoType))
+	if redirect != "" {
+		target += "&redirect=" + url.QueryEscape(redirect)
+	}
 	http.Redirect(w, r, target, http.StatusFound)
+}
+
+// 返回 WebVPN 第三方登录专用的门户域名绝对地址（https://<webvpn_sso_domain>）
+// 仅取自配置项 webvpn_sso_domain，不带端口时沿用请求来源端口。未配置返回 ""（子域名三方登录不可用）
+func portalMainDomain(r *http.Request) string {
+	domain := base.GetCfg().WebVpnSsoDomain
+	if domain == "" {
+		return ""
+	}
+	host := stripPort(domain)
+	port := portOf(domain)
+	if port == "" {
+		port = portOf(r.Host)
+	}
+	main := "https://" + host
+	if port != "" {
+		main += ":" + port
+	}
+	return main
 }
 
 func PortalMe(w http.ResponseWriter, r *http.Request) {
@@ -405,16 +449,18 @@ func PortalLoginConfig(w http.ResponseWriter, r *http.Request) {
 	brand := dbdata.SettingPortalBrand{}
 	_ = dbdata.SettingGet(&brand)
 	portalOK(w, map[string]any{
-		"title":            brand.Title,
-		"logo":             brand.Logo,
-		"favicon":          brand.Favicon,
-		"desc":             brand.Desc,
-		"footer":           brand.Footer,
-		"features_enabled": brand.FeaturesEnabled,
-		"features":         brand.Features,
-		"issuer":           base.GetCfg().Issuer,
-		"sso_types":        portalEnabledSSOTypes(),
-		"sms_enabled":      notify.IsSmsConfigured(),
+		"title":             brand.Title,
+		"logo":              brand.Logo,
+		"favicon":           brand.Favicon,
+		"desc":              brand.Desc,
+		"footer":            brand.Footer,
+		"features_enabled":  brand.FeaturesEnabled,
+		"features":          brand.Features,
+		"issuer":            base.GetCfg().Issuer,
+		"domain":            base.GetCfg().WebVpnDomain,
+		"webvpn_sso_domain": base.GetCfg().WebVpnSsoDomain,
+		"sso_types":         portalEnabledSSOTypes(),
+		"sms_enabled":       notify.IsSmsConfigured(),
 	})
 }
 
@@ -1090,7 +1136,13 @@ func portalSSOLogin(w http.ResponseWriter, r *http.Request, pending *AuthSession
 	switch result.Result {
 	case auth.StepPass:
 		_ = portalIssueLoginResponse(w, r, user, ctx.LogInfo())
-		http.Redirect(w, r, "/ui/#/portal", http.StatusFound)
+		// 子域名第三方登录：认证成功后回跳原 WebVPN 子域名；否则回门户首页。
+		// redirect 只允许本站注册域（.WebVpnDomain 后缀）内的 https URL，杜绝开放重定向。
+		if rp := pending.Ctx.SSO.Redirect; webVpnSafeRedirect(rp) {
+			http.Redirect(w, r, rp, http.StatusFound)
+		} else {
+			http.Redirect(w, r, "/ui/#/portal", http.StatusFound)
+		}
 	case auth.StepPending:
 		sessionID := portalSaveChallengeSession(result, ctx)
 		http.Redirect(w, r, "/ui/#/portal?session_id="+url.QueryEscape(sessionID)+"&challenge=otp", http.StatusFound)
@@ -1102,6 +1154,32 @@ func portalSSOLogin(w http.ResponseWriter, r *http.Request, pending *AuthSession
 		}
 	}
 	return true
+}
+
+// 校验 SSO 登录成功后的回跳地址是否安全：
+// 必须是 https，且 host 与 WebVpnDomain 主域相同或是其子域（如 app.wv.example.com），
+// 防止第三方登录回调被用于开放重定向
+func webVpnSafeRedirect(u string) bool {
+	if u == "" {
+		return false
+	}
+	parsed, err := url.Parse(u)
+	if err != nil {
+		return false
+	}
+	if parsed.Scheme != "https" {
+		return false
+	}
+	domain := base.GetCfg().WebVpnDomain
+	if domain == "" {
+		return false
+	}
+	host := stripPort(parsed.Host)
+	base2 := stripPort(domain)
+	if host == "" || base2 == "" {
+		return false
+	}
+	return host == base2 || strings.HasSuffix(host, "."+base2)
 }
 
 func portalCheckLocalPassword(user *dbdata.User, password string) error {

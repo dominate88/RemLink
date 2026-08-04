@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"math/big"
+	"net"
 	"sync"
 	"time"
 
@@ -24,14 +25,24 @@ var (
 	smsCodes   = make(map[string]*smsCode)
 	smsCodeMu  sync.Mutex
 	smsLimiter = struct {
-		mu   sync.Mutex
-		next map[string]time.Time // phone → 下次允许发送时间
-	}{next: make(map[string]time.Time)}
+		mu    sync.Mutex
+		next  map[string]time.Time    // phone → 下次允许发送时间
+		ipWin map[string]*ipSmsWindow // 来源IP → 发送计数窗口（防多目标短信轰炸）
+	}{next: make(map[string]time.Time), ipWin: make(map[string]*ipSmsWindow)}
 )
 
+// 记录某个来源 IP 在一个时间窗口内的短信发送次数
+type ipSmsWindow struct {
+	count int
+	reset time.Time
+}
+
 const (
-	smsCodeLength   = 6
-	smsCodeTTL      = 5 * time.Minute
+	smsCodeLength     = 6
+	smsCodeTTL        = 5 * time.Minute
+	smsIPWindow       = 1 * time.Minute // 来源 IP 发送计数窗口
+	smsIPMaxPerWindow = 5               // 窗口内单 IP 最多发送条数（防多目标短信轰炸）
+
 	smsResendLimit  = 60 * time.Second // 重发间隔
 	smsMaxRetries   = 5                // 单个验证码最多验证次数
 	smsCleanupEvery = 30 * time.Second
@@ -70,14 +81,34 @@ func generateSmsCode() string {
 
 // SendSmsCode 发送短信验证码（供 Portal API 直接调用）
 // 返回验证码和错误，调用方不应向外部泄露 code。
-func SendSmsCode(phone string) (string, error) {
-	// 限流：同一手机号 60 秒内只能发一次
+func SendSmsCode(phone string, fromIP ...string) (string, error) {
+	now := time.Now()
+	// 同一手机号 60 秒内只能发一次
 	smsLimiter.mu.Lock()
-	if t, ok := smsLimiter.next[phone]; ok && time.Now().Before(t) {
+	if t, ok := smsLimiter.next[phone]; ok && now.Before(t) {
 		smsLimiter.mu.Unlock()
 		return "", fmt.Errorf("发送过于频繁，请 %d 秒后重试", int(time.Until(t).Seconds()))
 	}
-	smsLimiter.next[phone] = time.Now().Add(smsResendLimit)
+	smsLimiter.next[phone] = now.Add(smsResendLimit)
+
+	// 同一来源 IP 在窗口内最多发 smsIPMaxPerWindow 次，防止一个 IP 批量轰炸多个手机号
+	if len(fromIP) > 0 {
+		ip := fromIP[0]
+		if h, _, err := net.SplitHostPort(ip); err == nil {
+			ip = h
+		}
+		if ip != "" {
+			w, ok := smsLimiter.ipWin[ip]
+			if !ok || now.After(w.reset) {
+				smsLimiter.ipWin[ip] = &ipSmsWindow{count: 1, reset: now.Add(smsIPWindow)}
+			} else if w.count >= smsIPMaxPerWindow {
+				smsLimiter.mu.Unlock()
+				return "", fmt.Errorf("发送过于频繁，请稍后重试")
+			} else {
+				w.count++
+			}
+		}
+	}
 	smsLimiter.mu.Unlock()
 
 	code := generateSmsCode()

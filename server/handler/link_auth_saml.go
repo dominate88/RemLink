@@ -20,8 +20,9 @@ const ssoStatePrefixLen = 32 // SSO state 随机串长度
 // 统一 SSO 登录入口：生成 state、创建 pending 会话、拼 OAuth URL 并跳转。
 // callbackPath 为固定回调路径前缀（如 "WXAuth"、"FeishuAuth"），会自动拼接 "/callback"。
 // buildURL 接收完整的 redirectUri 和 state，返回目标 OAuth 授权地址。
+// redirect 为登录成功后要回跳的地址（如 WebVPN 子域名 URL），空则登录后回门户首页。
 func startSSO(w http.ResponseWriter, r *http.Request, tgname, ssoType, callbackPath string,
-	buildURL func(redirectUri, state string) string) {
+	buildURL func(redirectUri, state string) string, redirect string) {
 
 	state := utils.RandomRunes(ssoStatePrefixLen)
 	pending := &AuthSession{
@@ -31,6 +32,7 @@ func startSSO(w http.ResponseWriter, r *http.Request, tgname, ssoType, callbackP
 				Type:     ssoType,
 				From:     r.URL.Query().Get("from"),
 				ClientIP: r.RemoteAddr,
+				Redirect: redirect,
 			},
 		},
 	}
@@ -58,6 +60,7 @@ func SAMLSPLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ssotype := r.URL.Query().Get("ssotype")
+	redirect := r.URL.Query().Get("redirect")
 
 	if ssotype == "feishu" {
 		if !dbdata.HasAuthType(groupData.AuthProfile, "feishu") {
@@ -74,7 +77,7 @@ func SAMLSPLogin(w http.ResponseWriter, r *http.Request) {
 		startSSO(w, r, tgname, "feishu", "FeishuAuth", func(redirectUri, state string) string {
 			return fmt.Sprintf("https://open.feishu.cn/open-apis/authen/v1/authorize?app_id=%s&redirect_uri=%s&state=%s",
 				feishuConfig.AppID, url.QueryEscape(redirectUri), url.QueryEscape(state))
-		})
+		}, redirect)
 		return
 	}
 
@@ -95,7 +98,7 @@ func SAMLSPLogin(w http.ResponseWriter, r *http.Request) {
 			scope := "openid%20Contact.User.Read"
 			return fmt.Sprintf("https://login.dingtalk.com/oauth2/auth?redirect_uri=%s&response_type=code&client_id=%s&state=%s&scope=%s&prompt=consent",
 				url.QueryEscape(redirectUri), dingtalkConfig.ClientID, url.QueryEscape(state), scope)
-		})
+		}, redirect)
 		return
 	}
 
@@ -115,7 +118,7 @@ func SAMLSPLogin(w http.ResponseWriter, r *http.Request) {
 	startSSO(w, r, tgname, "wxwork", "WXAuth", func(redirectUri, state string) string {
 		return fmt.Sprintf("https://login.work.weixin.qq.com/wwlogin/sso/login?login_type=CorpApp&appid=%s&agentid=%s&redirect_uri=%s&state=%s",
 			wxworkConfig.CorpID, wxworkConfig.AgentID, url.QueryEscape(redirectUri), url.QueryEscape(state))
-	})
+	}, redirect)
 }
 
 // 企业微信 OAuth2 回调
