@@ -388,7 +388,7 @@
               <i class="el-icon-user-solid"></i>
             </div>
             <div class="stat-body">
-              <div class="stat-value">{{ user.username || '-' }}</div>
+              <div class="stat-value">{{ user.name || user.username || '-' }}</div>
               <div class="stat-label">用户名</div>
             </div>
           </div>

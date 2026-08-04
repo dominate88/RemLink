@@ -68,7 +68,7 @@
           <el-table-column sortable type="index" label="#" width="50" align="center"></el-table-column>
           <el-table-column prop="username" label="用户名" width="120">
             <template slot-scope="scope">
-              <span class="online-username">{{ scope.row.username }}</span>
+              <span class="online-username">{{ scope.row.nickname || scope.row.username }}</span>
             </template>
           </el-table-column>
           <el-table-column prop="group" label="登录组" width="100" align="center">

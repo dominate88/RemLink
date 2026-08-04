@@ -320,8 +320,8 @@ func ProviderSyncUsers(w http.ResponseWriter, r *http.Request) {
 		RespError(w, RespInternalErr, err)
 		return
 	}
-	if p.Type != "ldap" && p.Type != "wxwork" && p.Type != "feishu" {
-		RespError(w, RespParamErr, "仅支持 LDAP/企微/飞书 类型的同步用户")
+	if p.Type != "ldap" && p.Type != "wxwork" && p.Type != "feishu" && p.Type != "dingtalk" {
+		RespError(w, RespParamErr, "仅支持 LDAP/企微/飞书/钉钉 类型的同步用户")
 		return
 	}
 
@@ -373,6 +373,25 @@ func ProviderSyncUsers(w http.ResponseWriter, r *http.Request) {
 		}()
 		dbdata.AdminLog("用户组管理", req.GroupName, "同步企微用户", r.RemoteAddr)
 		RespSucess(w, "企微用户同步成功")
+		return
+	}
+
+	// dingtalk
+	if p.Type == "dingtalk" {
+		authDt, err := dbdata.ResolveDingtalkConfig(g)
+		if err != nil {
+			RespError(w, RespInternalErr, err)
+			return
+		}
+		go func() {
+			if err := authDt.SaveUsers(g); err != nil {
+				base.Error("钉钉用户同步失败:", err)
+			} else {
+				base.Info("钉钉用户同步成功")
+			}
+		}()
+		dbdata.AdminLog("用户组管理", req.GroupName, "同步钉钉用户", r.RemoteAddr)
+		RespSucess(w, "钉钉用户同步成功")
 		return
 	}
 

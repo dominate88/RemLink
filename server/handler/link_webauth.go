@@ -682,8 +682,10 @@ func webAuthBuildSSOURL(r *http.Request, ssoType, groupName, webAuthState string
 		if err != nil {
 			return ""
 		}
-		return fmt.Sprintf("https://login.dingtalk.com/oauth2/auth?redirect_uri=%s&response_type=code&client_id=%s&state=%s&scope=openid",
-			url.QueryEscape(redirectUri), cfg.ClientID, url.QueryEscape(ssoState))
+		// 使用 %20 分隔 scope 作用域，或显式指定 prompt=consent
+		scope := "openid%20Contact.User.Read"
+		return fmt.Sprintf("https://login.dingtalk.com/oauth2/auth?redirect_uri=%s&response_type=code&client_id=%s&state=%s&scope=%s&prompt=consent",
+			url.QueryEscape(redirectUri), cfg.ClientID, url.QueryEscape(ssoState), scope)
 	}
 	return ""
 }

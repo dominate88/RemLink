@@ -64,20 +64,29 @@ func (a *AuthDingtalk) SaveUsers(g *Group) error {
 		return fmt.Errorf("获取钉钉通讯录令牌失败: %w", err)
 	}
 
-	departments := a.ParseDepartments()
-	if len(departments) == 0 {
-		return fmt.Errorf("未配置允许的部门，无法同步用户")
-	}
-
 	needOTP := HasAuthType(g.AuthProfile, "otp")
+	blocked := a.ParseBlockedUserIDs()
 
-	// 拉取所有允许部门的成员（去重）
+	// 拉取允许部门内的成员；未配置部门时拉取权限范围内全部用户（部门仅作过滤，非同步前提）
 	dtUserMap := make(map[string]auth.DingtalkDeptUser)
-	for _, deptID := range departments {
-		users, err := a.GetDepartmentUsers(contactToken, deptID)
+	if departments := a.ParseDepartments(); len(departments) > 0 {
+		for _, deptID := range departments {
+			users, err := a.GetDepartmentUsers(contactToken, deptID)
+			if err != nil {
+				base.Error("获取钉钉部门成员失败", deptID, err)
+				continue
+			}
+			for _, u := range users {
+				if _, exists := dtUserMap[u.UserId]; !exists {
+					dtUserMap[u.UserId] = u
+				}
+			}
+		}
+	} else {
+		base.Warn("钉钉未配置允许部门，同步权限范围内全部用户")
+		users, err := a.GetAllUsers(contactToken)
 		if err != nil {
-			base.Error("获取钉钉部门成员失败", deptID, err)
-			continue
+			return fmt.Errorf("获取钉钉全部用户失败: %w", err)
 		}
 		for _, u := range users {
 			if _, exists := dtUserMap[u.UserId]; !exists {
@@ -89,12 +98,19 @@ func (a *AuthDingtalk) SaveUsers(g *Group) error {
 	// 同步到本地 DB
 	syncedUsers := make(map[string]bool)
 	for _, dtUser := range dtUserMap {
+		// 拒绝名单：同步时跳过
+		if a.CheckUserID(dtUser.UserId, blocked) != nil {
+			base.Warn("钉钉同步跳过拒绝用户:", dtUser.UserId)
+			continue
+		}
 		syncedUsers[dtUser.UserId] = true
 
 		newUser := &User{
 			Type:       "dingtalk",
 			Username:   dtUser.UserId,
 			Nickname:   dtUser.Name,
+			Email:      dtUser.Email,
+			Phone:      dtUser.Mobile,
 			Groups:     []string{g.Name},
 			DisableOtp: !needOTP,
 			OtpSecret:  gotp.RandomSecret(32),
@@ -121,6 +137,12 @@ func (a *AuthDingtalk) SaveUsers(g *Group) error {
 		}
 		// 更新现有钉钉用户字段
 		u.Nickname = dtUser.Name
+		if dtUser.Email != "" {
+			u.Email = dtUser.Email
+		}
+		if dtUser.Mobile != "" {
+			u.Phone = dtUser.Mobile
+		}
 		u.DisableOtp = !needOTP
 		if u.OtpSecret == "" {
 			u.OtpSecret = gotp.RandomSecret(32)

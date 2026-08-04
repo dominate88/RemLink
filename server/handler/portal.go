@@ -192,7 +192,7 @@ func PortalSSO(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ssoType := r.URL.Query().Get("type")
-	if ssoType != "wxwork" && ssoType != "feishu" {
+	if ssoType != "wxwork" && ssoType != "feishu" && ssoType != "dingtalk" {
 		http.Error(w, "不支持的第三方登录类型", http.StatusBadRequest)
 		return
 	}
@@ -1020,6 +1020,15 @@ func portalSSOGroup(ssoType string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("获取用户组失败")
 	}
+	// 查找纯SSO类型的组
+	for _, group := range groups {
+		if profile, perr := auth.ParseAuthProfile(group.AuthProfile); perr == nil {
+			if len(profile.Step) == 1 && profile.Step[0].Type == ssoType {
+				return group.Name, nil
+			}
+		}
+	}
+	// 无纯 SSO 组时返回第一个含该类型的组
 	for _, group := range groups {
 		if dbdata.HasAuthType(group.AuthProfile, ssoType) {
 			return group.Name, nil
@@ -1043,7 +1052,7 @@ func portalSSOLogin(w http.ResponseWriter, r *http.Request, pending *AuthSession
 	if err := dbdata.One("Username", username, user); err != nil {
 		if dbdata.CheckErrNotFound(err) {
 			userExists = false
-			user = &dbdata.User{Username: username, Type: "external", Status: 1}
+			user = &dbdata.User{Username: username, Type: ssoType, Status: 1}
 		} else {
 			SAMLError(w, fmt.Errorf("用户查询失败"))
 			return true
@@ -1057,6 +1066,10 @@ func portalSSOLogin(w http.ResponseWriter, r *http.Request, pending *AuthSession
 	if group == "" {
 		SAMLError(w, fmt.Errorf("认证会话数据异常"))
 		return true
+	}
+	// 确保 token 的 portal_groups 非空：SSO 用户（未同步本地）也需携带认证组，
+	if !utils.InArrStr(user.Groups, group) {
+		user.Groups = append(user.Groups, group)
 	}
 	ctx := &auth.Context{
 		Conn: auth.ConnInfo{

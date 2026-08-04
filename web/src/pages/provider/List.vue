@@ -264,6 +264,13 @@
               <i class="el-icon-mobile-phone"></i> 飞书应用参数
               <span class="section-warn"><i class="el-icon-warning"></i> 仅支持 PC 端 AnyConnect 客户端</span>
             </div>
+            <div class="form-tip form-tip-info">
+              飞书开放平台后台「安全设置 - 重定向 URL」需填写：<code>{{ feishuCallback }}</code>
+            </div>
+            <div class="form-tip form-tip-warn">
+              若需使用 Web 认证（浏览器弹窗扫码）登录，还需额外在飞书「安全设置 - 重定向 URL」中补加：<code>{{ webAuthCallback }}</code>
+              <br>飞书按完整路径精确匹配回调，门户/原生与 Web 认证路径不同，两条都需配置。
+            </div>
             <el-row :gutter="16">
               <el-col :span="12">
                 <el-form-item label="App ID">
@@ -322,6 +329,9 @@
             <div class="section-title">
               <i class="el-icon-mobile-phone"></i> 钉钉应用参数
               <span class="section-warn"><i class="el-icon-warning"></i> 仅支持 PC 端 AnyConnect 客户端</span>
+            </div>
+            <div class="form-tip form-tip-info">
+              钉钉开放平台后台「登录与分享 - 回调地址」需填写：<code>{{ dingtalkCallback }}</code>
             </div>
             <el-row :gutter="16">
               <el-col :span="12">
@@ -384,6 +394,9 @@
             <div class="section-title">
               <i class="el-icon-mobile-phone"></i> 企业微信应用参数
               <span class="section-warn"><i class="el-icon-warning"></i> 仅支持 PC 端 AnyConnect 客户端</span>
+            </div>
+            <div class="form-tip form-tip-info">
+              企业微信后台「企业微信登录 - 可信域名/回调」需填写：<code>{{ wxworkCallback }}</code>
             </div>
             <el-row :gutter="16">
               <el-col :span="12">
@@ -534,6 +547,7 @@ export default {
       loading: false,
       page: 1, tableData: [], count: 0,
       editDialog: false,
+      detailCallbackBase: "",
       ruleForm: { id: 0, name: "", type: "ldap", status: 1 },
       configForm: Object.assign({}, configDefaults.ldap),
       rules: {
@@ -560,6 +574,15 @@ export default {
     isWxwork() { return this.ruleForm.type === 'wxwork'; },
     isFeishu() { return this.ruleForm.type === 'feishu'; },
     isDingtalk() { return this.ruleForm.type === 'dingtalk'; },
+    // 各第三方认证源在对应开放平台后台需填写的回调地址（路径固定，基础地址由后端下发，
+    // 使用 VPN 服务端口；新增态未加载详情时回退到当前页 origin）
+    callbackBase() {
+      return this.detailCallbackBase || (typeof window !== 'undefined' && window.location.origin) || '';
+    },
+    wxworkCallback() { return this.callbackBase + '/WXAuth/callback'; },
+    feishuCallback() { return this.callbackBase + '/FeishuAuth/callback'; },
+    dingtalkCallback() { return this.callbackBase + '/DingtalkAuth/callback'; },
+    webAuthCallback() { return this.callbackBase + '/web-auth/sso-callback'; },
     isLdapOrRadius() { return this.ruleForm.type === 'ldap' || this.ruleForm.type === 'radius'; },
     isTestEnabled() { return this.ruleForm.status === 1; },
     isSyncEnabled() { return this.ruleForm.id && (this.isLdap || this.isWxwork || this.isFeishu || this.isDingtalk); },
@@ -609,6 +632,11 @@ export default {
         const rdata = resp.data.data;
         this.tableData = rdata.datas || [];
         this.count = rdata.count || 0;
+        // 列表接口一并下发回调基础地址（基于 VPN 服务端口），
+        // 新增态无需加载详情即可正确显示，避免回退到后台 8800 地址
+        if (rdata.callbackBase) {
+          this.detailCallbackBase = rdata.callbackBase;
+        }
         this.loading = false;
       }).catch(() => { this.loading = false; });
     },
@@ -633,15 +661,18 @@ export default {
       }
       axios.get('/provider/detail', { params: { id: row.id } }).then(resp => {
         const data = resp.data.data;
+        const p = data.provider || data;
         this.ruleForm = {
-          id: data.id || 0, name: data.name || "",
-          type: data.type || "ldap",
-          status: data.status !== undefined ? data.status : 1,
+          id: p.id || 0, name: p.name || "",
+          type: p.type || "ldap",
+          status: p.status !== undefined ? p.status : 1,
         };
         let cfg = {};
-        try { cfg = typeof data.config === 'string' ? JSON.parse(data.config) : (data.config || {}); }
+        try { cfg = typeof p.config === 'string' ? JSON.parse(p.config) : (p.config || {}); }
         catch (e) { cfg = {}; }
         this.configForm = Object.assign({}, configDefaults[this.ruleForm.type] || {}, cfg);
+        // 后端下发的回调地址基础（VPN 服务端口），用于引导在开放平台填写回调 URL
+        this.detailCallbackBase = data.callbackBase || "";
       }).catch(() => {
         this.$message.error('获取详情失败');
       });
@@ -834,6 +865,7 @@ export default {
   gap: 10px;
 }
 
+.form-tip-info,
 .form-tip {
   font-size: 12px;
   color: var(--text-secondary);
@@ -847,8 +879,38 @@ export default {
   padding: 6px 10px;
   background: var(--info-bg);
   border-radius: 6px;
+}
+
+.form-tip-info code {
+  font-family: monospace;
+  background: rgba(0, 0, 0, 0.06);
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.form-tip-warn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: var(--warn-bg, #fdf6ec);
+  border-left: 3px solid var(--warn, #e6a23c);
+  border-radius: 4px;
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+.form-tip-warn code {
+  font-family: monospace;
+  background: rgba(0, 0, 0, 0.06);
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--text-primary);
+  word-break: break-all;
 }
 
 /* 配置面板 */

@@ -6,9 +6,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/wsczx/remlink/base"
 )
+
+var dingtalkHttpClient = &http.Client{
+	Timeout: 15 * time.Second,
+}
 
 // 钉钉认证配置（企业内部应用 OAuth2 扫码登录）
 type DingtalkConfig struct {
@@ -69,24 +76,13 @@ type dingtalkTokenResp struct {
 	Message     string `json:"message"`
 }
 
-// sns 用户信息响应
+// sns 用户信息响应（/v1.0/contact/users/me）
 type dingtalkSnsResp struct {
-	Code     string              `json:"code"`
-	Message  string              `json:"message"`
-	UserInfo dingtalkSnsUserInfo `json:"user_info"`
-}
-
-type dingtalkSnsUserInfo struct {
-	OpenID  string `json:"openid"`
-	UnionID string `json:"unionid"`
+	UserId  string `json:"userId"`
+	UnionID string `json:"unionId"`
+	OpenID  string `json:"openId"`
 	Nick    string `json:"nick"`
-}
-
-// unionid 换 userid 响应
-type dingtalkUserIDResp struct {
-	UserId  string `json:"userid"`
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Mobile  string `json:"mobile"`
 }
 
 // 用户详情（部门）
@@ -96,23 +92,25 @@ type dingtalkUserDetailResp struct {
 	Message    string  `json:"message"`
 }
 
-// 用授权 code 换取 accessToken（钉钉新版 OAuth2）
+// 用授权 code 换取用户 accessToken（钉钉新版 OAuth2）
 func (c *DingtalkConfig) GetAccessToken(code string) (string, error) {
 	body := map[string]string{
 		"clientId":     c.ClientID,
 		"clientSecret": c.ClientSecret,
 		"code":         code,
+		"grantType":    "authorization_code",
 	}
 	data, err := json.Marshal(body)
 	if err != nil {
 		return "", err
 	}
-	req, err := http.NewRequest(http.MethodPost, "https://api.dingtalk.com/v1.0/oauth2/accessToken", bytes.NewReader(data))
+	req, err := http.NewRequest(http.MethodPost, "https://api.dingtalk.com/v1.0/oauth2/userAccessToken", bytes.NewReader(data))
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+
+	resp, err := dingtalkHttpClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -132,26 +130,20 @@ func (c *DingtalkConfig) GetAccessToken(code string) (string, error) {
 }
 
 // 用 OAuth code 解析出登录用户标识。
-// 优先返回企业工号(userid)，若通讯录权限不足无法解析时回退使用 unionid，保证可登录。
+// 流程：code 换用户 token -> /contact/users/me -> (若无 userId) 依次尝试【手机号反查】和【unionid反查】。
 func (c *DingtalkConfig) GetDingtalkUser(code string) (string, string, error) {
 	accessToken, err := c.GetAccessToken(code)
 	if err != nil {
 		return "", "", err
 	}
 
-	// 用 accessToken + code 换取 sns 用户信息（openid/unionid）
-	body := map[string]string{"tmp_auth_code": code}
-	data, err := json.Marshal(body)
+	req, err := http.NewRequest(http.MethodGet, "https://api.dingtalk.com/v1.0/contact/users/me", nil)
 	if err != nil {
 		return "", "", err
 	}
-	req, err := http.NewRequest(http.MethodPost, "https://api.dingtalk.com/v1.0/oauth2/sns/getuserinfo_bycode", bytes.NewReader(data))
-	if err != nil {
-		return "", "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-acs-dingtalk-access-token", accessToken)
-	resp, err := http.DefaultClient.Do(req)
+
+	resp, err := dingtalkHttpClient.Do(req)
 	if err != nil {
 		return "", "", err
 	}
@@ -160,36 +152,65 @@ func (c *DingtalkConfig) GetDingtalkUser(code string) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
+	if resp.StatusCode == http.StatusForbidden &&
+		strings.Contains(string(respBody), "AccessTokenPermissionDenied") {
+		return "", "", fmt.Errorf(
+			"用户未授权 Contact.User.Read，请在钉钉应用的【权限管理】中开通【通讯录个人信息读权限(Contact.User.Read)】，并在 OAuth 链接的 scope 中包含 openid 与 Contact.User.Read")
+	}
+
 	var sr dingtalkSnsResp
 	if err := json.Unmarshal(respBody, &sr); err != nil {
 		return "", "", fmt.Errorf("解析钉钉用户信息失败: %w (raw=%s)", err, string(respBody))
 	}
-	unionID := strings.TrimSpace(sr.UserInfo.UnionID)
-	if unionID == "" {
-		return "", "", fmt.Errorf("钉钉未返回有效用户标识: code=%s msg=%s", sr.Code, sr.Message)
+
+	userID := strings.TrimSpace(sr.UserId)
+
+	// 兜底策略 1：如果 me 接口未返回 userId，优先尝试通过手机号反查
+	if userID == "" && strings.TrimSpace(sr.Mobile) != "" {
+		contactToken, err := c.GetContactToken()
+		if err == nil {
+			uid, err := c.GetUserIdByMobile(contactToken, strings.TrimSpace(sr.Mobile))
+			if err == nil && uid != "" {
+				userID = uid
+			} else {
+				base.Error("通过手机号反查 userID 失败:", err)
+			}
+		} else {
+			base.Error("获取通讯录 Token 失败:", err)
+		}
 	}
 
-	// 尝试将 unionid 转换为企业工号(userid)，失败则回退 unionid
-	if userID, err := c.unionIDToUserID(accessToken, unionID); err == nil && userID != "" {
-		return userID, accessToken, nil
+	// 兜底策略 2：如果手机号未获取或反查失败，尝试通过 unionId 反查
+	if userID == "" && strings.TrimSpace(sr.UnionID) != "" {
+		base.Debug("尝试通过 unionId 反查 userId: unionId=", sr.UnionID)
+		contactToken, err := c.GetContactToken()
+		if err == nil {
+			uid, err := c.GetUserIdByUnionId(contactToken, strings.TrimSpace(sr.UnionID))
+			if err == nil && uid != "" {
+				userID = uid
+				base.Debug("通过 unionId 成功反查到 userID=", userID)
+			} else {
+				base.Error("通过 unionId 反查 userID 失败:", err)
+			}
+		}
 	}
-	return unionID, accessToken, nil
+
+	if userID == "" {
+		return "", "", fmt.Errorf("钉钉未返回有效 userId (已尝试手机号与 unionId 反查): raw=%s", string(respBody))
+	}
+	return userID, accessToken, nil
 }
 
-// 通过通讯录接口将 unionid 转换为用户工号
-func (c *DingtalkConfig) unionIDToUserID(accessToken, unionID string) (string, error) {
-	body := map[string]string{"unionid": unionID}
-	data, err := json.Marshal(body)
+// 通过手机号获取 userid
+func (c *DingtalkConfig) GetUserIdByMobile(contactToken, mobile string) (string, error) {
+	body, err := json.Marshal(map[string]string{
+		"mobile": mobile,
+	})
 	if err != nil {
 		return "", err
 	}
-	req, err := http.NewRequest(http.MethodPost, "https://api.dingtalk.com/v1.0/contact/users/by_unionid", bytes.NewReader(data))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-acs-dingtalk-access-token", accessToken)
-	resp, err := http.DefaultClient.Do(req)
+	url := "https://oapi.dingtalk.com/topapi/v2/user/getbymobile?access_token=" + contactToken
+	resp, err := dingtalkHttpClient.Post(url, "application/json", bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
@@ -198,18 +219,57 @@ func (c *DingtalkConfig) unionIDToUserID(accessToken, unionID string) (string, e
 	if err != nil {
 		return "", err
 	}
-	var ur dingtalkUserIDResp
-	if err := json.Unmarshal(respBody, &ur); err != nil {
-		return "", fmt.Errorf("解析钉钉 userid 响应失败: %w (raw=%s)", err, string(respBody))
+	var dr struct {
+		ErrCode int    `json:"errcode"`
+		ErrMsg  string `json:"errmsg"`
+		Result  struct {
+			Userid string `json:"userid"`
+		} `json:"result"`
 	}
-	if ur.UserId == "" {
-		return "", fmt.Errorf("钉钉未返回 userid: code=%s msg=%s", ur.Code, ur.Message)
+	if err := json.Unmarshal(respBody, &dr); err != nil {
+		return "", err
 	}
-	return ur.UserId, nil
+	if dr.ErrCode != 0 {
+		return "", fmt.Errorf("手机号查询 userid 失败: %s", dr.ErrMsg)
+	}
+	return dr.Result.Userid, nil
+}
+
+// 通过 unionId 获取 userid
+func (c *DingtalkConfig) GetUserIdByUnionId(contactToken, unionId string) (string, error) {
+	body, err := json.Marshal(map[string]string{
+		"unionid": unionId,
+	})
+	if err != nil {
+		return "", err
+	}
+	url := "https://oapi.dingtalk.com/topapi/user/getbyunionid?access_token=" + contactToken
+	resp, err := dingtalkHttpClient.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	var dr struct {
+		ErrCode int    `json:"errcode"`
+		ErrMsg  string `json:"errmsg"`
+		Result  struct {
+			Userid string `json:"userid"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(respBody, &dr); err != nil {
+		return "", err
+	}
+	if dr.ErrCode != 0 {
+		return "", fmt.Errorf("unionId 查询 userid 失败: %s", dr.ErrMsg)
+	}
+	return dr.Result.Userid, nil
 }
 
 // 校验用户是否在某允许部门内（通过通讯录接口查询用户部门）。
-// 配置为空部门列表时直接放行；通讯录查询失败时返回 true（避免权限不足阻断登录）。
 func (c *DingtalkConfig) CheckUserDepartment(accessToken, userID string, allowed []string) (bool, error) {
 	if len(allowed) == 0 {
 		return true, nil
@@ -219,9 +279,9 @@ func (c *DingtalkConfig) CheckUserDepartment(accessToken, userID string, allowed
 		return false, err
 	}
 	req.Header.Set("x-acs-dingtalk-access-token", accessToken)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := dingtalkHttpClient.Do(req)
 	if err != nil {
-		return true, nil
+		return true, nil // 查询失败默认放行
 	}
 	defer resp.Body.Close()
 	respBody, err := io.ReadAll(resp.Body)
@@ -245,10 +305,20 @@ func (c *DingtalkConfig) CheckUserDepartment(accessToken, userID string, allowed
 }
 
 // 获取通讯录访问令牌（用于用户同步）。
-// 钉钉企业内部应用使用 appkey/appsecret 换取。
 func (c *DingtalkConfig) GetContactToken() (string, error) {
-	url := fmt.Sprintf("https://oapi.dingtalk.com/gettoken?appkey=%s&appsecret=%s", c.ClientID, c.ClientSecret)
-	resp, err := http.Get(url)
+	body, err := json.Marshal(map[string]string{
+		"appKey":    c.ClientID,
+		"appSecret": c.ClientSecret,
+	})
+	if err != nil {
+		return "", fmt.Errorf("序列化钉钉应用令牌请求失败: %w", err)
+	}
+	req, err := http.NewRequest(http.MethodPost, "https://api.dingtalk.com/v1.0/oauth2/accessToken", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := dingtalkHttpClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -258,37 +328,58 @@ func (c *DingtalkConfig) GetContactToken() (string, error) {
 		return "", err
 	}
 	var tr struct {
-		AccessToken string `json:"access_token"`
-		ErrCode     int    `json:"errcode"`
-		ErrMsg      string `json:"errmsg"`
+		AccessToken string `json:"accessToken"`
+		Code        string `json:"code"`
+		Message     string `json:"message"`
 	}
 	if err := json.Unmarshal(respBody, &tr); err != nil {
-		return "", fmt.Errorf("解析钉钉通讯录令牌失败: %w", err)
+		return "", fmt.Errorf("解析钉钉应用令牌失败: %w (raw=%s)", err, string(respBody))
 	}
 	if tr.AccessToken == "" {
-		return "", fmt.Errorf("获取钉钉通讯录令牌失败: %s", tr.ErrMsg)
+		return "", fmt.Errorf("获取钉钉应用令牌失败: code=%s msg=%s", tr.Code, tr.Message)
 	}
 	return tr.AccessToken, nil
 }
 
-// 钉钉部门成员项（导出，供 dbdata 同步使用）
+// 钉钉部门成员项
 type DingtalkDeptUser struct {
 	UserId string `json:"userid"`
 	Name   string `json:"name"`
+	Mobile string `json:"mobile"`
+	Email  string `json:"email"`
 }
 
-// 拉取钉钉部门成员（通讯录接口）
+// 拉取钉钉部门成员
 func (c *DingtalkConfig) GetDepartmentUsers(contactToken string, deptID string) ([]DingtalkDeptUser, error) {
+	return c.getDepartmentUsers(contactToken, deptID, false)
+}
+
+// 拉取钉钉部门成员（含子部门）
+func (c *DingtalkConfig) GetAllUsers(contactToken string) ([]DingtalkDeptUser, error) {
+	return c.getDepartmentUsers(contactToken, "1", true)
+}
+
+func (c *DingtalkConfig) getDepartmentUsers(contactToken, deptID string, _ bool) ([]DingtalkDeptUser, error) {
 	var (
 		result  []DingtalkDeptUser
 		cursor  int64
 		hasMore = true
-		client  = &http.Client{Timeout: 15 * time.Second}
 	)
+	deptIDInt, err := strconv.Atoi(deptID)
+	if err != nil {
+		return nil, fmt.Errorf("钉钉部门 ID 必须为数字: %s", deptID)
+	}
 	for hasMore {
-		url := fmt.Sprintf("https://oapi.dingtalk.com/user/list?access_token=%s&department_id=%s&cursor=%d&size=100",
-			contactToken, deptID, cursor)
-		resp, err := client.Get(url)
+		body, err := json.Marshal(map[string]any{
+			"dept_id": deptIDInt,
+			"cursor":  cursor,
+			"size":    100,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("序列化钉钉请求体失败: %w", err)
+		}
+		url := "https://oapi.dingtalk.com/topapi/v2/user/list?access_token=" + contactToken
+		resp, err := dingtalkHttpClient.Post(url, "application/json", bytes.NewReader(body))
 		if err != nil {
 			return nil, err
 		}
@@ -298,10 +389,13 @@ func (c *DingtalkConfig) GetDepartmentUsers(contactToken string, deptID string) 
 			return nil, err
 		}
 		var dr struct {
-			ErrCode  int                `json:"errcode"`
-			ErrMsg   string             `json:"errmsg"`
-			UserList []DingtalkDeptUser `json:"userlist"`
-			HasMore  bool               `json:"hasMore"`
+			ErrCode int    `json:"errcode"`
+			ErrMsg  string `json:"errmsg"`
+			Result  struct {
+				List       []DingtalkDeptUser `json:"list"`
+				HasMore    bool               `json:"has_more"`
+				NextCursor int64              `json:"next_cursor"`
+			} `json:"result"`
 		}
 		if err := json.Unmarshal(respBody, &dr); err != nil {
 			return nil, fmt.Errorf("解析钉钉部门成员失败: %w", err)
@@ -309,9 +403,9 @@ func (c *DingtalkConfig) GetDepartmentUsers(contactToken string, deptID string) 
 		if dr.ErrCode != 0 {
 			return nil, fmt.Errorf("拉取钉钉部门成员失败: %s", dr.ErrMsg)
 		}
-		result = append(result, dr.UserList...)
-		hasMore = dr.HasMore
-		cursor += 100
+		result = append(result, dr.Result.List...)
+		hasMore = dr.Result.HasMore
+		cursor = dr.Result.NextCursor
 	}
 	return result, nil
 }

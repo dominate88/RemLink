@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/wsczx/remlink/base"
 )
 
 type WXWorkConfig struct {
@@ -80,6 +82,8 @@ type WXWorkUserResponse struct {
 	ErrMsg     string `json:"errmsg"`
 	UserID     string `json:"userid"`
 	Name       string `json:"name"`
+	Mobile     string `json:"mobile"`
+	Email      string `json:"email"`
 	Department []int  `json:"department"`
 }
 
@@ -155,6 +159,22 @@ func (c *WXWorkConfig) CheckUserDepartment(userID string, allowedDepts []int) (b
 		}
 	}
 	return false, nil
+}
+
+// GetUserDetail 获取企微用户详情（手机号、邮箱）。复用 user/get 接口逐个查询，
+// 返回 (mobile, email)。企微手机/邮箱默认不返回，需后台开放通讯录敏感信息权限。
+func (c *WXWorkConfig) GetUserDetail(accessToken, userID string) (string, string) {
+	url := fmt.Sprintf("https://qyapi.weixin.qq.com/cgi-bin/user/get?access_token=%s&userid=%s", accessToken, userID)
+	userInfo := &WXWorkUserResponse{}
+	if err := fetchJSON("获取企微用户详情", "GET", url, nil, nil, userInfo, 30*time.Second); err != nil {
+		base.Warn("获取企微用户详情失败:", userID, err)
+		return "", ""
+	}
+	if userInfo.ErrCode != 0 {
+		base.Warn("获取企微用户详情失败:", userID, userInfo.ErrMsg)
+		return "", ""
+	}
+	return userInfo.Mobile, userInfo.Email
 }
 
 type WXWorkDepartmentUser struct {

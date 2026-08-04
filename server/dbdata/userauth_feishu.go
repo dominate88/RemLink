@@ -2,6 +2,7 @@ package dbdata
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
@@ -65,20 +66,29 @@ func (a *AuthFeishu) SaveUsers(g *Group) error {
 		return fmt.Errorf("获取飞书 access_token 失败: %w", err)
 	}
 
-	departments := a.ParseDepartments()
-	if len(departments) == 0 {
-		return fmt.Errorf("未配置允许的部门，无法同步用户")
-	}
-
 	needOTP := HasAuthType(g.AuthProfile, "otp")
+	blocked := a.ParseBlockedUserIDs()
 
-	// 拉取所有允许部门的成员（去重）
+	// 拉取允许部门内的成员；未配置部门时拉取权限范围内全部用户
 	feishuUserMap := make(map[string]auth.FeishuDeptUserItem)
-	for _, deptID := range departments {
-		users, err := a.GetDepartmentUsers(accessToken, deptID)
+	if departments := a.ParseDepartments(); len(departments) > 0 {
+		for _, deptID := range departments {
+			users, err := a.GetDepartmentUsers(accessToken, deptID)
+			if err != nil {
+				base.Error("获取飞书部门成员失败", deptID, err)
+				continue
+			}
+			for _, u := range users {
+				if _, exists := feishuUserMap[u.UserID]; !exists {
+					feishuUserMap[u.UserID] = u
+				}
+			}
+		}
+	} else {
+		base.Debug("飞书未配置允许部门，同步权限范围内全部用户")
+		users, err := a.GetAllUsers(accessToken)
 		if err != nil {
-			base.Error("获取飞书部门成员失败", deptID, err)
-			continue
+			return fmt.Errorf("获取飞书全部用户失败: %w", err)
 		}
 		for _, u := range users {
 			if _, exists := feishuUserMap[u.UserID]; !exists {
@@ -90,12 +100,26 @@ func (a *AuthFeishu) SaveUsers(g *Group) error {
 	// 同步到本地 DB
 	syncedUsers := make(map[string]bool)
 	for _, feishuUser := range feishuUserMap {
+		// 拒绝名单：同步时跳过
+		if a.CheckUserID(feishuUser.UserID, blocked) != nil {
+			base.Debug("飞书同步跳过拒绝用户:", feishuUser.UserID)
+			continue
+		}
 		syncedUsers[feishuUser.UserID] = true
+		mobile, email := feishuUser.Mobile, ""
+		if detail, derr := a.GetFeishuUserDetail(accessToken, feishuUser.UserID); derr == nil {
+			if detail.Data.Mobile != "" {
+				mobile = detail.Data.Mobile
+			}
+			email = detail.Data.Email
+		}
 
 		newUser := &User{
 			Type:       "feishu",
 			Username:   feishuUser.UserID,
 			Nickname:   feishuUser.Name,
+			Phone:      strings.Split(mobile, "+86")[1],
+			Email:      email,
 			Groups:     []string{g.Name},
 			DisableOtp: !needOTP,
 			OtpSecret:  gotp.RandomSecret(32),
@@ -122,6 +146,12 @@ func (a *AuthFeishu) SaveUsers(g *Group) error {
 		}
 		// 更新现有飞书用户字段
 		u.Nickname = feishuUser.Name
+		if mobile != "" {
+			u.Phone = strings.Split(mobile, "+86")[1]
+		}
+		if email != "" {
+			u.Email = email
+		}
 		u.DisableOtp = !needOTP
 		if u.OtpSecret == "" {
 			u.OtpSecret = gotp.RandomSecret(32)
