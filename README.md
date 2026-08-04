@@ -8,6 +8,12 @@ RemLink 是一个企业级远程办公软件，支持多人同时在线，兼容
 
 > **声明**：RemLink 基于 [AnyLink](https://github.com/bjdgyc/anylink) 深度重构，在原项目基础上进行了认证架构重写、前端重构、安全加固与大量功能增强。感谢原作者 [bjdgyc](https://github.com/bjdgyc) 的开源贡献。
 
+## 加入交流群
+
+点击链接加入群聊【RemLink 交流群】：[https://qm.qq.com/q/3f7gEjcaVO](https://qm.qq.com/q/3f7gEjcaVO)
+
+> 有任何使用问题、功能建议或合作意向，欢迎加入交流群讨论。
+
 ## 简介
 
 RemLink 基于 [ietf-openconnect](https://tools.ietf.org/html/draft-mavrogiannopoulos-openconnect-02) 协议开发，借鉴 [ocserv](http://ocserv.gitlab.io/www/index.html) 思路，同时兼容 AnyConnect 客户端（推荐）。使用 TLS/DTLS 进行数据加密，支持 RSA 或 ECC 证书（自签证书 / Let's Encrypt / TrustAsia）。
