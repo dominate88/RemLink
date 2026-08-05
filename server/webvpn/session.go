@@ -120,11 +120,12 @@ func (m *AuthSessionManager) ExchangeGrant(w http.ResponseWriter, r *http.Reques
 	if username == "" {
 		return "", nil, false
 	}
-	portalJTI, _ := data["webvpn_grant_jti"].(string)
-	// 单条吊销 grant，确保一次性（防重放）
-	if portalJTI != "" {
+	// 单条吊销 grant 自身 jti，确保一次性（防重放）
+	// 注意：webvpn_grant_jti 绑定的是「门户会话 jti」，仅用于校验门户登录态是否仍有效
+	// 不能吊销它——否则会误杀用户门户登录态，并让 grant 失去一次性保护
+	if grantJTI, err := admin.JtiOf(c.Value); err == nil && grantJTI != "" {
 		if exp, ok := data["exp"].(float64); ok {
-			admin.RevokeJwt(portalJTI, int64(exp))
+			admin.RevokeJwt(grantJTI, int64(exp))
 		}
 	}
 	user := m.freshUser(username)

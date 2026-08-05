@@ -263,7 +263,9 @@ type WebVpnAudit struct {
 }
 
 // 显式指定审计表名
-func (WebVpnAudit) TableName() string { return "webvpn_audit" }
+func (WebVpnAudit) TableName() string  { return "webvpn_audit" }
+func (WebVpnApp) TableName() string    { return "webvpn_app" }
+func (WebVpnRevoke) TableName() string { return "webvpn_revoke" }
 
 // 分页查询（支持按用户名/应用名/时间范围过滤）
 func WebVpnAuditList(pageSize, page int, search WebVpnAuditSearch) ([]WebVpnAudit, int, error) {

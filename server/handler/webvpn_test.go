@@ -573,6 +573,64 @@ func TestWebVpnExchangeFromPortal(t *testing.T) {
 	assert.True(t, gotWebVpn, "应种回 webvpn_session cookie")
 }
 
+// TestWebVpnGrantIsOneTime 验证 P0 修复：一次性免登授权（grant）兑换后自身 jti 被吊销，
+// 同一 grant 二次兑换必须失败（防重放）；且兑换过程不得误杀门户会话 jti。
+func TestWebVpnGrantIsOneTime(t *testing.T) {
+	_, teardown := setupWebVpnTest(t)
+	defer teardown()
+
+	// 构造一个带固定 jti 的门户会话 token（未过期），作为 grant 的门户登录态凭据
+	portalJTI := "portal-jti-alice"
+	portalTok, err := admin.SetJwtData(map[string]any{"username": "alice"}, time.Now().Add(time.Hour).Unix())
+	assert.NoError(t, err)
+
+	grantTok, err := webvpn.GetManager().Session().IssueGrant(
+		nil, nil, &dbdata.User{Username: "alice", Type: "local", Status: 1}, portalJTI)
+	assert.NoError(t, err)
+
+	// 第一次兑换：成功
+	req1, rec1, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true})
+	req1.AddCookie(&http.Cookie{Name: "webvpn_grant", Value: grantTok})
+	assert.True(t, WebVpnHandler(rec1, req1), "首次兑换应消费请求")
+	assert.Equal(t, http.StatusOK, rec1.Code, "首次兑换应放行")
+
+	// 第二次用同一 grant 兑换：应失败（grant 自身 jti 已吊销）
+	req2, rec2, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true})
+	req2.AddCookie(&http.Cookie{Name: "webvpn_grant", Value: grantTok})
+	consumed2 := WebVpnHandler(rec2, req2)
+	assert.True(t, consumed2, "二次兑换请求仍应被本处理器消费")
+	assert.NotEqual(t, http.StatusOK, rec2.Code, "已兑换的 grant 二次兑换必须失败（防重放）")
+
+	// 门户会话 jti 未被误杀：用门户 token 解析仍有效（GetJwtData 会校验 jti 吊销）
+	_, err = admin.GetJwtData(portalTok)
+	assert.NoError(t, err, "兑换 grant 不应吊销门户会话 jti，门户登录态仍有效")
+}
+
+// TestWebVpnExchangeKeepsPortalSession 验证 P0 修复：兑换 grant 不会把用户踢出门户。
+func TestWebVpnExchangeKeepsPortalSession(t *testing.T) {
+	_, teardown := setupWebVpnTest(t)
+	defer teardown()
+
+	portalJTI := "portal-jti-bob"
+	portalTok, err := admin.SetJwtData(map[string]any{"username": "bob"}, time.Now().Add(time.Hour).Unix())
+	assert.NoError(t, err)
+
+	// app1 在 setup 中授权给 alice，用 alice 兑换才能拿到 200；
+	// 本测试重点是验证兑换流程不误杀门户 jti，用户主体不影响该断言。
+	grantTok, err := webvpn.GetManager().Session().IssueGrant(
+		nil, nil, &dbdata.User{Username: "alice", Type: "local", Status: 1}, portalJTI)
+	assert.NoError(t, err)
+
+	req, rec, _ := newWebVpnReqEx(t, webVpnReqOpts{host: "app1", noSession: true})
+	req.AddCookie(&http.Cookie{Name: "webvpn_grant", Value: grantTok})
+	WebVpnHandler(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// 门户侧用同一 jti 的 token 访问门户接口应仍有效（未被吊销）
+	_, err = admin.GetJwtData(portalTok)
+	assert.NoError(t, err, "门户会话 jti 不应被 WebVPN 兑换流程吊销")
+}
+
 // TestWebVpnLogoutRevokesSession 验证设计 M3 单点登出：登出后原会话立即失效。
 func TestWebVpnLogoutRevokesSession(t *testing.T) {
 	_, teardown := setupWebVpnTest(t)

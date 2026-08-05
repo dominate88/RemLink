@@ -9,6 +9,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
@@ -208,13 +209,30 @@ func HostMatchesBackend(locHost, backendHost string) bool {
 	return strings.HasSuffix(lh, "."+bh)
 }
 
-// 返回反代后端用的 http.Transport。skipVerify 时跳过对端证书校验
+// 后端 Transport 按 skipVerify 复用两个共享实例，避免每个请求新建连接池导致
+// TCP/TLS 握手风暴与空闲连接、goroutine 堆积（FD 耗尽风险）
+var (
+	transportMu       sync.Mutex
+	transportNormal   *http.Transport
+	transportInsecure *http.Transport
+)
+
+// 返回反代后端用的 http.Transport（进程内复用）。skipVerify 时跳过对端证书校验
 func backendTransport(skipVerify bool) *http.Transport {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transportMu.Lock()
+	defer transportMu.Unlock()
 	if skipVerify {
-		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		if transportInsecure == nil {
+			t := http.DefaultTransport.(*http.Transport).Clone()
+			t.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+			transportInsecure = t
+		}
+		return transportInsecure
 	}
-	return transport
+	if transportNormal == nil {
+		transportNormal = http.DefaultTransport.(*http.Transport).Clone()
+	}
+	return transportNormal
 }
 
 func ipInAllowList(ip net.IP, list []string) bool {
