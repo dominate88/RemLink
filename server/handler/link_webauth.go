@@ -220,8 +220,8 @@ func WebAuthSelectGroup(w http.ResponseWriter, r *http.Request) {
 
 	// SSO 认证：立即运行管道获取跳转地址
 	if auth.IsSSOType(firstStepType) {
-		// 手机端内置浏览器无法完成企微/飞书扫码，拒绝
-		if isMobileDevice(r) {
+		// 手机端内置浏览器无法完成企微/飞书扫码，默认拒绝；开启 allow_mobile_sso 后放行
+		if isMobileDevice(r) && !base.GetCfg().AllowMobileSSO {
 			webAuthError(w, "手机端不支持企微/飞书扫码认证，请选择其他组或联系管理员")
 			return
 		}
@@ -565,8 +565,8 @@ func webAuthHandleResult(w http.ResponseWriter, r *http.Request,
 			})
 
 		case auth.ChallengeSSO:
-			// 手机端内置浏览器无法完成企微/飞书扫码
-			if isMobileDevice(r) {
+			// 手机端内置浏览器无法完成企微/飞书扫码，默认拒绝；开启 allow_mobile_sso 后放行
+			if isMobileDevice(r) && !base.GetCfg().AllowMobileSSO {
 				webAuthError(w, "手机端不支持企微/飞书扫码认证，请使用其他认证方式")
 				return
 			}

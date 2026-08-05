@@ -105,6 +105,7 @@ type ServerConfig struct {
 	EnableWebAuth            bool   `json:"enable_web_auth"`
 	WebAuthBrowserMode       string `json:"web_auth_browser_mode"`
 	EnableWebAuthGroupFilter bool   `json:"enable_web_auth_group_filter"` // 开启后 Web 认证先输入用户名、按所属用户组过滤可选组（仅支持本地用户认证）；关闭则直接展示全部启用组
+	AllowMobileSSO           bool   `json:"allow_mobile_sso"`             // 允许手机端使用 SSO 单点登录（默认关闭；开启后手机端浏览器模式仍强制内置）
 
 	WebVpnDomain    string `json:"webvpn_domain"`     // Web VPN域名
 	WebVpnSsoDomain string `json:"webvpn_sso_domain"` // Web 认证单点登录域名
@@ -211,6 +212,7 @@ var configMetas = map[string]configMeta{
 	"webvpn_sso_domain":            {usage: "WebVPN 子域名三方登录（企微/飞书/钉钉）跳转认证用的门户域名。留空则子域名登录页不显示三方登录入口", group: "门户设置"},
 	"webvpn_session_ttl":           {usage: "WebVPN 会话滑动续期周期（分钟）。用户持续活跃时按此周期刷新登录态，到期前 1 小时触发续期；建议 30~120", group: "门户设置", defaultVal: "60"},
 	"webvpn_session_max_lifetime":  {usage: "WebVPN 会话绝对寿命上限（分钟）。自首次登录起算，超过后无论是否活跃都强制重新登录；建议 240~1440", group: "门户设置", defaultVal: "480"},
+	"allow_mobile_sso":             {usage: "允许手机端使用 SSO 单点登录（企微/飞书/钉钉等）。默认关闭，开启后手机端浏览器模式仍强制内置", group: "门户设置"},
 
 	"show_fakedns": {usage: "在管理界面显示 FakeDNS 功能入口", group: "高级功能可见性", defaultVal: "false"},
 }

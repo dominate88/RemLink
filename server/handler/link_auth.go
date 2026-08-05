@@ -134,7 +134,8 @@ func LinkAuth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 手机端 SSO 组拒绝：无法完成企微/飞书扫码
-	if cr.GroupSelect != "" && authsrv.GetSSOType(cr.GroupSelect) != "" && isMobileDevice(r) {
+	// 允许开启 allow_mobile_sso 开关放行，浏览器模式仍强制内置
+	if cr.GroupSelect != "" && authsrv.GetSSOType(cr.GroupSelect) != "" && isMobileDevice(r) && !base.GetCfg().AllowMobileSSO {
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
