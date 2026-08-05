@@ -16,7 +16,7 @@ import (
 // 管理 WebVPN 会话的签发、校验、续期与吊销
 // 会话以 JWT（webvpn_session cookie）承载，与门户 portal_session 完全独立的命名与域
 // 通过 exchange-token（webvpn_grant）实现受控免登，彻底消除 cookie 互相踩踏
-type SessionManager struct {
+type AuthSessionManager struct {
 	// 进程内用户缓存，避免每次请求回查 DB（WebVPN 反代命中率高，TTL 60s）
 	userMu    sync.Mutex
 	userCache map[string]*userCacheEntry
@@ -42,8 +42,8 @@ const (
 	grantTTLSec = 30
 )
 
-func NewSessionManager() *SessionManager {
-	return &SessionManager{
+func NewSessionManager() *AuthSessionManager {
+	return &AuthSessionManager{
 		userCache:         make(map[string]*userCacheEntry),
 		userTTL:           60 * time.Second,
 		userCacheMaxSize:  1000,
@@ -51,7 +51,7 @@ func NewSessionManager() *SessionManager {
 	}
 }
 
-func (m *SessionManager) sessionTTL() time.Duration {
+func (m *AuthSessionManager) sessionTTL() time.Duration {
 	min := base.GetCfg().WebVpnSessionTTL
 	if min <= 0 {
 		min = sessionTTLDefaultMin
@@ -59,7 +59,7 @@ func (m *SessionManager) sessionTTL() time.Duration {
 	return time.Duration(min) * time.Minute
 }
 
-func (m *SessionManager) sessionMaxLifetime() time.Duration {
+func (m *AuthSessionManager) sessionMaxLifetime() time.Duration {
 	min := base.GetCfg().WebVpnSessionMaxLifetime
 	if min <= 0 {
 		min = sessionMaxLifetimeDefaultMin
@@ -70,7 +70,7 @@ func (m *SessionManager) sessionMaxLifetime() time.Duration {
 // 签发 WebVPN 会话 JWT 并写入 cookie（通过 w）。所有签发路径（兑换、续期）统一由此写 cookie
 // issuedAt 为会话首次登录时间（unix 秒）；续期时传入旧 token 的锚点以保证绝对寿命连续
 // w 为 nil 时仅返回 token 不写 cookie（防御性，正常情况下调用方均传入 w）
-func (m *SessionManager) Issue(w http.ResponseWriter, r *http.Request, user *dbdata.User, issuedAt int64) (string, error) {
+func (m *AuthSessionManager) Issue(w http.ResponseWriter, r *http.Request, user *dbdata.User, issuedAt int64) (string, error) {
 	now := time.Now()
 	if issuedAt <= 0 {
 		issuedAt = now.Unix()
@@ -91,7 +91,7 @@ func (m *SessionManager) Issue(w http.ResponseWriter, r *http.Request, user *dbd
 
 // 在门户登录成功后签发一次性的免登授权（webvpn_grant cookie）
 // 绑定门户会话 jti，供 WebVPN 侧 ExchangeGrant 兑换正式会话。短时效、单用途
-func (m *SessionManager) IssueGrant(w http.ResponseWriter, r *http.Request, user *dbdata.User, portalJTI string) (string, error) {
+func (m *AuthSessionManager) IssueGrant(w http.ResponseWriter, r *http.Request, user *dbdata.User, portalJTI string) (string, error) {
 	expiresAt := time.Now().Add(grantTTLSec * time.Second).Unix()
 	token, err := admin.SetJwtData(map[string]any{
 		"webvpn_grant_user": user.Username,
@@ -107,7 +107,7 @@ func (m *SessionManager) IssueGrant(w http.ResponseWriter, r *http.Request, user
 
 // 用一次性免登授权换取正式 WebVPN 会话并写入 cookie（通过 w），返回 (token, user, ok)
 // 仅校验 grant 自身合法且未过期（短时效、单用途、一次性）；成功后 grant 即被单条吊销，不可复用
-func (m *SessionManager) ExchangeGrant(w http.ResponseWriter, r *http.Request) (string, *dbdata.User, bool) {
+func (m *AuthSessionManager) ExchangeGrant(w http.ResponseWriter, r *http.Request) (string, *dbdata.User, bool) {
 	c, err := r.Cookie(grantCookieName)
 	if err != nil || c.Value == "" {
 		return "", nil, false
@@ -140,7 +140,7 @@ func (m *SessionManager) ExchangeGrant(w http.ResponseWriter, r *http.Request) (
 
 // 从请求解析当前 WebVPN 会话用户
 // 依次校验：token 合法、未被整用户踢出、未超绝对寿命、用户在库且启用
-func (m *SessionManager) CurrentUser(r *http.Request) (*dbdata.User, bool) {
+func (m *AuthSessionManager) CurrentUser(r *http.Request) (*dbdata.User, bool) {
 	c, err := r.Cookie(sessionCookieName)
 	if err != nil || c.Value == "" {
 		return nil, false
@@ -149,7 +149,7 @@ func (m *SessionManager) CurrentUser(r *http.Request) (*dbdata.User, bool) {
 }
 
 // 解析并校验 WebVPN 会话 token，返回当前用户（供测试与内部复用）
-func (m *SessionManager) UserFromToken(token string) (*dbdata.User, bool) {
+func (m *AuthSessionManager) UserFromToken(token string) (*dbdata.User, bool) {
 	data, err := admin.GetJwtData(token)
 	if err != nil {
 		return nil, false
@@ -196,7 +196,7 @@ func (m *SessionManager) UserFromToken(token string) (*dbdata.User, bool) {
 
 // 在距签发超过 TTL-1h 时重签并刷新 cookie，以数据库当前用户状态为准
 // 返回是否实际重签；w 为 nil 时不写 cookie
-func (m *SessionManager) Renew(w http.ResponseWriter, r *http.Request) (bool, error) {
+func (m *AuthSessionManager) Renew(w http.ResponseWriter, r *http.Request) (bool, error) {
 	c, err := r.Cookie(sessionCookieName)
 	if err != nil || c.Value == "" {
 		return false, nil
@@ -224,7 +224,7 @@ func (m *SessionManager) Renew(w http.ResponseWriter, r *http.Request) (bool, er
 }
 
 // 吊销当前请求的 WebVPN 会话（单点登出）
-func (m *SessionManager) RevokeCurrent(r *http.Request) {
+func (m *AuthSessionManager) RevokeCurrent(r *http.Request) {
 	c, err := r.Cookie(sessionCookieName)
 	if err != nil || c.Value == "" {
 		return
@@ -237,7 +237,7 @@ func (m *SessionManager) RevokeCurrent(r *http.Request) {
 }
 
 // 清除一次性的免登授权 cookie（兑换成功后或登出时调用）
-func (m *SessionManager) ClearGrantCookie(w http.ResponseWriter, r *http.Request) {
+func (m *AuthSessionManager) ClearGrantCookie(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     grantCookieName,
 		Value:    "",
@@ -251,14 +251,14 @@ func (m *SessionManager) ClearGrantCookie(w http.ResponseWriter, r *http.Request
 }
 
 // 清空进程内用户缓存（仅用于测试隔离用例间状态，生产路径不调用）
-func (m *SessionManager) ResetCache() {
+func (m *AuthSessionManager) ResetCache() {
 	m.userMu.Lock()
 	m.userCache = make(map[string]*userCacheEntry)
 	m.userMu.Unlock()
 }
 
 // 清除客户端 webvpn_session cookie
-func (m *SessionManager) ClearCookie(w http.ResponseWriter, r *http.Request) {
+func (m *AuthSessionManager) ClearCookie(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    "",
@@ -273,28 +273,28 @@ func (m *SessionManager) ClearCookie(w http.ResponseWriter, r *http.Request) {
 
 // 整用户踢出（管理后台“全量登出”）。通过抬高吊销阈值实现 O(1) 失效
 // 并清该用户缓存，避免命中旧 user
-func (m *SessionManager) RevokeUser(username string) {
+func (m *AuthSessionManager) RevokeUser(username string) {
 	dbdata.WebVpnRevokeUser(username)
 	m.userMu.Lock()
 	delete(m.userCache, username)
 	m.userMu.Unlock()
 }
 
-func (m *SessionManager) setSessionCookie(w http.ResponseWriter, r *http.Request, token string) {
+func (m *AuthSessionManager) setSessionCookie(w http.ResponseWriter, r *http.Request, token string) {
 	if w == nil {
 		return
 	}
 	http.SetCookie(w, m.cookie(sessionCookieName, token, r))
 }
 
-func (m *SessionManager) setGrantCookie(w http.ResponseWriter, r *http.Request, token string) {
+func (m *AuthSessionManager) setGrantCookie(w http.ResponseWriter, r *http.Request, token string) {
 	if w == nil {
 		return
 	}
 	http.SetCookie(w, m.cookie(grantCookieName, token, r))
 }
 
-func (m *SessionManager) cookie(name, token string, r *http.Request) *http.Cookie {
+func (m *AuthSessionManager) cookie(name, token string, r *http.Request) *http.Cookie {
 	return &http.Cookie{
 		Name:     name,
 		Value:    token,
@@ -306,7 +306,7 @@ func (m *SessionManager) cookie(name, token string, r *http.Request) *http.Cooki
 	}
 }
 
-func (m *SessionManager) cachedUser(username string) *dbdata.User {
+func (m *AuthSessionManager) cachedUser(username string) *dbdata.User {
 	m.userMu.Lock()
 	if e, ok := m.userCache[username]; ok && e.expire.After(time.Now()) {
 		user := e.user
@@ -331,7 +331,7 @@ func (m *SessionManager) cachedUser(username string) *dbdata.User {
 }
 
 // 从数据库重新加载用户当前状态，用于续期/兑换时以服务端权威数据重签
-func (m *SessionManager) freshUser(username string) *dbdata.User {
+func (m *AuthSessionManager) freshUser(username string) *dbdata.User {
 	if username == "" {
 		return nil
 	}
@@ -342,7 +342,7 @@ func (m *SessionManager) freshUser(username string) *dbdata.User {
 	return u
 }
 
-func (m *SessionManager) maybeCleanLocked(now time.Time) {
+func (m *AuthSessionManager) maybeCleanLocked(now time.Time) {
 	if len(m.userCache) <= m.userCacheMaxSize {
 		return
 	}

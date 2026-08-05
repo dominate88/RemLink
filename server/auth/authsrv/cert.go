@@ -9,7 +9,7 @@ import (
 )
 
 func init() {
-	auth.Register("cert", func() auth.Authenticator {
+	auth.Registry.Register("cert", func() auth.Authenticator {
 		return &CertAuth{}
 	})
 }

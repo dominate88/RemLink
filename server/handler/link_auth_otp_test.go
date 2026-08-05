@@ -38,22 +38,22 @@ func TestSessionStore(t *testing.T) {
 	}
 
 	// 测试保存会话
-	SaveAuthSession(sessionID, authSession)
+	AuthSessionManager.Save(sessionID, authSession)
 
 	// 测试获取会话
-	retrievedSession, err := GetAuthSession(sessionID)
+	retrievedSession, err := AuthSessionManager.Get(sessionID)
 	ast.Nil(err)
 	ast.NotNil(retrievedSession)
 	ast.Equal("test-user", retrievedSession.Ctx.Conn.Username)
 
 	// 测试获取不存在的会话
-	_, err = GetAuthSession("nonexistent-session")
+	_, err = AuthSessionManager.Get("nonexistent-session")
 	ast.NotNil(err)
 	ast.Contains(err.Error(), "会话未找到")
 
 	// 测试删除会话
-	SessStore.Delete(sessionID)
-	_, err = GetAuthSession(sessionID)
+	AuthSessionManager.Delete(sessionID)
+	_, err = AuthSessionManager.Get(sessionID)
 	ast.NotNil(err)
 }
 
@@ -163,7 +163,7 @@ func TestLinkAuthOtp(t *testing.T) {
 		},
 	}
 	authSession.Ctx.SetStepIdx(2) // 含 forcepwd 插入后索引：local=0, forcepwd=1, otp=2
-	SaveAuthSession(sessionID, authSession)
+	AuthSessionManager.Save(sessionID, authSession)
 
 	// 测试成功的OTP验证
 	t.Run("ValidOTP", func(t *testing.T) {
@@ -185,7 +185,7 @@ func TestLinkAuthOtp(t *testing.T) {
 
 		ast.Equal(http.StatusOK, w.Code)
 		// 验证会话已被删除
-		_, err := GetAuthSession(sessionID)
+		_, err := AuthSessionManager.Get(sessionID)
 		ast.NotNil(err)
 	})
 
@@ -194,7 +194,7 @@ func TestLinkAuthOtp(t *testing.T) {
 		ast := assert.New(t)
 
 		// 重新创建会话（因为上一个测试中被删除了）
-		SaveAuthSession(sessionID+"2", authSession)
+		AuthSessionManager.Save(sessionID+"2", authSession)
 
 		clientReq := ClientRequest{
 			Auth: authData{
@@ -213,7 +213,7 @@ func TestLinkAuthOtp(t *testing.T) {
 		// OTP 错误返回 StepPending 重试（tpl_otp 渲染），包含 "动态码错误" 提示
 		ast.Contains(w.Body.String(), "动态码错误")
 		// 验证会话仍然存在（未被删除，允许重试）
-		_, err := GetAuthSession(sessionID + "2")
+		_, err := AuthSessionManager.Get(sessionID + "2")
 		ast.Nil(err, "OTP 错误应保留会话以允许重试")
 	})
 
@@ -310,7 +310,7 @@ func TestHandleSsoTokenPreservesIdentityForOtpPending(t *testing.T) {
 	ast.Nil(err)
 
 	ssoToken := "test-sso-token"
-	SaveAuthSession(ssoToken, &AuthSession{
+	AuthSessionManager.Save(ssoToken, &AuthSession{
 		Ctx: &auth.Context{
 			Conn: auth.ConnInfo{Username: username, GroupName: group},
 			SSO: &auth.SSOState{
@@ -350,7 +350,7 @@ func TestHandleSsoTokenPreservesIdentityForOtpPending(t *testing.T) {
 	ast.NotContains(w.Body.String(), "<session-id>")
 
 	// SSO 临时会话应在处理后清理
-	_, err = GetAuthSession(ssoToken)
+	_, err = AuthSessionManager.Get(ssoToken)
 	ast.NotNil(err, "SSO 临时会话应在处理后清理")
 }
 

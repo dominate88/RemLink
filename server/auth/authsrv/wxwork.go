@@ -7,12 +7,11 @@ import (
 )
 
 func init() {
-	auth.Register("wxwork", func() auth.Authenticator {
+	auth.Registry.Register("wxwork", func() auth.Authenticator {
 		return &WXWorkAuth{}
 	})
 }
 
-// WXWorkAuth 企业微信认证配置（嵌入共享 WXWorkConfig，API 方法由父类型提供）
 type WXWorkAuth struct {
 	auth.WXWorkConfig
 }
@@ -21,15 +20,15 @@ func (a *WXWorkAuth) Name() string { return "wxwork" }
 
 func (a *WXWorkAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 	if sso := ctx.SSO; sso != nil {
-		// 路径 1：SSO 回调已完成，用户身份 + 部门在回调阶段校验。
-		// handleSsoToken 从 SSO 会话恢复此标记，此处直接放行。
+		// SSO 回调已完成，用户身份 + 部门在回调阶段校验
+		// handleSsoToken 从 SSO 会话恢复此标记，此处直接放行
 		if sso.Authenticated && sso.UserID != "" {
 			ctx.Conn.Username = sso.UserID
 			ctx.SetInfo("用户通过企业微信认证登录")
 			return auth.StepPass, nil
 		}
 
-		// 路径 2：管道内 SSO 流程，通过 OAuth code 换取用户信息
+		// 管道内 SSO 流程，通过 OAuth code 换取用户信息
 		if sso.Code != "" {
 			userID, err := a.GetWeworkUser(sso.Code)
 			if err != nil {

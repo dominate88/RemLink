@@ -115,7 +115,7 @@ func GetSSOType(groupName string) string {
 		return ""
 	}
 	for _, step := range profile.Step {
-		if auth.IsSSOType(step.Type) {
+		if auth.Registry.IsSSOType(step.Type) {
 			return step.Type
 		}
 	}

@@ -102,7 +102,7 @@ func TestLocalPlusOtp_FullFlow(t *testing.T) {
 	ast.Contains(w2.Body.String(), "session-token", "OTP 通过后应返回会话令牌")
 
 	// 验证旧会话已清除
-	_, err := GetAuthSession(sessionID)
+	_, err := AuthSessionManager.Get(sessionID)
 	ast.NotNil(err, "认证完成后旧会话应删除")
 }
 
@@ -244,12 +244,12 @@ func TestResume_ExpiredSession(t *testing.T) {
 		UserInfo: &auth.UserInfo{OtpSecret: otpSecret},
 	}
 	ctx.SetStepIdx(1)
-	SaveAuthSession(sessionID, &AuthSession{
+	AuthSessionManager.Save(sessionID, &AuthSession{
 		Ctx: ctx,
 	})
 
 	// 删除会话模拟过期
-	SessStore.Delete(sessionID)
+	AuthSessionManager.Delete(sessionID)
 
 	body := buildAuthReplyBody(username, "", group, "123456")
 	req := newAuthRequest(body)
@@ -321,7 +321,7 @@ func TestSsoToken_WithOtp_PreservesIdentity(t *testing.T) {
 
 	// 模拟 SSO 回调完成：保存会话（代表 SSO 已验证成功）
 	ssoToken := "sso-token-for-otp-test"
-	SaveAuthSession(ssoToken, &AuthSession{
+	AuthSessionManager.Save(ssoToken, &AuthSession{
 		Ctx: &auth.Context{
 			Conn: auth.ConnInfo{Username: username, GroupName: group},
 			SSO: &auth.SSOState{
@@ -353,7 +353,7 @@ func TestSsoToken_WithOtp_PreservesIdentity(t *testing.T) {
 	ast.NotContains(w.Body.String(), "<session-id>")
 
 	// 验证 SSO 临时会话已清理
-	_, err = GetAuthSession(ssoToken)
+	_, err = AuthSessionManager.Get(ssoToken)
 	ast.NotNil(err, "SSO 临时会话应在处理后清理")
 }
 

@@ -92,7 +92,7 @@ func handlePipelineResult(w http.ResponseWriter, r *http.Request,
 
 	// 管道恢复场景：StepPass/StepFail 后清除旧认证会话
 	if sessionData.SessionID != "" && result.Result != auth.StepPending {
-		SessStore.Delete(sessionData.SessionID)
+		AuthSessionManager.Delete(sessionData.SessionID)
 		DeleteCookie(w, "auth-session-id")
 	}
 
@@ -160,11 +160,11 @@ func handleChallengeResult(w http.ResponseWriter, r *http.Request,
 
 	if isResume {
 		// 恢复场景：更新已有会话
-		SaveAuthSession(sessionData.SessionID, sessionData)
+		AuthSessionManager.Save(sessionData.SessionID, sessionData)
 	} else {
 		// 首次认证：创建新会话
 		sid := GenerateSessionID()
-		SaveAuthSession(sid, sessionData)
+		AuthSessionManager.Save(sid, sessionData)
 		SetCookie(w, "auth-session-id", sid, 0)
 	}
 	// 清除强制改密标记

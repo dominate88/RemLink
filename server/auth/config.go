@@ -83,7 +83,7 @@ func hasRadiusAndOTP(steps []AuthMethodConfig) bool {
 func hasSSOAndCredential(steps []AuthMethodConfig) bool {
 	hasSSO, hasCred := false, false
 	for _, s := range steps {
-		if IsSSOType(s.Type) {
+		if Registry.IsSSOType(s.Type) {
 			hasSSO = true
 		}
 		if s.Type == "local" || s.Type == "ldap" || s.Type == "radius" {

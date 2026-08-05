@@ -18,7 +18,7 @@ var (
 )
 
 func init() {
-	auth.Register("admin", func() auth.Authenticator {
+	auth.Registry.Register("admin", func() auth.Authenticator {
 		return &AdminAuth{}
 	})
 

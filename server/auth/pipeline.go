@@ -20,9 +20,9 @@ func GetPipeline(profile GroupAuthProfile, resolver ProviderResolverFunc) (*Pipe
 
 	steps := make([]Authenticator, 0, len(profile.Step))
 	for i, cfg := range profile.Step {
-		factory, ok := GetFactory(cfg.Type)
+		factory, ok := Registry.GetFactory(cfg.Type)
 		if !ok {
-			return nil, fmt.Errorf("未知认证类型 %q（步骤 %d，可用: %v）", cfg.Type, i, RegisteredNames())
+			return nil, fmt.Errorf("未知认证类型 %q（步骤 %d，可用: %v）", cfg.Type, i, Registry.RegisteredNames())
 		}
 
 		authInst := factory()

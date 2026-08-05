@@ -13,7 +13,7 @@ import (
 )
 
 func init() {
-	auth.Register("radius", func() auth.Authenticator {
+	auth.Registry.Register("radius", func() auth.Authenticator {
 		return &RADIUSAuth{}
 	})
 }

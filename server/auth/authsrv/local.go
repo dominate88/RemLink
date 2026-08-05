@@ -11,7 +11,7 @@ import (
 )
 
 func init() {
-	auth.Register("local", func() auth.Authenticator {
+	auth.Registry.Register("local", func() auth.Authenticator {
 		return &LocalAuth{}
 	})
 }

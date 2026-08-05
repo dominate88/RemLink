@@ -11,7 +11,7 @@ type ForcePwd struct {
 }
 
 func init() {
-	auth.Register("forcepwd", func() auth.Authenticator {
+	auth.Registry.Register("forcepwd", func() auth.Authenticator {
 		return &ForcePwd{}
 	})
 }
@@ -50,7 +50,7 @@ func (f *ForcePwd) Challenge() *auth.ChallengeInfo {
 func insertForcePwd(p *auth.Pipeline) {
 	for i, step := range p.Steps {
 		if step.Name() == "local" {
-			factory, ok := auth.GetFactory("forcepwd")
+			factory, ok := auth.Registry.GetFactory("forcepwd")
 			if !ok {
 				return
 			}

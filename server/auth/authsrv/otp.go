@@ -16,7 +16,7 @@ var (
 )
 
 func init() {
-	auth.Register("otp", func() auth.Authenticator {
+	auth.Registry.Register("otp", func() auth.Authenticator {
 		return &OTPAuth{}
 	})
 

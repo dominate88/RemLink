@@ -25,7 +25,7 @@ func createWebAuthSession(_ *testing.T, groupName string) string {
 			GroupName: groupName,
 		},
 	}
-	SaveAuthSession(state, pending)
+	AuthSessionManager.Save(state, pending)
 	return state
 }
 
@@ -334,10 +334,10 @@ func TestWebAuthComplete_Success(t *testing.T) {
 	state := createWebAuthSession(t, "default")
 
 	// 标记认证完成
-	sess, err := GetAuthSession(state)
+	sess, err := AuthSessionManager.Get(state)
 	assert.New(t).Nil(err)
 	sess.Ctx.GetSSO().WebAuthCompleted = true
-	SaveAuthSession(state, sess)
+	AuthSessionManager.Save(state, sess)
 
 	req := httptest.NewRequest("GET", "/+CSCOE+/web-auth/complete?state="+state, nil)
 	w := httptest.NewRecorder()

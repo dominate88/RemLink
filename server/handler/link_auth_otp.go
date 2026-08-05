@@ -23,7 +23,7 @@ func LinkAuth_otp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessionData, err := GetAuthSession(sessionID)
+	sessionData, err := AuthSessionManager.Get(sessionID)
 	if err != nil {
 		http.Error(w, "会话已过期，请重新登录", http.StatusUnauthorized)
 		return
@@ -33,7 +33,7 @@ func LinkAuth_otp(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		base.Error(err)
-		SessStore.Delete(sessionID)
+		AuthSessionManager.Delete(sessionID)
 		DeleteCookie(w, "auth-session-id")
 		w.WriteHeader(http.StatusBadRequest)
 		return
@@ -44,7 +44,7 @@ func LinkAuth_otp(w http.ResponseWriter, r *http.Request) {
 	err = xml.Unmarshal(body, cr)
 	if err != nil {
 		base.Error(err)
-		SessStore.Delete(sessionID)
+		AuthSessionManager.Delete(sessionID)
 		DeleteCookie(w, "auth-session-id")
 		w.WriteHeader(http.StatusBadRequest)
 		return
@@ -55,7 +55,7 @@ func LinkAuth_otp(w http.ResponseWriter, r *http.Request) {
 	// 锁定状态判断
 	if !lockManager.Check(username, r.RemoteAddr) {
 		w.WriteHeader(http.StatusTooManyRequests)
-		SessStore.Delete(sessionID)
+		AuthSessionManager.Delete(sessionID)
 		DeleteCookie(w, "auth-session-id")
 		return
 	}

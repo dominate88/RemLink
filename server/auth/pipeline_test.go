@@ -23,16 +23,12 @@ func (m *mockAuth) Challenge() *ChallengeInfo                 { return m.challen
 
 // 在测试中临时注册 mock 认证器
 func mockRegister(name string, a Authenticator) {
-	registryMu.Lock()
-	registry[name] = func() Authenticator { return a }
-	registryMu.Unlock()
+	Registry.Register(name, func() Authenticator { return a })
 }
 
 // 从注册表中移除 mock
 func mockUnregister(name string) {
-	registryMu.Lock()
-	delete(registry, name)
-	registryMu.Unlock()
+	unregister(name)
 }
 
 // 构建管道并执行，返回 PipelineResult（模拟 Service.Authenticate 但不需要 DB loader）。

@@ -11,7 +11,7 @@ import (
 // 通过 GetManager 获取单例，进程启动时调用 Start、退出时调用 Stop
 type manager struct {
 	apps    *AppStore
-	session *SessionManager
+	session *AuthSessionManager
 	audit   *AuditBatcher
 	revoker *Revoker
 }
@@ -51,7 +51,7 @@ func (m *manager) Stop() {
 func (m *manager) Apps() *AppStore { return m.apps }
 
 // 返回会话管理器，供 handler 签发/校验/续期/吊销会话使用
-func (m *manager) Session() *SessionManager { return m.session }
+func (m *manager) Session() *AuthSessionManager { return m.session }
 
 // 返回审计批处理器，供 proxy 投递访问记录使用
 func (m *manager) Audit() *AuditBatcher { return m.audit }

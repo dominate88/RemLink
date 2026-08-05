@@ -157,7 +157,7 @@ func LinkAuth(w http.ResponseWriter, r *http.Request) {
 
 	// 尝试从已保存会话恢复管道
 	if sessionID, cerr := GetCookie(r, "auth-session-id"); cerr == nil && sessionID != "" {
-		if sess, serr := GetAuthSession(sessionID); serr == nil {
+		if sess, serr := AuthSessionManager.Get(sessionID); serr == nil {
 			// 将当前请求的密码/OTP 码及审计日志写入已保存会话
 			sess.Ctx.Conn.Password = cr.Auth.Password
 			if sp := cr.Auth.SecondaryPassword; sp != "" {
@@ -263,7 +263,7 @@ func handleSsoToken(w http.ResponseWriter, r *http.Request, cr *ClientRequest, s
 
 	// 先尝试原始令牌直接查找（外部浏览器模式：客户端从 localhost:29786/api/sso/{state} 提取原始 state）
 	sessionKey := rawToken
-	samlSession, err := GetAuthSession(sessionKey)
+	samlSession, err := AuthSessionManager.Get(sessionKey)
 	if err != nil {
 		// 回退：尝试 Base64 解码后查找（内置浏览器模式：客户端直接发送 cookie 中的 Base64 编码值）
 		// 手机端 AnyConnect 客户端会去掉 base64 padding（=），需要补齐
@@ -277,7 +277,7 @@ func handleSsoToken(w http.ResponseWriter, r *http.Request, cr *ClientRequest, s
 			return
 		}
 		sessionKey = string(decodedBytes)
-		samlSession, err = GetAuthSession(sessionKey)
+		samlSession, err = AuthSessionManager.Get(sessionKey)
 		if err != nil {
 			base.Error("SSO 会话不存在: token=", rawToken[:min(16, len(rawToken))], ", err=", err)
 			w.WriteHeader(http.StatusUnauthorized)
@@ -313,7 +313,7 @@ func handleSsoToken(w http.ResponseWriter, r *http.Request, cr *ClientRequest, s
 
 		lockManager.Success(username, r.RemoteAddr)
 		CreateSession(w, sessionData)
-		SessStore.Delete(sessionKey)
+		AuthSessionManager.Delete(sessionKey)
 		return
 	}
 
@@ -336,7 +336,7 @@ func handleSsoToken(w http.ResponseWriter, r *http.Request, cr *ClientRequest, s
 
 	// 执行认证管道：优先从已保存管道会话恢复，跳过已通过的步骤
 	if sessionID, cerr := GetCookie(r, "auth-session-id"); cerr == nil && sessionID != "" {
-		if sess, serr := GetAuthSession(sessionID); serr == nil {
+		if sess, serr := AuthSessionManager.Get(sessionID); serr == nil {
 			// 将 SSO 已验证身份注入已保存会话
 			sess.Ctx.Conn.Username = userID
 			sess.Ctx.Conn.GroupName = samlSession.Ctx.Conn.GroupName
@@ -348,10 +348,10 @@ func handleSsoToken(w http.ResponseWriter, r *http.Request, cr *ClientRequest, s
 			sess.Ctx.Conn.RemoteAddr = r.RemoteAddr
 			sess.UserActLog = sessionData.UserActLog
 			// 清除旧管道会话
-			SessStore.Delete(sessionID)
+			AuthSessionManager.Delete(sessionID)
 			sess.SessionID = ""
 			resumeAuthSession(w, r, sess)
-			SessStore.Delete(sessionKey)
+			AuthSessionManager.Delete(sessionKey)
 			return
 		}
 		DeleteCookie(w, "auth-session-id")
@@ -367,5 +367,5 @@ func handleSsoToken(w http.ResponseWriter, r *http.Request, cr *ClientRequest, s
 	handlePipelineResult(w, r, result, sessionData)
 
 	// 清理 SSO 临时会话
-	SessStore.Delete(sessionKey)
+	AuthSessionManager.Delete(sessionKey)
 }

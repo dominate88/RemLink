@@ -49,7 +49,7 @@ const (
 )
 
 func init() {
-	auth.Register("sms", func() auth.Authenticator {
+	auth.Registry.Register("sms", func() auth.Authenticator {
 		return &SmsAuth{}
 	})
 

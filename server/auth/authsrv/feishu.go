@@ -7,12 +7,11 @@ import (
 )
 
 func init() {
-	auth.Register("feishu", func() auth.Authenticator {
+	auth.Registry.Register("feishu", func() auth.Authenticator {
 		return &FeishuAuth{}
 	})
 }
 
-// FeishuAuth 飞书认证配置（嵌入共享 FeishuConfig，API 方法由父类型提供）
 type FeishuAuth struct {
 	auth.FeishuConfig
 }

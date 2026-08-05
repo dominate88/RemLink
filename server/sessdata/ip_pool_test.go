@@ -19,9 +19,9 @@ import (
 func preData(tmpDir string) {
 	// 注册认证器
 	for _, name := range []string{"local", "ldap", "radius", "otp", "cert", "saml", "wxwork", "feishu"} {
-		if !auth.IsRegistered(name) {
+		if !auth.Registry.IsRegistered(name) {
 			n := name
-			auth.Register(n, func() auth.Authenticator { return &testAuthStub{name: n} })
+			auth.Registry.Register(n, func() auth.Authenticator { return &testAuthStub{name: n} })
 		}
 	}
 

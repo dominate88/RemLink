@@ -19,7 +19,7 @@ func Start() {
 	}
 
 	auth.GetLockManager().Init()  // 初始化防爆破定时器和IP白名单
-	SessStore.StartCleanup()      // 启动认证会话定期清理
+	AuthSessionManager.Start()    // 启动认证会话管理器
 	sessdata.CleanupAllNatRules() // 清理所有防火墙残留规则
 	webvpn.GetManager().Start()   // 启动 WebVPN 子系统（吊销阈值加载 + 审计批处理）
 
@@ -92,9 +92,9 @@ func Start() {
 
 func Stop() {
 	cron.Stop()                  // 停止定时任务
-	SessStore.StopCleanup()      // 停止认证会话定期清理
+	AuthSessionManager.Stop()    // 停止认证会话管理器
 	auth.GetLockManager().Stop() // 停止防暴力破解清理协程
-	webvpn.GetManager().Stop()    // 停止 WebVPN 子系统（等待审计落库）
+	webvpn.GetManager().Stop()   // 停止 WebVPN 子系统
 	dbdata.Stop()                // 停止数据库
 	destroyVtap()                // 销毁虚拟网卡
 	// 停止 FakeDNS 管理器

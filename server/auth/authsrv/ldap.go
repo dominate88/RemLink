@@ -8,7 +8,7 @@ import (
 )
 
 func init() {
-	auth.Register("ldap", func() auth.Authenticator {
+	auth.Registry.Register("ldap", func() auth.Authenticator {
 		return &LDAPAuth{}
 	})
 }
@@ -59,7 +59,7 @@ func (a *LDAPAuth) Authenticate(ctx *auth.Context) (auth.StepResult, error) {
 		return auth.StepPass, nil
 	}
 
-	// 兜底：用户已启用 OTP 且非门户登录时，将密码尾 6 位作为动态码剥离后重试 bind
+	// 用户已启用 OTP 且非门户登录时，将密码尾 6 位作为动态码剥离后重试 bind
 	ub := ctx.UserInfoLoaded()
 	if ub == nil {
 		LoadUserInfo(ctx)

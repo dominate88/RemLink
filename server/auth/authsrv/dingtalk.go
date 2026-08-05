@@ -7,7 +7,7 @@ import (
 )
 
 func init() {
-	auth.Register("dingtalk", func() auth.Authenticator {
+	auth.Registry.Register("dingtalk", func() auth.Authenticator {
 		return &DingTalkAuth{}
 	})
 }

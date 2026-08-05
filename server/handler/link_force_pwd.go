@@ -79,7 +79,7 @@ func ForcePwdPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "缺少认证参数", http.StatusBadRequest)
 		return
 	}
-	if _, err := GetAuthSession(state); err != nil {
+	if _, err := AuthSessionManager.Get(state); err != nil {
 		http.Error(w, "认证会话已过期，请重新连接", http.StatusBadRequest)
 		return
 	}
@@ -115,7 +115,7 @@ func ForcePwdSubmit(w http.ResponseWriter, r *http.Request) {
 		forcePwdMessage(w, err.Error(), state, false)
 		return
 	}
-	sess, err := GetAuthSession(state)
+	sess, err := AuthSessionManager.Get(state)
 	if err != nil {
 		forcePwdMessage(w, "认证会话已过期，请重新连接 VPN", "", false)
 		return

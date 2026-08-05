@@ -17,100 +17,8 @@ import (
 	"github.com/wsczx/remlink/sessdata"
 )
 
-// SessionStore 临时认证会话存储
-type SessionStore struct {
-	sessions map[string]*AuthSession
-	mu       sync.Mutex
-	stopCh   chan struct{}
-	stopOnce sync.Once
-	started  bool
-	stopped  bool
-}
-
-// 启动后台定期清理过期会话（每分钟扫描一次，TTL 5分钟）
-func (s *SessionStore) StartCleanup() {
-	s.mu.Lock()
-	if s.started {
-		s.mu.Unlock()
-		return
-	}
-	s.started = true
-	s.stopped = false
-	s.stopCh = make(chan struct{})
-	stopCh := s.stopCh
-	s.mu.Unlock()
-
-	go func() {
-		ticker := time.NewTicker(1 * time.Minute)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				s.cleanExpired()
-			case <-stopCh:
-				return
-			}
-		}
-	}()
-}
-
-// 清理过期的会话
-func (s *SessionStore) cleanExpired() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	now := time.Now()
-	for id, session := range s.sessions {
-		if now.Sub(session.CreatedAt) > 5*time.Minute {
-			delete(s.sessions, id)
-		}
-	}
-}
-
-// 停止后台清理
-func (s *SessionStore) StopCleanup() {
-	s.stopOnce.Do(func() {
-		s.mu.Lock()
-		s.stopped = true
-		s.started = false
-		s.mu.Unlock()
-		close(s.stopCh)
-	})
-}
-
-// 保存会话
-func (s *SessionStore) Save(id string, data *AuthSession) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.sessions[id] = data
-}
-
-// 获取会话
-func (s *SessionStore) Get(id string) (*AuthSession, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	v, ok := s.sessions[id]
-	if !ok {
-		return nil, fmt.Errorf("会话未找到")
-	}
-	return v, nil
-}
-
-// 删除会话
-func (s *SessionStore) Delete(id string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.sessions, id)
-}
-
-var SessStore = &SessionStore{
-	sessions: make(map[string]*AuthSession),
-	stopCh:   make(chan struct{}),
-}
-var lockManager = auth.GetLockManager()
-
-// 认证流程的临时会话
-// 步骤状态、用户信息、连接信息、Resume 断点均保存在 Ctx 内。
+// 临时认证会话存储
+// 步骤状态、用户信息、连接信息、Resume 断点均保存在 Ctx 内
 type AuthSession struct {
 	SessionID  string             // 认证会话ID
 	Ctx        *auth.Context      // 认证上下文
@@ -119,28 +27,127 @@ type AuthSession struct {
 	CreatedAt  time.Time
 }
 
-// 保存认证会话
-func SaveAuthSession(id string, session *AuthSession) {
-	session.CreatedAt = time.Now()
-	session.SessionID = id
-	SessStore.Save(id, session)
+// 会话管理器（单例）
+type authSessionManager struct {
+	mu              sync.Mutex
+	sessions        map[string]*AuthSession
+	ttl             time.Duration
+	cleanupInterval time.Duration
+	stopCh          chan struct{}
+	wg              sync.WaitGroup
+	started         bool // 由 mu 保护，标记清理协程是否在运行
 }
 
-// 获取认证会话
-func GetAuthSession(id string) (*AuthSession, error) {
-	session, err := SessStore.Get(id)
-	if err != nil {
-		return nil, err
+var (
+	authSessionMgrOnce sync.Once
+	authSessionMgr     *authSessionManager
+	lockManager        = auth.GetLockManager()
+	AuthSessionManager = GetAuthSessionManager()
+)
+
+// 返回认证会话管理器单例（懒初始化）
+func GetAuthSessionManager() *authSessionManager {
+	authSessionMgrOnce.Do(func() {
+		authSessionMgr = NewAuthSessionManager()
+	})
+	return authSessionMgr
+}
+
+// TTL 5 分钟、清理周期 1 分钟。
+func NewAuthSessionManager() *authSessionManager {
+	return &authSessionManager{
+		sessions:        make(map[string]*AuthSession),
+		ttl:             5 * time.Minute,
+		cleanupInterval: 1 * time.Minute,
 	}
-	if time.Since(session.CreatedAt) > 5*time.Minute {
-		SessStore.Delete(id)
+}
+
+// 启动后台过期清理协程。可安全重复调用，运行中重复调用无效
+func (m *authSessionManager) Start() {
+	m.mu.Lock()
+	if m.started {
+		m.mu.Unlock()
+		return
+	}
+	m.started = true
+	m.stopCh = make(chan struct{})
+	stopCh := m.stopCh
+	m.wg.Add(1)
+	m.mu.Unlock()
+
+	go func() {
+		defer m.wg.Done()
+		ticker := time.NewTicker(m.cleanupInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				m.cleanExpired()
+			case <-stopCh:
+				return
+			}
+		}
+	}()
+}
+
+// 停止后台清理协程并等待其退出。可安全重复调用，未启动时为空操作
+func (m *authSessionManager) Stop() {
+	m.mu.Lock()
+	if !m.started {
+		m.mu.Unlock()
+		return
+	}
+	m.started = false
+	close(m.stopCh)
+	m.mu.Unlock()
+
+	m.wg.Wait()
+}
+
+// 保存会话，自动记录创建时间与会话ID
+func (m *authSessionManager) Save(id string, data *AuthSession) {
+	data.CreatedAt = time.Now()
+	data.SessionID = id
+	m.mu.Lock()
+	m.sessions[id] = data
+	m.mu.Unlock()
+}
+
+// 获取认证会话并做 TTL 过期校验
+func (m *authSessionManager) Get(id string) (*AuthSession, error) {
+	m.mu.Lock()
+	s, ok := m.sessions[id]
+	m.mu.Unlock()
+	if !ok {
+		return nil, fmt.Errorf("会话未找到")
+	}
+	if time.Since(s.CreatedAt) > m.ttl {
+		m.Delete(id)
 		return nil, fmt.Errorf("会话过期")
 	}
-	session.SessionID = id
-	return session, nil
+	s.SessionID = id
+	return s, nil
 }
 
-// 创建用户会话并返回认证完成 XML
+// 删除会话
+func (m *authSessionManager) Delete(id string) {
+	m.mu.Lock()
+	delete(m.sessions, id)
+	m.mu.Unlock()
+}
+
+// 清理超过 TTL 的会话
+func (m *authSessionManager) cleanExpired() {
+	m.mu.Lock()
+	now := time.Now()
+	for id, s := range m.sessions {
+		if now.Sub(s.CreatedAt) > m.ttl {
+			delete(m.sessions, id)
+		}
+	}
+	m.mu.Unlock()
+}
+
 func CreateSession(w http.ResponseWriter, authSession *AuthSession) {
 	ua := authSession.UserActLog
 	ctx := authSession.Ctx

@@ -234,7 +234,7 @@ func SetGroup(g *Group) error {
 	}
 	// 校验每个步骤
 	for i, step := range profile.Step {
-		if !auth.IsRegistered(step.Type) {
+		if !auth.Registry.IsRegistered(step.Type) {
 			return fmt.Errorf("未知的认证方式 %q (步骤 %d)", step.Type, i+1)
 		}
 		switch step.Type {

@@ -58,7 +58,7 @@ func handlerWebAuth(w http.ResponseWriter, r *http.Request, cr *ClientRequest, u
 			},
 		},
 	}
-	SaveAuthSession(state, pending)
+	AuthSessionManager.Save(state, pending)
 
 	serverAddr := getServerAddr(r)
 
@@ -102,7 +102,7 @@ func WebAuthSPLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 校验 state 有效
-	if _, err := GetAuthSession(state); err != nil {
+	if _, err := AuthSessionManager.Get(state); err != nil {
 		base.Error("[WebAuth-2:sp/login] 会话不存在或已过期: state=", state)
 		http.Error(w, "认证会话已过期", http.StatusBadRequest)
 		return
@@ -126,7 +126,7 @@ func WebAuthStart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 校验 state 有效
-	pending, err := GetAuthSession(state)
+	pending, err := AuthSessionManager.Get(state)
 	if err != nil {
 		webAuthError(w, "认证会话已过期")
 		return
@@ -180,7 +180,7 @@ func WebAuthSelectGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pending, err := GetAuthSession(state)
+	pending, err := AuthSessionManager.Get(state)
 	if err != nil {
 		webAuthError(w, "认证会话已过期")
 		return
@@ -208,7 +208,7 @@ func WebAuthSelectGroup(w http.ResponseWriter, r *http.Request) {
 		pending.UserActLog.Username = req.Username
 	}
 	pending.UserActLog.GroupName = req.Group
-	SaveAuthSession(state, pending)
+	AuthSessionManager.Save(state, pending)
 
 	profile, pErr := auth.ParseAuthProfile(groupData.AuthProfile)
 	if pErr != nil || len(profile.Step) == 0 {
@@ -219,7 +219,7 @@ func WebAuthSelectGroup(w http.ResponseWriter, r *http.Request) {
 	firstStepType := profile.Step[0].Type
 
 	// SSO 认证：立即运行管道获取跳转地址
-	if auth.IsSSOType(firstStepType) {
+	if auth.Registry.IsSSOType(firstStepType) {
 		// 手机端内置浏览器无法完成企微/飞书扫码，默认拒绝；开启 allow_mobile_sso 后放行
 		if isMobileDevice(r) && !base.GetCfg().AllowMobileSSO {
 			webAuthError(w, "手机端不支持企微/飞书扫码认证，请选择其他组或联系管理员")
@@ -310,7 +310,7 @@ func WebAuthIdentify(w http.ResponseWriter, r *http.Request) {
 		webAuthError(w, "缺少认证参数")
 		return
 	}
-	pending, err := GetAuthSession(state)
+	pending, err := AuthSessionManager.Get(state)
 	if err != nil {
 		webAuthError(w, "认证会话已过期")
 		return
@@ -352,7 +352,7 @@ func WebAuthIdentify(w http.ResponseWriter, r *http.Request) {
 	// 记住用户名到会话：后续选组/凭据步骤据此预填，避免用户重复输入。
 	pending.Ctx.Conn.Username = req.Username
 	pending.UserActLog.Username = req.Username
-	SaveAuthSession(state, pending)
+	AuthSessionManager.Save(state, pending)
 
 	groups := filterGroupsByUser(dbdata.GetGroupNamesNormal(), user)
 	webAuthJSON(w, http.StatusOK, map[string]any{
@@ -370,7 +370,7 @@ func WebAuthStep(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pending, err := GetAuthSession(state)
+	pending, err := AuthSessionManager.Get(state)
 	if err != nil {
 		webAuthError(w, "认证会话已过期")
 		return
@@ -494,7 +494,7 @@ func webAuthHandleResult(w http.ResponseWriter, r *http.Request,
 		// 保存管道断点信息
 		ctx.SetStepIdx(result.State.StepIdx)
 		ctx.SetPassedSteps(result.State.PassedSteps)
-		SaveAuthSession(state, pending)
+		AuthSessionManager.Save(state, pending)
 
 		challenge := result.Challenge
 		if challenge == nil {
@@ -615,7 +615,7 @@ func webAuthOnPass(w http.ResponseWriter, r *http.Request,
 	pending.Ctx.GetSSO().WebAuthCompleted = true
 	pending.Ctx.SSO.WebAuthUsername = username
 	pending.Ctx.SSO.WebAuthGroup = groupName
-	SaveAuthSession(state, pending)
+	AuthSessionManager.Save(state, pending)
 
 	// 签发门户 JWT cookie（浏览器端可直接访问 /ui/#/portal）
 	user := &dbdata.User{}
@@ -657,37 +657,17 @@ func webAuthBuildSSOURL(r *http.Request, ssoType, groupName, webAuthState string
 	}
 	// webAuthState 存入 SSO.From 供回调后关联（此处复用 From 字段记录关联状态）
 	_ = webAuthState
-	SaveAuthSession(ssoState, pending)
+	AuthSessionManager.Save(ssoState, pending)
 
 	redirectUri := fmt.Sprintf("%s/web-auth/sso-callback?web_state=%s&sso_state=%s",
 		getServerAddr(r), webAuthState, ssoState)
 
-	switch ssoType {
-	case "wxwork":
-		cfg, err := dbdata.GetAuthWework(groupName)
-		if err != nil {
-			return ""
-		}
-		return fmt.Sprintf("https://login.work.weixin.qq.com/wwlogin/sso/login?login_type=CorpApp&appid=%s&agentid=%s&redirect_uri=%s&state=%s",
-			cfg.CorpID, cfg.AgentID, url.QueryEscape(redirectUri), url.QueryEscape(ssoState))
-	case "feishu":
-		cfg, err := dbdata.GetAuthFeishu(groupName)
-		if err != nil {
-			return ""
-		}
-		return fmt.Sprintf("https://open.feishu.cn/open-apis/authen/v1/authorize?app_id=%s&redirect_uri=%s&state=%s",
-			cfg.AppID, url.QueryEscape(redirectUri), url.QueryEscape(ssoState))
-	case "dingtalk":
-		cfg, err := dbdata.GetAuthDingtalk(groupName)
-		if err != nil {
-			return ""
-		}
-		// 使用 %20 分隔 scope 作用域，或显式指定 prompt=consent
-		scope := "openid%20Contact.User.Read"
-		return fmt.Sprintf("https://login.dingtalk.com/oauth2/auth?redirect_uri=%s&response_type=code&client_id=%s&state=%s&scope=%s&prompt=consent",
-			url.QueryEscape(redirectUri), cfg.ClientID, url.QueryEscape(ssoState), scope)
+	authURL, err := ssoBuildAuthURL(ssoType, groupName, redirectUri, ssoState)
+	if err != nil {
+		base.Error("生成 SSO 授权地址失败:", err)
+		return ""
 	}
-	return ""
+	return authURL
 }
 
 // WebAuthSSOCallback SSO OAuth 回调端点：企微/飞书扫码授权后回调到此。
@@ -703,7 +683,7 @@ func WebAuthSSOCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 校验 SSO state
-	pending, err := GetAuthSession(ssoState)
+	pending, err := AuthSessionManager.Get(ssoState)
 	if err != nil {
 		base.Error("WebAuth SSO 非法 state")
 		http.Error(w, "认证会话已过期", http.StatusBadRequest)
@@ -747,13 +727,13 @@ func WebAuthSSOCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil || username == "" {
-		SessStore.Delete(ssoState)
+		AuthSessionManager.Delete(ssoState)
 		http.Error(w, "获取用户信息失败", http.StatusInternalServerError)
 		return
 	}
 
 	// 将 SSO 结果写入 WebAuth 会话
-	webPending, werr := GetAuthSession(webState)
+	webPending, werr := AuthSessionManager.Get(webState)
 	if werr != nil {
 		http.Error(w, "认证会话已过期", http.StatusBadRequest)
 		return
@@ -771,10 +751,10 @@ func WebAuthSSOCallback(w http.ResponseWriter, r *http.Request) {
 	if webPending.UserActLog != nil {
 		webPending.UserActLog.Username = username
 	}
-	SaveAuthSession(webState, webPending)
+	AuthSessionManager.Save(webState, webPending)
 
 	// 清理 SSO 临时会话
-	SessStore.Delete(ssoState)
+	AuthSessionManager.Delete(ssoState)
 
 	// 重定向回 WebAuth 流程，恢复管道
 	redirectURL := fmt.Sprintf("/ui/#/web-auth/continue?state=%s", webState)
@@ -789,7 +769,7 @@ func WebAuthContinue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pending, err := GetAuthSession(state)
+	pending, err := AuthSessionManager.Get(state)
 	if err != nil {
 		webAuthError(w, "认证会话已过期")
 		return
@@ -831,7 +811,7 @@ func WebAuthComplete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 校验会话存在且已完成
-	pending, err := GetAuthSession(state)
+	pending, err := AuthSessionManager.Get(state)
 	if err != nil {
 		base.Error("[WebAuth-5:complete] 会话不存在: state=", state)
 		http.Error(w, "认证会话已过期", http.StatusBadRequest)
@@ -877,7 +857,7 @@ func WebAuthSmsResend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pending, err := GetAuthSession(state)
+	pending, err := AuthSessionManager.Get(state)
 	if err != nil {
 		webAuthError(w, "认证会话已过期")
 		return
@@ -903,7 +883,7 @@ func WebAuthSmsResend(w http.ResponseWriter, r *http.Request) {
 	if pending.Ctx != nil && pending.Ctx.SMS != nil {
 		pending.Ctx.SMS.Sent = false
 	}
-	SaveAuthSession(state, pending)
+	AuthSessionManager.Save(state, pending)
 
 	webAuthJSON(w, http.StatusOK, map[string]any{
 		"status": "ok",
@@ -956,7 +936,7 @@ func WebAuthChangePassword(w http.ResponseWriter, r *http.Request) {
 		webAuthError(w, "缺少认证参数")
 		return
 	}
-	pending, err := GetAuthSession(state)
+	pending, err := AuthSessionManager.Get(state)
 	if err != nil {
 		webAuthError(w, "认证会话已过期")
 		return

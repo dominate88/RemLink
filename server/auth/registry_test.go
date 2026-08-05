@@ -13,11 +13,9 @@ import (
 
 // 临时注册 mock 认证器，返回清理函数
 func testRegister(name string, a Authenticator) func() {
-	Register(name, func() Authenticator { return a })
+	Registry.Register(name, func() Authenticator { return a })
 	return func() {
-		registryMu.Lock()
-		delete(registry, name)
-		registryMu.Unlock()
+		unregister(name)
 	}
 }
 
@@ -62,7 +60,7 @@ func TestRegister_Duplicate_Panics(t *testing.T) {
 	defer cleanup()
 
 	ast.Panics(func() {
-		Register("dup_test", func() Authenticator {
+		Registry.Register("dup_test", func() Authenticator {
 			return &mockAuth{name: "dup_test", result: StepPass}
 		})
 	}, "重复注册应 panic")
@@ -72,7 +70,7 @@ func TestGetFactory_Exists(t *testing.T) {
 	cleanup := testRegister("factory_test", &mockAuth{name: "factory_test", result: StepPass})
 	defer cleanup()
 
-	f, ok := GetFactory("factory_test")
+	f, ok := Registry.GetFactory("factory_test")
 	assert.True(t, ok)
 	assert.NotNil(t, f)
 
@@ -81,7 +79,7 @@ func TestGetFactory_Exists(t *testing.T) {
 }
 
 func TestGetFactory_NotExists(t *testing.T) {
-	f, ok := GetFactory("not_register_abc123")
+	f, ok := Registry.GetFactory("not_register_abc123")
 	assert.False(t, ok)
 	assert.Nil(t, f)
 }
@@ -90,8 +88,8 @@ func TestIsRegistered(t *testing.T) {
 	cleanup := testRegister("reg_check", &mockAuth{name: "reg_check", result: StepPass})
 	defer cleanup()
 
-	assert.True(t, IsRegistered("reg_check"))
-	assert.False(t, IsRegistered("not_there"))
+	assert.True(t, Registry.IsRegistered("reg_check"))
+	assert.False(t, Registry.IsRegistered("not_there"))
 }
 
 func TestRegisteredNames(t *testing.T) {
@@ -99,7 +97,7 @@ func TestRegisteredNames(t *testing.T) {
 	cleanup2 := testRegister("names_b", &mockAuth{name: "names_b", result: StepPass})
 	defer func() { cleanup1(); cleanup2() }()
 
-	names := RegisteredNames()
+	names := Registry.RegisteredNames()
 	assert.Len(t, names, 2)
 	assert.Contains(t, names, "names_a")
 	assert.Contains(t, names, "names_b")
@@ -113,9 +111,9 @@ func TestRegistry_ConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			IsRegistered(fmt.Sprintf("con_%d", n))
-			RegisteredNames()
-			GetFactory(fmt.Sprintf("con_%d", n))
+			Registry.IsRegistered(fmt.Sprintf("con_%d", n))
+			Registry.RegisteredNames()
+			Registry.GetFactory(fmt.Sprintf("con_%d", n))
 		}(i)
 	}
 	wg.Wait()

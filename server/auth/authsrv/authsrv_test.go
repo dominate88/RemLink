@@ -19,9 +19,9 @@ func preTestData(t *testing.T) {
 
 	// 注册所需认证器（防止 Pipeline 构建时找不到）
 	for _, name := range []string{"local", "ldap", "radius", "otp", "cert", "saml", "wxwork", "feishu"} {
-		if !auth.IsRegistered(name) {
+		if !auth.Registry.IsRegistered(name) {
 			n := name
-			auth.Register(n, func() auth.Authenticator {
+			auth.Registry.Register(n, func() auth.Authenticator {
 				return &testStubAuth{name: n}
 			})
 		}

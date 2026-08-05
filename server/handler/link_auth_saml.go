@@ -5,42 +5,14 @@ import (
 	"encoding/base64"
 	"fmt"
 	"html"
-	"net"
 	"net/http"
 	"net/url"
 
-	"github.com/wsczx/remlink/auth"
 	"github.com/wsczx/remlink/base"
 	"github.com/wsczx/remlink/dbdata"
-	"github.com/wsczx/remlink/pkg/utils"
 )
 
 const ssoStatePrefixLen = 32 // SSO state 随机串长度
-
-// 统一 SSO 登录入口：生成 state、创建 pending 会话、拼 OAuth URL 并跳转。
-// callbackPath 为固定回调路径前缀（如 "WXAuth"、"FeishuAuth"），会自动拼接 "/callback"。
-// buildURL 接收完整的 redirectUri 和 state，返回目标 OAuth 授权地址。
-// redirect 为登录成功后要回跳的地址（如 WebVPN 子域名 URL），空则登录后回门户首页。
-func startSSO(w http.ResponseWriter, r *http.Request, tgname, ssoType, callbackPath string,
-	buildURL func(redirectUri, state string) string, redirect string) {
-
-	state := utils.RandomRunes(ssoStatePrefixLen)
-	pending := &AuthSession{
-		Ctx: &auth.Context{
-			Conn: auth.ConnInfo{GroupName: tgname},
-			SSO: &auth.SSOState{
-				Type:     ssoType,
-				From:     r.URL.Query().Get("from"),
-				ClientIP: r.RemoteAddr,
-				Redirect: redirect,
-			},
-		},
-	}
-	SaveAuthSession(state, pending)
-
-	redirectUri := fmt.Sprintf("%s/%s/callback", getServerAddr(r), callbackPath)
-	http.Redirect(w, r, buildURL(redirectUri, state), http.StatusFound)
-}
 
 // SAML 服务提供商登录入口（根据 ssotype 分发到企微/飞书 OAuth）
 func SAMLSPLogin(w http.ResponseWriter, r *http.Request) {
@@ -68,16 +40,7 @@ func SAMLSPLogin(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "组未配置飞书认证", http.StatusBadRequest)
 			return
 		}
-		feishuConfig, err := dbdata.GetAuthFeishu(tgname)
-		if err != nil {
-			base.Error("获取飞书配置失败", err)
-			http.Error(w, "获取飞书配置失败", http.StatusInternalServerError)
-			return
-		}
-		startSSO(w, r, tgname, "feishu", "FeishuAuth", func(redirectUri, state string) string {
-			return fmt.Sprintf("https://open.feishu.cn/open-apis/authen/v1/authorize?app_id=%s&redirect_uri=%s&state=%s",
-				feishuConfig.AppID, url.QueryEscape(redirectUri), url.QueryEscape(state))
-		}, redirect)
+		startSSO(w, r, tgname, "feishu", redirect)
 		return
 	}
 
@@ -87,18 +50,7 @@ func SAMLSPLogin(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "组未配置钉钉认证", http.StatusBadRequest)
 			return
 		}
-		dingtalkConfig, err := dbdata.GetAuthDingtalk(tgname)
-		if err != nil {
-			base.Error("获取钉钉配置失败", err)
-			http.Error(w, "获取钉钉配置失败", http.StatusInternalServerError)
-			return
-		}
-		startSSO(w, r, tgname, "dingtalk", "DingtalkAuth", func(redirectUri, state string) string {
-			// 使用 %20 分隔 scope 作用域，或者显式指定 prompt=consent
-			scope := "openid%20Contact.User.Read"
-			return fmt.Sprintf("https://login.dingtalk.com/oauth2/auth?redirect_uri=%s&response_type=code&client_id=%s&state=%s&scope=%s&prompt=consent",
-				url.QueryEscape(redirectUri), dingtalkConfig.ClientID, url.QueryEscape(state), scope)
-		}, redirect)
+		startSSO(w, r, tgname, "dingtalk", redirect)
 		return
 	}
 
@@ -108,17 +60,7 @@ func SAMLSPLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "组未配置企微认证", http.StatusBadRequest)
 		return
 	}
-	wxworkConfig, err := dbdata.GetAuthWework(tgname)
-	if err != nil {
-		base.Error("获取企微配置失败", err)
-		http.Error(w, "获取企微配置失败", http.StatusInternalServerError)
-		return
-	}
-
-	startSSO(w, r, tgname, "wxwork", "WXAuth", func(redirectUri, state string) string {
-		return fmt.Sprintf("https://login.work.weixin.qq.com/wwlogin/sso/login?login_type=CorpApp&appid=%s&agentid=%s&redirect_uri=%s&state=%s",
-			wxworkConfig.CorpID, wxworkConfig.AgentID, url.QueryEscape(redirectUri), url.QueryEscape(state))
-	}, redirect)
+	startSSO(w, r, tgname, "wxwork", redirect)
 }
 
 // 企业微信 OAuth2 回调
@@ -132,35 +74,8 @@ func WXAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 校验 state 是否由本服务签发
-	pending, err := GetAuthSession(state)
-	if err != nil {
-		base.Error("非法的 SSO state:", state[:min(16, len(state))], ", err:", err)
-		SAMLError(w, fmt.Errorf("认证会话已过期或无效"))
-		return
-	}
-	// 已被标记为已认证的 state 说明此前使用过，拒绝重放
-	if pending.Ctx.SSO == nil || pending.Ctx.SSO.Authenticated {
-		base.Error("SSO state 已被消费（疑似重放）:", state[:min(16, len(state))])
-		SAMLError(w, fmt.Errorf("认证会话已过期或无效"))
-		return
-	}
-	// 发起登录与回调须来自同一客户端 IP，否则拒绝冒用
-	if pending.Ctx.SSO.ClientIP != "" {
-		want, _, _ := net.SplitHostPort(pending.Ctx.SSO.ClientIP)
-		got, _, _ := net.SplitHostPort(r.RemoteAddr)
-		if want != "" && got != "" && want != got {
-			base.Error("SSO state 来源 IP 不匹配:", want, got)
-			SAMLError(w, fmt.Errorf("认证会话来源异常"))
-			return
-		}
-	}
-	// 消费 pending，避免同一 state 被重复使用
-	SessStore.Delete(state)
-	groupname := pending.Ctx.Conn.GroupName
-	if groupname == "" {
-		base.Error("SSO pending 会话缺少组名")
-		SAMLError(w, fmt.Errorf("认证会话数据异常"))
+	pending, groupname, ok := verifySAMLPending(w, r, state)
+	if !ok {
 		return
 	}
 
@@ -202,29 +117,7 @@ func WXAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 创建完整 SSO 会话（覆盖 pending 状态）
-	if portalSSOLogin(w, r, pending, "wxwork", userID) {
-		return
-	}
-
-	// 创建完整 SSO 会话（覆盖 pending 状态）
-	samlSession := &AuthSession{
-		Ctx: &auth.Context{
-			Conn: auth.ConnInfo{GroupName: groupname, Username: userID},
-			SSO: &auth.SSOState{
-				Type:          "wxwork",
-				Authenticated: true,
-				UserID:        userID,
-			},
-		},
-	}
-	SaveAuthSession(state, samlSession)
-
-	// 设置 Cookie（Base64 编码 state）
-	encodeState := base64.StdEncoding.EncodeToString([]byte(state))
-	SetCookie(w, "acSamlv2Token", encodeState, 0)
-
-	http.Redirect(w, r, "/+CSCOE+/saml_ac_login.html", http.StatusFound)
+	finishSAMLOAuth(w, r, state, "wxwork", userID, pending)
 }
 
 // SAML 断言消费者端点（sso-v2-login-final）
@@ -253,7 +146,7 @@ func SAMLACLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	// WebAuth认证成功后直接跳转到门户
 	isWebAuth := false
-	if samlSession, err := GetAuthSession(token); err == nil {
+	if samlSession, err := AuthSessionManager.Get(token); err == nil {
 		if samlSession.Ctx != nil && samlSession.Ctx.SSO != nil && samlSession.Ctx.SSO.WebAuthCompleted {
 			isWebAuth = true
 		}
@@ -321,35 +214,8 @@ func FeishuAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 校验 state 是否由本服务签发
-	pending, err := GetAuthSession(state)
-	if err != nil {
-		base.Error("非法的 SSO state:", state[:min(16, len(state))], ", err:", err)
-		SAMLError(w, fmt.Errorf("认证会话已过期或无效"))
-		return
-	}
-	// 已被标记为已认证的 state 说明此前使用过，拒绝重放
-	if pending.Ctx.SSO == nil || pending.Ctx.SSO.Authenticated {
-		base.Error("SSO state 已被消费（疑似重放）:", state[:min(16, len(state))])
-		SAMLError(w, fmt.Errorf("认证会话已过期或无效"))
-		return
-	}
-	// 发起登录与回调须来自同一客户端 IP，否则拒绝冒用
-	if pending.Ctx.SSO.ClientIP != "" {
-		want, _, _ := net.SplitHostPort(pending.Ctx.SSO.ClientIP)
-		got, _, _ := net.SplitHostPort(r.RemoteAddr)
-		if want != "" && got != "" && want != got {
-			base.Error("SSO state 来源 IP 不匹配:", want, got)
-			SAMLError(w, fmt.Errorf("认证会话来源异常"))
-			return
-		}
-	}
-	// 避免同一 state 被重复使用
-	SessStore.Delete(state)
-	groupname := pending.Ctx.Conn.GroupName
-	if groupname == "" {
-		base.Error("SSO pending 会话缺少组名")
-		SAMLError(w, fmt.Errorf("认证会话数据异常"))
+	pending, groupname, ok := verifySAMLPending(w, r, state)
+	if !ok {
 		return
 	}
 
@@ -397,29 +263,7 @@ func FeishuAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 创建完整 SSO 会话（覆盖 pending 状态）
-	if portalSSOLogin(w, r, pending, "feishu", userID) {
-		return
-	}
-
-	// 创建完整 SSO 会话（覆盖 pending 状态）
-	samlSession := &AuthSession{
-		Ctx: &auth.Context{
-			Conn: auth.ConnInfo{GroupName: groupname, Username: userID},
-			SSO: &auth.SSOState{
-				Type:          "feishu",
-				Authenticated: true,
-				UserID:        userID,
-			},
-		},
-	}
-	SaveAuthSession(state, samlSession)
-
-	// 设置 Cookie（Base64 编码 state）
-	encodeState := base64.StdEncoding.EncodeToString([]byte(state))
-	SetCookie(w, "acSamlv2Token", encodeState, 0)
-
-	http.Redirect(w, r, "/+CSCOE+/saml_ac_login.html", http.StatusFound)
+	finishSAMLOAuth(w, r, state, "feishu", userID, pending)
 }
 
 // DingtalkAuthCallback 钉钉 OAuth 扫码登录回调。
@@ -434,35 +278,8 @@ func DingtalkAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 校验 state 是否由本服务签发
-	pending, err := GetAuthSession(state)
-	if err != nil {
-		base.Error("非法的 SSO state:", state[:min(16, len(state))], ", err:", err)
-		SAMLError(w, fmt.Errorf("认证会话已过期或无效"))
-		return
-	}
-	// 已被标记为已认证的 state 说明此前使用过，拒绝重放
-	if pending.Ctx.SSO == nil || pending.Ctx.SSO.Authenticated {
-		base.Error("SSO state 已被消费（疑似重放）:", state[:min(16, len(state))])
-		SAMLError(w, fmt.Errorf("认证会话已过期或无效"))
-		return
-	}
-	// 发起登录与回调须来自同一客户端 IP，否则拒绝冒用
-	if pending.Ctx.SSO.ClientIP != "" {
-		want, _, _ := net.SplitHostPort(pending.Ctx.SSO.ClientIP)
-		got, _, _ := net.SplitHostPort(r.RemoteAddr)
-		if want != "" && got != "" && want != got {
-			base.Error("SSO state 来源 IP 不匹配:", want, got)
-			SAMLError(w, fmt.Errorf("认证会话来源异常"))
-			return
-		}
-	}
-	// 避免同一 state 被重复使用
-	SessStore.Delete(state)
-	groupname := pending.Ctx.Conn.GroupName
-	if groupname == "" {
-		base.Error("SSO pending 会话缺少组名")
-		SAMLError(w, fmt.Errorf("认证会话数据异常"))
+	pending, groupname, ok := verifySAMLPending(w, r, state)
+	if !ok {
 		return
 	}
 
@@ -504,28 +321,7 @@ func DingtalkAuthCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 创建完整 SSO 会话（覆盖 pending 状态）
-	if portalSSOLogin(w, r, pending, "dingtalk", userID) {
-		return
-	}
-
-	// 创建完整 SSO 会话（覆盖 pending 状态）
-	samlSession := &AuthSession{
-		Ctx: &auth.Context{
-			Conn: auth.ConnInfo{GroupName: groupname, Username: userID},
-			SSO: &auth.SSOState{
-				Type:          "dingtalk",
-				Authenticated: true,
-				UserID:        userID,
-			},
-		},
-	}
-	SaveAuthSession(state, samlSession)
-
-	// 设置 Cookie（Base64 编码 state）
-	encodeState := base64.StdEncoding.EncodeToString([]byte(state))
-	SetCookie(w, "acSamlv2Token", encodeState, 0)
-
-	http.Redirect(w, r, "/+CSCOE+/saml_ac_login.html", http.StatusFound)
+	finishSAMLOAuth(w, r, state, "dingtalk", userID, pending)
 }
 func SAMLError(w http.ResponseWriter, err error) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
