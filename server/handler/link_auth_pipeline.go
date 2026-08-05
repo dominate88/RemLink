@@ -211,8 +211,8 @@ func handleChallengeResult(w http.ResponseWriter, r *http.Request,
 		tplRequest(tpl_accept_challenge, w, RequestData{Error: msg, Group: result.GroupName})
 
 	case auth.ChallengeSSO:
-		// 手机端无法完成企微/飞书扫码
-		if isMobileDevice(r) {
+		// 手机端无法完成企微/飞书扫码，默认拒绝；开启 allow_mobile_sso 后放行
+		if isMobileDevice(r) && !base.GetCfg().AllowMobileSSO {
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
