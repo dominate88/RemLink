@@ -1,4 +1,3 @@
-// Package security 提供 AES-256-GCM 加解密、密钥管理及 DB 层透明加密类型。
 package security
 
 import (
@@ -19,14 +18,23 @@ const prefix = "$AES256$"
 
 var ErrNotEnabled = errors.New("加密未启用")
 
-// AES-256-GCM 加密，返回 "$AES256$<base64>"。
-func Encrypt(plaintext string) (string, error) {
-	key := getKeyLocked()
-	if key == nil {
-		return "", ErrNotEnabled
-	}
+// AES-256-GCM 加解密，持有密钥实例
+// 通过 NewCipher 注入密钥，便于单测使用固定密钥而不依赖磁盘密钥文件
+type Cipher struct {
+	key []byte
+}
 
-	block, err := aes.NewCipher(key)
+// 密钥构造 Cipher。key 须为 32 字节（AES-256）
+func NewCipher(key []byte) (*Cipher, error) {
+	if len(key) != 32 {
+		return nil, errors.New("密钥长度必须为 32 字节（AES-256）")
+	}
+	return &Cipher{key: key}, nil
+}
+
+// AES-256-GCM 加密，返回 "$AES256$<base64>"。
+func (c *Cipher) Encrypt(plaintext string) (string, error) {
+	block, err := aes.NewCipher(c.key)
 	if err != nil {
 		return "", err
 	}
@@ -43,13 +51,9 @@ func Encrypt(plaintext string) (string, error) {
 }
 
 // 解密 "$AES256$<base64>" 格式密文，非前缀的值直接透传。
-func Decrypt(ciphertext string) (string, error) {
+func (c *Cipher) Decrypt(ciphertext string) (string, error) {
 	if !strings.HasPrefix(ciphertext, prefix) {
 		return ciphertext, nil
-	}
-	key := getKeyLocked()
-	if key == nil {
-		return "", ErrNotEnabled
 	}
 
 	b64 := strings.TrimPrefix(ciphertext, prefix)
@@ -57,7 +61,7 @@ func Decrypt(ciphertext string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	block, err := aes.NewCipher(key)
+	block, err := aes.NewCipher(c.key)
 	if err != nil {
 		return "", err
 	}
@@ -75,6 +79,31 @@ func Decrypt(ciphertext string) (string, error) {
 		return "", err
 	}
 	return string(plain), nil
+}
+func Encrypt(plaintext string) (string, error) {
+	key := getKeyLocked()
+	if key == nil {
+		return "", ErrNotEnabled
+	}
+	c, err := NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+	return c.Encrypt(plaintext)
+}
+func Decrypt(ciphertext string) (string, error) {
+	if !strings.HasPrefix(ciphertext, prefix) {
+		return ciphertext, nil
+	}
+	key := getKeyLocked()
+	if key == nil {
+		return "", ErrNotEnabled
+	}
+	c, err := NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+	return c.Decrypt(ciphertext)
 }
 
 // 判断值是否为密文。
