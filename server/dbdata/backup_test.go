@@ -23,8 +23,8 @@ func cleanupBackupFiles(t *testing.T) {
 func TestAllTableNames(t *testing.T) {
 	ast := assert.New(t)
 
-	names := AllTableNames()
-	ast.Len(names, len(backupTables))
+	names := GetBackupManager().AllTableNames()
+	ast.Len(names, len(GetBackupManager().Tables))
 
 	// 验证已排序
 	for i := 1; i < len(names); i++ {
@@ -45,8 +45,8 @@ func TestGetTableSizes(t *testing.T) {
 	defer closeIpdata()
 	defer cleanupBackupFiles(t)
 
-	sizes := GetTableSizes()
-	ast.Len(sizes, len(backupTables))
+	sizes := GetBackupManager().GetTableSizes()
+	ast.Len(sizes, len(GetBackupManager().Tables))
 
 	groups := map[string]int{}
 	for _, s := range sizes {
@@ -63,8 +63,8 @@ func TestGetTableSizes(t *testing.T) {
 func TestAllBusinessTableNames(t *testing.T) {
 	ast := assert.New(t)
 
-	names := allBusinessTableNames()
-	for _, t := range backupTables {
+	names := GetBackupManager().BusinessTableNames()
+	for _, t := range GetBackupManager().Tables {
 		if t.Group == "business" {
 			ast.Contains(names, t.Name)
 		} else {
@@ -83,8 +83,8 @@ func TestTableModels_MatchesBackupTables(t *testing.T) {
 	for _, m := range models {
 		modelTypes[reflect.TypeOf(m).Elem()] = true
 	}
-	backupTypes := make(map[reflect.Type]bool, len(backupTables))
-	for _, bt := range backupTables {
+	backupTypes := make(map[reflect.Type]bool, len(GetBackupManager().Tables))
+	for _, bt := range GetBackupManager().Tables {
 		backupTypes[reflect.TypeOf(bt.Model)] = true
 	}
 
@@ -100,7 +100,7 @@ func TestTableModels_MatchesBackupTables(t *testing.T) {
 func TestBackupTable_NewSlicePtr_NewPtr(t *testing.T) {
 	ast := assert.New(t)
 
-	for _, bt := range backupTables {
+	for _, bt := range GetBackupManager().Tables {
 		sp := bt.newSlicePtr()
 		ast.NotNil(sp, "table %s newSlicePtr returned nil", bt.Name)
 
@@ -130,7 +130,7 @@ func TestBackupFileRead_InvalidFilename(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := backupFileRead(tt.filename)
+			_, err := GetBackupManager().NewImporter(xdb).ReadFile(tt.filename)
 			if tt.wantErr {
 				ast.Error(err, "expected error for %q", tt.filename)
 			} else {
@@ -144,11 +144,11 @@ func TestDeleteBackup_InvalidFilename(t *testing.T) {
 	ast := assert.New(t)
 	defer cleanupBackupFiles(t)
 
-	err := DeleteBackup("../etc/passwd")
+	err := GetBackupManager().DeleteBackup("../etc/passwd")
 	ast.Error(err)
 	ast.Contains(err.Error(), "invalid")
 
-	err = DeleteBackup("bad.txt")
+	err = GetBackupManager().DeleteBackup("bad.txt")
 	ast.Error(err)
 	ast.Contains(err.Error(), "invalid")
 }
@@ -163,7 +163,7 @@ func TestCreateBackup_Config(t *testing.T) {
 	defer closeIpdata()
 	defer cleanupBackupFiles(t)
 
-	filename, err := CreateBackup("config", nil)
+	filename, err := GetBackupManager().Exporter().Create("config", nil)
 	require.NoError(t, err)
 	ast.Contains(filename, "remlink_backup_config_")
 	ast.True(strings.HasSuffix(filename, ".json"))
@@ -196,7 +196,7 @@ func TestCreateBackup_Full(t *testing.T) {
 	u := User{Username: "backup_test_user", Nickname: "测试用户"}
 	_ = Add(&u)
 
-	filename, err := CreateBackup("full", nil)
+	filename, err := GetBackupManager().Exporter().Create("full", nil)
 	require.NoError(t, err)
 	ast.Contains(filename, "remlink_backup_full_")
 
@@ -212,7 +212,7 @@ func TestCreateBackup_Full(t *testing.T) {
 	ast.NotNil(data.Tables)
 
 	// 默认包含所有 business 表
-	businessNames := allBusinessTableNames()
+	businessNames := GetBackupManager().BusinessTableNames()
 	for _, n := range businessNames {
 		ast.Contains(data.Tables, n, "business table %s should be in backup", n)
 	}
@@ -229,7 +229,7 @@ func TestCreateBackup_FullWithIncludeTables(t *testing.T) {
 	defer cleanupBackupFiles(t)
 
 	// 只备份 user 和 group 两张表
-	filename, err := CreateBackup("full", []string{"user", "group"})
+	filename, err := GetBackupManager().Exporter().Create("full", []string{"user", "group"})
 	require.NoError(t, err)
 
 	filePath := filepath.Join(backupFileDir, filename)
@@ -252,7 +252,7 @@ func TestCreateBackup_InvalidType(t *testing.T) {
 	defer closeIpdata()
 	defer cleanupBackupFiles(t)
 
-	_, err := CreateBackup("unknown", nil)
+	_, err := GetBackupManager().Exporter().Create("unknown", nil)
 	// 不会报错，但 tag 会设为 "config"
 	ast.NoError(err)
 }
@@ -263,7 +263,7 @@ func TestListBackups_Empty(t *testing.T) {
 	ast := assert.New(t)
 	defer cleanupBackupFiles(t)
 
-	list, err := ListBackups()
+	list, err := GetBackupManager().ListBackups()
 	ast.NoError(err)
 	// 目录刚清理，可能为空或只含残留
 	for _, f := range list {
@@ -279,11 +279,11 @@ func TestListAndDeleteBackup(t *testing.T) {
 	defer closeIpdata()
 	defer cleanupBackupFiles(t)
 
-	filename, err := CreateBackup("config", nil)
+	filename, err := GetBackupManager().Exporter().Create("config", nil)
 	require.NoError(t, err)
 
 	// 列表
-	list, err := ListBackups()
+	list, err := GetBackupManager().ListBackups()
 	require.NoError(t, err)
 	ast.GreaterOrEqual(len(list), 1)
 
@@ -298,10 +298,10 @@ func TestListAndDeleteBackup(t *testing.T) {
 	ast.True(found, "backup file should appear in list")
 
 	// 删除
-	ast.NoError(DeleteBackup(filename))
+	ast.NoError(GetBackupManager().DeleteBackup(filename))
 
 	// 确认已删除
-	list, err = ListBackups()
+	list, err = GetBackupManager().ListBackups()
 	require.NoError(t, err)
 	for _, f := range list {
 		ast.NotEqual(f.Name, filename)
@@ -337,7 +337,7 @@ func TestBackup_RoundTrip(t *testing.T) {
 	ast.NotZero(g.Id)
 
 	// 2. 备份
-	filename, err := CreateBackup("full", []string{"user", "group"})
+	filename, err := GetBackupManager().Exporter().Create("full", []string{"user", "group"})
 	require.NoError(t, err)
 
 	// 记录原始 ID 用于验证
@@ -348,16 +348,16 @@ func TestBackup_RoundTrip(t *testing.T) {
 	sess := xdb.NewSession()
 	defer sess.Close()
 	require.NoError(t, sess.Begin())
-	require.NoError(t, tableClear(sess, "user"))
-	require.NoError(t, tableClear(sess, "group"))
+	require.NoError(t, GetBackupManager().NewImporter(xdb).ClearTable(sess, "user"))
+	require.NoError(t, GetBackupManager().NewImporter(xdb).ClearTable(sess, "group"))
 	require.NoError(t, sess.Commit())
 
 	// 验证已清空
-	ast.Zero(tableCount("user"))
-	ast.Zero(tableCount("group"))
+	ast.Zero(GetBackupManager().TableCount("user"))
+	ast.Zero(GetBackupManager().TableCount("group"))
 
 	// 4. 还原（不使用 RestoreBackup，因为会覆盖配置；直接在 session 中操作）
-	data, err := backupFileRead(filename)
+	data, err := GetBackupManager().NewImporter(xdb).ReadFile(filename)
 	require.NoError(t, err)
 
 	sess2 := xdb.NewSession()
@@ -365,21 +365,21 @@ func TestBackup_RoundTrip(t *testing.T) {
 	require.NoError(t, sess2.Begin())
 	// 只还原业务表，不还原 config
 	for name, raw := range data.Tables {
-		bt, ok := backupTableByName[name]
+		bt, ok := GetBackupManager().TableByName[name]
 		if !ok {
 			continue
 		}
 		exist, _ := sess2.IsTableExist(bt.newPtr())
 		if exist {
-			require.NoError(t, tableClear(sess2, name))
-			require.NoError(t, tableImport(sess2, name, raw))
+			require.NoError(t, GetBackupManager().NewImporter(xdb).ClearTable(sess2, name))
+			require.NoError(t, GetBackupManager().NewImporter(xdb).ImportTable(sess2, name, raw))
 		}
 	}
 	require.NoError(t, sess2.Commit())
 
 	// 5. 验证数据已还原
-	ast.Equal(int64(2), tableCount("user"))
-	ast.Equal(int64(1), tableCount("group"))
+	ast.Equal(int64(2), GetBackupManager().TableCount("user"))
+	ast.Equal(int64(1), GetBackupManager().TableCount("group"))
 
 	// 验证具体数据
 	var restoredUsers []User
@@ -404,17 +404,17 @@ func TestRestoreBackup_NoTables(t *testing.T) {
 	defer cleanupBackupFiles(t)
 
 	// config 备份复原不应报错
-	filename, err := CreateBackup("config", nil)
+	filename, err := GetBackupManager().Exporter().Create("config", nil)
 	require.NoError(t, err)
 
 	// 不调用 RestoreBackup 因为会重置配置，只测试数据路径
-	data, err := backupFileRead(filename)
+	data, err := GetBackupManager().NewImporter(xdb).ReadFile(filename)
 	require.NoError(t, err)
 	ast.Nil(data.Tables)
 
 	sess := xdb.NewSession()
 	defer sess.Close()
-	cfg, err := backupRestoreToSession(sess, data)
+	cfg, err := GetBackupManager().NewImporter(xdb).restoreToSession(sess, data)
 	ast.NoError(err)
 	// config 备份应该返回配置信息
 	ast.NotNil(cfg)
@@ -455,7 +455,7 @@ func TestSaveDbConfig(t *testing.T) {
 	ast := assert.New(t)
 	defer cleanupBackupFiles(t)
 
-	require.NoError(t, SaveDbConfig("sqlite3", "/tmp/test.db"))
+	require.NoError(t, GetBackupManager().SaveDbConfig("sqlite3", "/tmp/test.db"))
 
 	b, err := os.ReadFile(filepath.Join("conf", "db.json"))
 	require.NoError(t, err)
@@ -487,7 +487,7 @@ func TestBackupData_VersionMismatch(t *testing.T) {
 	require.NoError(t, os.WriteFile(filePath, b, 0600))
 
 	// 读取应该报版本不兼容
-	_, err = backupFileRead(filename)
+	_, err = GetBackupManager().NewImporter(xdb).ReadFile(filename)
 	ast.Error(err)
 	ast.Contains(err.Error(), "版本不兼容")
 }

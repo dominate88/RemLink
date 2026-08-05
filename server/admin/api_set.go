@@ -357,7 +357,7 @@ func SetRestart(w http.ResponseWriter, r *http.Request) {
 
 // 返回各表行数，供前端展示并决定排除哪些大表
 func SetDbTableSizes(w http.ResponseWriter, r *http.Request) {
-	sizes := dbdata.GetTableSizes()
+	sizes := dbdata.GetBackupManager().GetTableSizes()
 	RespSucess(w, sizes)
 }
 
@@ -387,7 +387,7 @@ func SetDbBackup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Type == "full" {
-		validNames := dbdata.AllTableNames()
+		validNames := dbdata.GetBackupManager().AllTableNames()
 		validSet := make(map[string]bool, len(validNames))
 		for _, n := range validNames {
 			validSet[n] = true
@@ -400,7 +400,7 @@ func SetDbBackup(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	filename, err := dbdata.CreateBackup(req.Type, req.IncludeTables)
+	filename, err := dbdata.GetBackupManager().Exporter().Create(req.Type, req.IncludeTables)
 	if err != nil {
 		RespError(w, RespInternalErr, err)
 		return
@@ -411,7 +411,7 @@ func SetDbBackup(w http.ResponseWriter, r *http.Request) {
 
 // 列出备份文件
 func SetDbBackups(w http.ResponseWriter, r *http.Request) {
-	list, err := dbdata.ListBackups()
+	list, err := dbdata.GetBackupManager().ListBackups()
 	if err != nil {
 		RespError(w, RespInternalErr, err)
 		return
@@ -446,7 +446,7 @@ func SetDbRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := dbdata.RestoreBackup(req.File); err != nil {
+	if err := dbdata.GetBackupManager().Restore(req.File); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
@@ -481,7 +481,7 @@ func SetDbBackupDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := dbdata.DeleteBackup(req.File); err != nil {
+	if err := dbdata.GetBackupManager().DeleteBackup(req.File); err != nil {
 		RespError(w, RespInternalErr, err)
 		return
 	}
@@ -608,7 +608,7 @@ func SetDbSwitch(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Migration {
 	case "backup_only":
-		filename, err := dbdata.CreateBackup("full", dbdata.AllTableNames())
+		filename, err := dbdata.GetBackupManager().Exporter().Create("full", dbdata.GetBackupManager().AllTableNames())
 		if err != nil {
 			testEngine.Close()
 			cleanup()
@@ -619,7 +619,7 @@ func SetDbSwitch(w http.ResponseWriter, r *http.Request) {
 		base.Info("db switch: backup created", filename)
 
 	case "auto_migrate":
-		backupFilename, err := dbdata.CreateBackup("full", dbdata.AllTableNames())
+		backupFilename, err := dbdata.GetBackupManager().Exporter().Create("full", dbdata.GetBackupManager().AllTableNames())
 		if err != nil {
 			testEngine.Close()
 			cleanup()
@@ -636,7 +636,7 @@ func SetDbSwitch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if err := dbdata.RestoreBackupToEngine(testEngine, backupFilename); err != nil {
+		if err := dbdata.GetBackupManager().NewImporter(testEngine).RestoreToEngine(backupFilename); err != nil {
 			testEngine.Close()
 			cleanup()
 			RespError(w, RespInternalErr, "数据迁移到新库失败: ", err)
@@ -651,7 +651,7 @@ func SetDbSwitch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 写入 db.json（在备份/迁移完成之后）
-	if err := dbdata.SaveDbConfig(req.DbType, req.DbSource); err != nil {
+	if err := dbdata.GetBackupManager().SaveDbConfig(req.DbType, req.DbSource); err != nil {
 		cleanup()
 		RespError(w, RespInternalErr, "写入 db.json 失败: ", err)
 		return

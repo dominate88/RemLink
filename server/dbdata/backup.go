@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wsczx/remlink/base"
@@ -33,6 +34,8 @@ func (t backupTable) newPtr() any {
 	return reflect.New(reflect.TypeOf(t.Model)).Interface()
 }
 
+// 注册所有需要备份/还原的业务表（元数据驱动）
+// 新增数据表时务必在此登记，否则不会被备份也不会被建表。
 var backupTables = []backupTable{
 	{"user", "用户", "business", User{}},
 	{"group", "用户组", "business", Group{}},
@@ -54,155 +57,67 @@ var backupTables = []backupTable{
 	{"webvpn_revoke", "WebVPN会话吊销", "business", WebVpnRevoke{}},
 }
 
-var backupTableByName = func() map[string]backupTable {
+func backupTableByNameMap() map[string]backupTable {
 	m := make(map[string]backupTable, len(backupTables))
 	for _, t := range backupTables {
 		m[t.Name] = t
 	}
 	return m
-}()
-
-type BackupData struct {
-	Version   int                        `json:"version"`
-	Type      string                     `json:"type"` // "config" | "full"
-	CreatedAt string                     `json:"created_at"`
-	DbType    string                     `json:"db_type"`
-	DbSource  string                     `json:"db_source"`
-	Config    *base.ServerConfig         `json:"config,omitempty"`
-	Tables    map[string]json.RawMessage `json:"tables,omitempty"`
-	TLSCert   *SettingTLSCert            `json:"tls_cert,omitempty"`
-	ClientCA  *SettingClientCA           `json:"client_ca,omitempty"`
 }
 
-type TableSizeInfo struct {
-	Table string `json:"table"`
-	Name  string `json:"name"`
-	Rows  int64  `json:"rows"`
-	Group string `json:"group"`
+// 备份/还原子系统的中心对象（单例）。
+// 聚合 Exporter（导出）与 Importer（导入）两个子组件
+// 各子组件通过构造函数持有 *xorm.Engine，避免 *xorm.Session 在调用链中层层透传
+type BackupManager struct {
+	Tables      []backupTable
+	TableByName map[string]backupTable
 }
 
-type BackupFileInfo struct {
-	Name    string `json:"name"`
-	Size    int64  `json:"size"`
-	ModTime string `json:"mod_time"`
-	Type    string `json:"type"`
+var (
+	backupManagerOnce sync.Once
+	backupManagerInst *BackupManager
+)
+
+// 返回全局唯一的 BackupManager 单例
+func GetBackupManager() *BackupManager {
+	backupManagerOnce.Do(func() {
+		backupManagerInst = &BackupManager{
+			Tables:      backupTables,
+			TableByName: backupTableByNameMap(),
+		}
+	})
+	return backupManagerInst
 }
 
-func AllTableNames() []string {
-	names := make([]string, len(backupTables))
-	for i, t := range backupTables {
+// 返回默认引擎（xdb）的备份导出器
+func (m *BackupManager) Exporter() *Exporter {
+	return NewExporter(xdb)
+}
+
+// 返回绑定指定引擎的备份导入器
+func (m *BackupManager) NewImporter(engine *xorm.Engine) *Importer {
+	return NewImporter(engine)
+}
+
+// 还原到默认引擎（xdb），成功后热加载配置
+func (m *BackupManager) Restore(filename string) error {
+	return NewImporter(xdb).Restore(filename)
+}
+
+// 返回所有已注册备份表的名称（已排序）
+func (m *BackupManager) AllTableNames() []string {
+	names := make([]string, len(m.Tables))
+	for i, t := range m.Tables {
 		names[i] = t.Name
 	}
 	sort.Strings(names)
 	return names
 }
 
-func GetTableSizes() []TableSizeInfo {
-	result := make([]TableSizeInfo, 0, len(backupTables))
-	for _, t := range backupTables {
-		result = append(result, TableSizeInfo{
-			Table: t.Name,
-			Name:  t.Label,
-			Rows:  tableCount(t.Name),
-			Group: t.Group,
-		})
-	}
-	return result
-}
-
-func tableCount(name string) int64 {
-	bt, ok := backupTableByName[name]
-	if !ok {
-		return 0
-	}
-	n, err := xdb.Count(bt.newPtr())
-	if err != nil {
-		base.Error("tableCount:", name, err)
-		return 0
-	}
-	return n
-}
-
-type dbConfig struct {
-	DbType   string `json:"db_type"`
-	DbSource string `json:"db_source"`
-}
-
-func SaveDbConfig(dbType, dbSource string) error {
-	cfg := dbConfig{DbType: dbType, DbSource: dbSource}
-	b, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return err
-	}
-	base.CreateDir("conf")
-	return os.WriteFile(filepath.Join("conf", "db.json"), b, 0600)
-}
-
-func CreateBackup(backupType string, includeTables []string) (string, error) {
-	cfg := base.GetCfg()
-	cfgCopy := *cfg
-	cfgCopy.JwtSecret = ""
-	cfgCopy.AdminPass = ""
-	cfgCopy.AdminOtp = ""
-
-	data := &BackupData{
-		Version:   currentBackupVersion,
-		Type:      backupType,
-		CreatedAt: time.Now().Format(time.RFC3339),
-		DbType:    cfg.DbType,
-		DbSource:  cfg.DbSource,
-		Config:    &cfgCopy,
-	}
-
-	var tlsCert SettingTLSCert
-	if err := SettingGet(&tlsCert); err == nil && tlsCert.CertContent != "" {
-		data.TLSCert = &tlsCert
-	}
-	var clientCA SettingClientCA
-	if err := SettingGet(&clientCA); err == nil && clientCA.CertContent != "" {
-		data.ClientCA = &clientCA
-	}
-
-	if backupType == "full" {
-		tables := includeTables
-		if tables == nil {
-			tables = allBusinessTableNames()
-		}
-		data.Tables = make(map[string]json.RawMessage, len(tables))
-		for _, t := range tables {
-			raw, err := tableExport(t)
-			if err != nil {
-				return "", fmt.Errorf("备份表 %s 失败: %w", t, err)
-			}
-			data.Tables[t] = raw
-		}
-	}
-
-	b, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		return "", err
-	}
-
-	tag := "config"
-	if backupType == "full" {
-		tag = "full"
-	}
-	ts := time.Now().Format("20060102_150405")
-	filename := fmt.Sprintf("remlink_backup_%s_%s.json", tag, ts)
-	filePath := filepath.Join(backupFileDir, filename)
-
-	base.CreateDir(backupFileDir)
-	if err := os.WriteFile(filePath, b, 0600); err != nil {
-		return "", err
-	}
-
-	base.Info("backup created:", filePath)
-	return filename, nil
-}
-
-func allBusinessTableNames() []string {
+// 返回所有 business 组的表名
+func (m *BackupManager) BusinessTableNames() []string {
 	var names []string
-	for _, t := range backupTables {
+	for _, t := range m.Tables {
 		if t.Group == "business" {
 			names = append(names, t.Name)
 		}
@@ -210,72 +125,36 @@ func allBusinessTableNames() []string {
 	return names
 }
 
-func tableExport(name string) (json.RawMessage, error) {
-	bt, ok := backupTableByName[name]
+// 返回各备份表的行数统计
+func (m *BackupManager) GetTableSizes() []TableSizeInfo {
+	result := make([]TableSizeInfo, 0, len(m.Tables))
+	for _, t := range m.Tables {
+		result = append(result, TableSizeInfo{
+			Table: t.Name,
+			Name:  t.Label,
+			Rows:  m.TableCount(t.Name),
+			Group: t.Group,
+		})
+	}
+	return result
+}
+
+// 返回指定表的行数
+func (m *BackupManager) TableCount(name string) int64 {
+	bt, ok := m.TableByName[name]
 	if !ok {
-		return nil, fmt.Errorf("unknown table: %s", name)
+		return 0
 	}
-	slicePtr := bt.newSlicePtr()
-	if err := xdb.Find(slicePtr); err != nil {
-		return nil, err
+	n, err := xdb.Count(bt.newPtr())
+	if err != nil {
+		base.Error("TableCount:", name, err)
+		return 0
 	}
-	rv := reflect.ValueOf(slicePtr).Elem()
-	rows := make([]json.RawMessage, rv.Len())
-	for i := 0; i < rv.Len(); i++ {
-		b, err := marshalEncryptedRow(rv.Index(i).Addr().Interface())
-		if err != nil {
-			return nil, err
-		}
-		rows[i] = b
-	}
-	return json.Marshal(rows)
+	return n
 }
 
-// 对 EncryptedJSON 字段输出加密形式（备份不落明文凭证）。
-func marshalEncryptedRow(v any) (json.RawMessage, error) {
-	rv := reflect.ValueOf(v)
-	for rv.Kind() == reflect.Pointer {
-		rv = rv.Elem()
-	}
-	if rv.Kind() != reflect.Struct {
-		return json.Marshal(v)
-	}
-	out := make(map[string]json.RawMessage, rv.NumField())
-	rt := rv.Type()
-	for i := 0; i < rv.NumField(); i++ {
-		f := rt.Field(i)
-		if !f.IsExported() {
-			continue
-		}
-		tag := f.Tag.Get("json")
-		if tag == "" || tag == "-" {
-			continue
-		}
-		name := tag
-		if before, _, ok := strings.Cut(tag, ","); ok {
-			name = before
-		}
-		fv := rv.Field(i)
-		if ej, ok := fv.Addr().Interface().(interface {
-			MarshalEncrypted() ([]byte, error)
-		}); ok {
-			b, err := ej.MarshalEncrypted()
-			if err != nil {
-				return nil, err
-			}
-			out[name] = b
-			continue
-		}
-		b, err := json.Marshal(fv.Interface())
-		if err != nil {
-			return nil, err
-		}
-		out[name] = b
-	}
-	return json.Marshal(out)
-}
-
-func ListBackups() ([]BackupFileInfo, error) {
+// 列出备份目录下的所有备份文件
+func (m *BackupManager) ListBackups() ([]BackupFileInfo, error) {
 	base.CreateDir(backupFileDir)
 	entries, err := os.ReadDir(backupFileDir)
 	if err != nil {
@@ -313,7 +192,8 @@ func ListBackups() ([]BackupFileInfo, error) {
 	return result, nil
 }
 
-func DeleteBackup(filename string) error {
+// 删除指定备份文件
+func (m *BackupManager) DeleteBackup(filename string) error {
 	cleaned := filepath.Clean(filename)
 	if cleaned != filepath.Base(cleaned) || cleaned == "." || cleaned == ".." {
 		return fmt.Errorf("invalid backup filename")
@@ -324,19 +204,139 @@ func DeleteBackup(filename string) error {
 	return os.Remove(filepath.Join(backupFileDir, cleaned))
 }
 
-func RestoreBackup(filename string) error {
-	data, err := backupFileRead(filename)
+// 持久化数据库连接配置到 conf/db.json
+func (m *BackupManager) SaveDbConfig(dbType, dbSource string) error {
+	cfg := dbConfig{DbType: dbType, DbSource: dbSource}
+	b, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	base.CreateDir("conf")
+	return os.WriteFile(filepath.Join("conf", "db.json"), b, 0600)
+}
+
+// Exporter 负责把数据库内容序列化为备份文件。
+// 通过 NewExporter 显式持有 *xorm.Engine
+type Exporter struct {
+	engine *xorm.Engine
+}
+
+// 构造一个绑定指定引擎的 Exporter
+func NewExporter(engine *xorm.Engine) *Exporter {
+	return &Exporter{engine: engine}
+}
+
+// 创建一个备份文件并返回文件名
+// backupType 为 "config"（仅配置/证书）或 "full"（含业务表数据）
+// includeTables 仅对 "full" 生效，为空时导出全部 business 表
+func (e *Exporter) Create(backupType string, includeTables []string) (string, error) {
+	cfg := base.GetCfg()
+	cfgCopy := *cfg
+	cfgCopy.JwtSecret = ""
+	cfgCopy.AdminPass = ""
+	cfgCopy.AdminOtp = ""
+
+	data := &BackupData{
+		Version:   currentBackupVersion,
+		Type:      backupType,
+		CreatedAt: time.Now().Format(time.RFC3339),
+		DbType:    cfg.DbType,
+		DbSource:  cfg.DbSource,
+		Config:    &cfgCopy,
+	}
+
+	var tlsCert SettingTLSCert
+	if err := SettingGet(&tlsCert); err == nil && tlsCert.CertContent != "" {
+		data.TLSCert = &tlsCert
+	}
+	var clientCA SettingClientCA
+	if err := SettingGet(&clientCA); err == nil && clientCA.CertContent != "" {
+		data.ClientCA = &clientCA
+	}
+
+	if backupType == "full" {
+		tables := includeTables
+		if tables == nil {
+			tables = GetBackupManager().BusinessTableNames()
+		}
+		data.Tables = make(map[string]json.RawMessage, len(tables))
+		for _, t := range tables {
+			raw, err := e.exportTable(t)
+			if err != nil {
+				return "", fmt.Errorf("备份表 %s 失败: %w", t, err)
+			}
+			data.Tables[t] = raw
+		}
+	}
+
+	b, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return "", err
+	}
+
+	tag := "config"
+	if backupType == "full" {
+		tag = "full"
+	}
+	ts := time.Now().Format("20060102_150405")
+	filename := fmt.Sprintf("remlink_backup_%s_%s.json", tag, ts)
+	filePath := filepath.Join(backupFileDir, filename)
+
+	base.CreateDir(backupFileDir)
+	if err := os.WriteFile(filePath, b, 0600); err != nil {
+		return "", err
+	}
+
+	base.Info("backup created:", filePath)
+	return filename, nil
+}
+
+func (e *Exporter) exportTable(name string) (json.RawMessage, error) {
+	bt, ok := GetBackupManager().TableByName[name]
+	if !ok {
+		return nil, fmt.Errorf("unknown table: %s", name)
+	}
+	slicePtr := bt.newSlicePtr()
+	if err := e.engine.Find(slicePtr); err != nil {
+		return nil, err
+	}
+	rv := reflect.ValueOf(slicePtr).Elem()
+	rows := make([]json.RawMessage, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		b, err := marshalEncryptedRow(rv.Index(i).Addr().Interface())
+		if err != nil {
+			return nil, err
+		}
+		rows[i] = b
+	}
+	return json.Marshal(rows)
+}
+
+// Importer 负责把备份文件还原到指定引擎
+// 通过 NewImporter 显式持有 *xorm.Engine
+type Importer struct {
+	engine *xorm.Engine
+}
+
+// 构造一个绑定指定引擎的 Importer
+func NewImporter(engine *xorm.Engine) *Importer {
+	return &Importer{engine: engine}
+}
+
+// 还原到默认引擎（xdb），并在成功后热加载配置
+func (im *Importer) Restore(filename string) error {
+	data, err := im.ReadFile(filename)
 	if err != nil {
 		return err
 	}
 
-	sess := xdb.NewSession()
+	sess := im.engine.NewSession()
 	defer sess.Close()
 	if err := sess.Begin(); err != nil {
 		return err
 	}
 
-	cfgCopy, err := backupRestoreToSession(sess, data)
+	cfgCopy, err := im.restoreToSession(sess, data)
 	if err != nil {
 		sess.Rollback()
 		return err
@@ -355,20 +355,20 @@ func RestoreBackup(filename string) error {
 	return nil
 }
 
-func RestoreBackupToEngine(engine *xorm.Engine, filename string) error {
-	data, err := backupFileRead(filename)
+// 还原到指定引擎（不热加载配置，用于测试/离线校验）
+func (im *Importer) RestoreToEngine(filename string) error {
+	data, err := im.ReadFile(filename)
 	if err != nil {
 		return err
 	}
 
-	sess := engine.NewSession()
+	sess := im.engine.NewSession()
 	defer sess.Close()
 	if err := sess.Begin(); err != nil {
 		return err
 	}
 
-	_, err = backupRestoreToSession(sess, data)
-	if err != nil {
+	if _, err = im.restoreToSession(sess, data); err != nil {
 		sess.Rollback()
 		return err
 	}
@@ -376,47 +376,22 @@ func RestoreBackupToEngine(engine *xorm.Engine, filename string) error {
 	return sess.Commit()
 }
 
-func backupFileRead(filename string) (*BackupData, error) {
-	cleaned := filepath.Clean(filename)
-	if cleaned != filepath.Base(cleaned) || cleaned == "." || cleaned == ".." {
-		return nil, fmt.Errorf("invalid backup filename")
-	}
-	if !strings.HasPrefix(cleaned, "remlink_backup_") {
-		return nil, fmt.Errorf("invalid backup filename")
-	}
-
-	b, err := os.ReadFile(filepath.Join(backupFileDir, cleaned))
-	if err != nil {
-		return nil, fmt.Errorf("读取备份文件失败: %w", err)
-	}
-
-	var data BackupData
-	if err := json.Unmarshal(b, &data); err != nil {
-		return nil, fmt.Errorf("解析备份文件失败: %w", err)
-	}
-
-	if data.Version != currentBackupVersion {
-		return nil, fmt.Errorf("备份文件版本不兼容: 当前支持版本 %d，备份文件版本 %d", currentBackupVersion, data.Version)
-	}
-
-	return &data, nil
-}
-
-func backupRestoreToSession(sess *xorm.Session, data *BackupData) (*base.ServerConfig, error) {
-	if err := restoreTables(sess, data); err != nil {
+// 在已有事务中还原所有表与配置
+func (im *Importer) restoreToSession(sess *xorm.Session, data *BackupData) (*base.ServerConfig, error) {
+	if err := im.restoreTables(sess, data); err != nil {
 		return nil, err
 	}
-	return restoreConfig(sess, data)
+	return im.restoreConfig(sess, data)
 }
 
-func restoreTables(sess *xorm.Session, data *BackupData) error {
+func (im *Importer) restoreTables(sess *xorm.Session, data *BackupData) error {
 	if data.Tables == nil {
 		return nil
 	}
 
 	existing := make(map[string]bool, len(data.Tables))
 	for name := range data.Tables {
-		bt, ok := backupTableByName[name]
+		bt, ok := GetBackupManager().TableByName[name]
 		if !ok {
 			continue
 		}
@@ -431,7 +406,7 @@ func restoreTables(sess *xorm.Session, data *BackupData) error {
 		if !existing[name] {
 			continue
 		}
-		if err := tableClear(sess, name); err != nil {
+		if err := im.ClearTable(sess, name); err != nil {
 			return fmt.Errorf("清空表 %s 失败: %w", name, err)
 		}
 	}
@@ -440,7 +415,7 @@ func restoreTables(sess *xorm.Session, data *BackupData) error {
 		if !existing[name] {
 			continue
 		}
-		if err := tableImport(sess, name, raw); err != nil {
+		if err := im.ImportTable(sess, name, raw); err != nil {
 			return fmt.Errorf("还原表 %s 失败: %w", name, err)
 		}
 	}
@@ -448,8 +423,9 @@ func restoreTables(sess *xorm.Session, data *BackupData) error {
 	return nil
 }
 
-func tableClear(sess *xorm.Session, name string) error {
-	bt, ok := backupTableByName[name]
+// 清空指定表的所有行
+func (im *Importer) ClearTable(sess *xorm.Session, name string) error {
+	bt, ok := GetBackupManager().TableByName[name]
 	if !ok {
 		return fmt.Errorf("unknown table: %s", name)
 	}
@@ -457,8 +433,9 @@ func tableClear(sess *xorm.Session, name string) error {
 	return err
 }
 
-func tableImport(sess *xorm.Session, name string, raw json.RawMessage) error {
-	bt, ok := backupTableByName[name]
+// 将单张表的 JSON 行批量写入
+func (im *Importer) ImportTable(sess *xorm.Session, name string, raw json.RawMessage) error {
+	bt, ok := GetBackupManager().TableByName[name]
 	if !ok {
 		return fmt.Errorf("unknown table: %s", name)
 	}
@@ -489,7 +466,7 @@ func tableImport(sess *xorm.Session, name string, raw json.RawMessage) error {
 	return nil
 }
 
-func restoreConfig(sess *xorm.Session, data *BackupData) (*base.ServerConfig, error) {
+func (im *Importer) restoreConfig(sess *xorm.Session, data *BackupData) (*base.ServerConfig, error) {
 	if data.Config == nil {
 		return nil, nil
 	}
@@ -533,6 +510,108 @@ func restoreConfig(sess *xorm.Session, data *BackupData) (*base.ServerConfig, er
 	}
 
 	return &cfgCopy, nil
+}
+
+// 读取并校验备份文件，返回解析后的结构
+func (im *Importer) ReadFile(filename string) (*BackupData, error) {
+	cleaned := filepath.Clean(filename)
+	if cleaned != filepath.Base(cleaned) || cleaned == "." || cleaned == ".." {
+		return nil, fmt.Errorf("invalid backup filename")
+	}
+	if !strings.HasPrefix(cleaned, "remlink_backup_") {
+		return nil, fmt.Errorf("invalid backup filename")
+	}
+
+	b, err := os.ReadFile(filepath.Join(backupFileDir, cleaned))
+	if err != nil {
+		return nil, fmt.Errorf("读取备份文件失败: %w", err)
+	}
+
+	var data BackupData
+	if err := json.Unmarshal(b, &data); err != nil {
+		return nil, fmt.Errorf("解析备份文件失败: %w", err)
+	}
+
+	if data.Version != currentBackupVersion {
+		return nil, fmt.Errorf("备份文件版本不兼容: 当前支持版本 %d，备份文件版本 %d", currentBackupVersion, data.Version)
+	}
+
+	return &data, nil
+}
+
+type BackupData struct {
+	Version   int                        `json:"version"`
+	Type      string                     `json:"type"` // "config" | "full"
+	CreatedAt string                     `json:"created_at"`
+	DbType    string                     `json:"db_type"`
+	DbSource  string                     `json:"db_source"`
+	Config    *base.ServerConfig         `json:"config,omitempty"`
+	Tables    map[string]json.RawMessage `json:"tables,omitempty"`
+	TLSCert   *SettingTLSCert            `json:"tls_cert,omitempty"`
+	ClientCA  *SettingClientCA           `json:"client_ca,omitempty"`
+}
+
+type TableSizeInfo struct {
+	Table string `json:"table"`
+	Name  string `json:"name"`
+	Rows  int64  `json:"rows"`
+	Group string `json:"group"`
+}
+
+type BackupFileInfo struct {
+	Name    string `json:"name"`
+	Size    int64  `json:"size"`
+	ModTime string `json:"mod_time"`
+	Type    string `json:"type"`
+}
+
+type dbConfig struct {
+	DbType   string `json:"db_type"`
+	DbSource string `json:"db_source"`
+}
+
+// 对 EncryptedJSON 字段输出加密形式（备份不落明文凭证）
+func marshalEncryptedRow(v any) (json.RawMessage, error) {
+	rv := reflect.ValueOf(v)
+	for rv.Kind() == reflect.Pointer {
+		rv = rv.Elem()
+	}
+	if rv.Kind() != reflect.Struct {
+		return json.Marshal(v)
+	}
+	out := make(map[string]json.RawMessage, rv.NumField())
+	rt := rv.Type()
+	for i := 0; i < rv.NumField(); i++ {
+		f := rt.Field(i)
+		if !f.IsExported() {
+			continue
+		}
+		tag := f.Tag.Get("json")
+		if tag == "" || tag == "-" {
+			continue
+		}
+		name := tag
+		if before, _, ok := strings.Cut(tag, ","); ok {
+			name = before
+		}
+		fv := rv.Field(i)
+		if ej, ok := fv.Addr().Interface().(interface {
+			MarshalEncrypted() ([]byte, error)
+		}); ok {
+			b, err := ej.MarshalEncrypted()
+			if err != nil {
+				return nil, err
+			}
+			out[name] = b
+			continue
+		}
+		b, err := json.Marshal(fv.Interface())
+		if err != nil {
+			return nil, err
+		}
+		out[name] = b
+	}
+	return json.Marshal(out)
 }
 
 func restoreCertSetting(sess *xorm.Session, name string, certData any) error {
