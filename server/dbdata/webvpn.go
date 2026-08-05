@@ -18,8 +18,8 @@ var (
 	errWebVpnInvalidId    = errors.New("无效的 ID")
 )
 
-// 校验应用名是否仅含小写字母、数字与中划线，
-// 用于作为 WebVPN 子域前缀（a.Name + "." + 域名）时的安全过滤。
+// 校验应用名是否仅含小写字母、数字与中划线
+// 用于作为 WebVPN 子域前缀（a.Name + "." + 域名）时的安全过滤
 func webVpnAppNameValid(name string) bool {
 	if name == "" {
 		return false
@@ -33,8 +33,8 @@ func webVpnAppNameValid(name string) bool {
 	return true
 }
 
-// 应用配置的进程内缓存，避免每个请求都查库。
-// Set/Del 后通过 InvalidateWebVpnAppCache 主动失效；TTL 兜底防止遗漏。
+// 应用配置的进程内缓存，避免每个请求都查库
+// Set/Del 后通过 InvalidateWebVpnAppCache 主动失效；TTL 兜底防止遗漏
 var webVpnAppCache = struct {
 	mu     sync.RWMutex
 	m      map[string]*WebVpnApp
@@ -50,7 +50,7 @@ func InvalidateWebVpnAppCache() {
 	webVpnAppCache.mu.Unlock()
 }
 
-// WebVpnApp 表示一个 WebVPN 反向代理应用配置。
+// WebVPN 反向代理应用配置
 // 通过子域名 *.WebVpnDomain 访问：子域名 = Name，反代到 Backend。
 type WebVpnApp struct {
 	Id          int       `json:"id" xorm:"pk autoincr not null"`
@@ -218,26 +218,6 @@ func GetWebVpnAppByName(name string) (*WebVpnApp, error) {
 	return a, nil
 }
 
-// 返回某用户有权访问的 WebVPN 应用（按用户名/用户组白名单过滤）。
-// 仅做用户维度的授权判断（不含来源 IP、路径等请求级限制），用于门户"我的应用"展示。
-func WebVpnAppsForUser(user *User) ([]WebVpnApp, error) {
-	var all []WebVpnApp
-	if err := Find(&all, -1, 0); err != nil {
-		return nil, err
-	}
-	result := make([]WebVpnApp, 0, len(all))
-	for _, a := range all {
-		if a.Status != 1 {
-			continue
-		}
-		if !WebVpnUserAllowed(&a, user) {
-			continue
-		}
-		result = append(result, a)
-	}
-	return result, nil
-}
-
 // 空白名单=全部放行；用户维度判断与 handler 层 webVpnAuthorized 保持一致。
 func WebVpnUserAllowed(a *WebVpnApp, user *User) bool {
 	if len(a.Users) > 0 {
@@ -322,11 +302,6 @@ type WebVpnAuditSearch struct {
 	AppName  string   `json:"app_name"`
 	Method   string   `json:"method"`
 	Date     []string `json:"date"`
-}
-
-// 清理早于指定时间的审计记录
-func ClearWebVpnAudit(ts string) (int64, error) {
-	return xdb.Where("created_at < ?", ts).Delete(&WebVpnAudit{})
 }
 
 // 导出查询：按条件返回全部审计记录

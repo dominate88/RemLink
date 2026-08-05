@@ -156,7 +156,7 @@ func initRoute() http.Handler {
 	r.HandleFunc("/webvpn/login-config", webVpnLoginConfig).Methods(http.MethodGet)
 	r.HandleFunc("/webvpn/me", webVpnMe).Methods(http.MethodGet)
 	r.HandleFunc("/webvpn/my-apps", webVpnMyApps).Methods(http.MethodGet)
-	r.HandleFunc("/webvpn/logout", webVpnLogout).Methods(http.MethodPost)
+	r.HandleFunc("/webvpn/logout", webVpnLogout).Methods(http.MethodGet, http.MethodPost)
 	// WebAuth 端点
 	r.HandleFunc("/web-auth/start", WebAuthStart).Methods(http.MethodGet)
 	r.HandleFunc("/web-auth/identify", WebAuthIdentify).Methods(http.MethodPost)

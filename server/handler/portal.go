@@ -21,6 +21,7 @@ import (
 	"github.com/wsczx/remlink/pkg/notify"
 	"github.com/wsczx/remlink/pkg/utils"
 	"github.com/wsczx/remlink/sessdata"
+	"github.com/wsczx/remlink/webvpn"
 	"github.com/xlzd/gotp"
 )
 
@@ -204,7 +205,7 @@ func PortalSSO(w http.ResponseWriter, r *http.Request) {
 	// 完成三方认证，设置 .WebVpnDomain 通配的 portal_session cookie，再回跳子域名，
 	// 由 webVpnExchangeFromPortal 兑换独立 WebVPN 会话。
 	// 该门户域名取自配置项 webvpn_sso_domain（仅 WebVPN 三方登录专用）；未配置时子域名三方登录不可用。
-	if webVpnHostPrefix(r.Host) != "" {
+	if _, ok := webVpnHostPrefix(r.Host); ok {
 		main := portalMainDomain(r)
 		if main == "" {
 			http.Error(w, "未配置 WebVPN 第三方登录专用门户域名，请先在系统设置中填写 webvpn_sso_domain", http.StatusBadRequest)
@@ -441,6 +442,19 @@ func PortalLogout(w http.ResponseWriter, r *http.Request) {
 		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
 		SameSite: http.SameSiteLaxMode,
 	})
+	// WebVPN 会话（webvpn_session）与门户会话本已解耦、各自独立。
+	// 但门户登出意味着“用户主动结束本次身份”，若不联动回收 WebVPN 会话，
+	// 浏览器里残留的旧 webvpn_session 仍可用（要么滞留旧权限、要么卡在无权限用户），
+	// 只能等会话到期或管理员手动踢。故此处联动吊销该用户的 WebVPN 会话：
+	// 下次访问子域会因会话失效而重新免登兑换（用当前/新身份）
+	// 仅整用户吊销（O(1) 抬阈值），同用户名在其他设备/标签的子域会话一并失效
+	if base.GetCfg().WebVpnDomain != "" {
+		if user, ok := portalCurrentUser(r); ok && user != nil {
+			webvpn.GetManager().Session().RevokeUser(user.Username)
+		}
+	}
+	// 清除一次性免登授权
+	webvpn.GetManager().Session().ClearGrantCookie(w, r)
 	portalOK(w, map[string]string{"message": "已退出"})
 }
 
@@ -958,15 +972,30 @@ func portalIssueLoginResponse(w http.ResponseWriter, r *http.Request, user *dbda
 		return portalAuthError("登录失败")
 	}
 	if w != nil {
-		http.SetCookie(w, &http.Cookie{
-			Name:     portalCookieName,
-			Value:    token,
-			Path:     "/",
-			Domain:   portalCookieDomain(r),
-			HttpOnly: true,
-			Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
-			SameSite: http.SameSiteLaxMode,
-		})
+		// WebVPN 子域登录场景：只签发 webvpn 免登授权
+		// 不写门户 portal_session。否则门户登录态会被父域共享 cookie 污染，
+		// 导致用户在父域门户无法切换到别的账号登录
+		_, fromWebVpn := webVpnHostPrefix(r.Host)
+		if !fromWebVpn {
+			http.SetCookie(w, &http.Cookie{
+				Name:     portalCookieName,
+				Value:    token,
+				Path:     "/",
+				Domain:   portalCookieDomain(r),
+				HttpOnly: true,
+				Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+				SameSite: http.SameSiteLaxMode,
+			})
+		}
+		// 若 WebVPN 已启用，登录后签发一次性免登授权 webvpn_grant，
+		// 用户在 WebVPN 子域首次访问时凭此兑换正式会话，无需重复登录
+		if base.GetCfg().WebVpnDomain != "" {
+			if jti, jerr := admin.JtiOf(token); jerr == nil {
+				if _, gerr := webvpn.GetManager().Session().IssueGrant(w, r, user, jti); gerr != nil {
+					base.Warn("WebVPN 免登授权签发失败:", gerr)
+				}
+			}
+		}
 	}
 	return portalAuthResponse{Data: map[string]any{
 		"status": "pass",

@@ -7,6 +7,7 @@ import (
 	"github.com/wsczx/remlink/cron"
 	"github.com/wsczx/remlink/dbdata"
 	"github.com/wsczx/remlink/sessdata"
+	"github.com/wsczx/remlink/webvpn"
 )
 
 // 初始化并启动所有服务组件：数据库、定时任务、认证会话、IP转发、管理后台等
@@ -20,7 +21,7 @@ func Start() {
 	auth.GetLockManager().Init()  // 初始化防爆破定时器和IP白名单
 	SessStore.StartCleanup()      // 启动认证会话定期清理
 	sessdata.CleanupAllNatRules() // 清理所有防火墙残留规则
-	webVpnAuditStart()            // 启动webvpn审计日志批量写入
+	webvpn.GetManager().Start()   // 启动 WebVPN 子系统（吊销阈值加载 + 审计批处理）
 
 	// 开启服务器转发
 	err := sysctlSet("net.ipv4.ip_forward", "1")
@@ -93,7 +94,7 @@ func Stop() {
 	cron.Stop()                  // 停止定时任务
 	SessStore.StopCleanup()      // 停止认证会话定期清理
 	auth.GetLockManager().Stop() // 停止防暴力破解清理协程
-	webVpnAuditStop()            // 停止webvpn审计日志批量写入
+	webvpn.GetManager().Stop()    // 停止 WebVPN 子系统（等待审计落库）
 	dbdata.Stop()                // 停止数据库
 	destroyVtap()                // 销毁虚拟网卡
 	// 停止 FakeDNS 管理器
