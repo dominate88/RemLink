@@ -2,7 +2,7 @@ module github.com/wsczx/remlink
 
 go 1.26.0
 
-toolchain go1.26.2
+toolchain go1.26.5
 
 require (
 	github.com/arl/statsviz v0.6.0
