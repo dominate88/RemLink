@@ -43,7 +43,7 @@ RemLink 基于 [ietf-openconnect](https://tools.ietf.org/html/draft-mavrogiannop
 - IP 分配（IP、MAC 映射持久化）
 - TLS-TCP 通道 / DTLS-UDP 通道
 - 兼容 AnyConnect / OpenConnect 客户端
-- tun 设备 NAT 模式 / tap、macvtap 设备桥接模式
+- tun 设备 NAT 模式 / tap、macvtap、ipvtap 设备桥接模式
 - 支持 proxy protocol v1 & v2
 - nftables/iptables 自动配置
 - 流量压缩（LZS）、出口 IP 自动放行
@@ -190,7 +190,7 @@ sudo systemctl enable --now remlink
 1. 启动后查看日志获取随机生成的管理员密码
 2. 浏览器访问 `https://<IP>:8800` 登录管理后台
 3. 进入「系统设置 > 安全设置」修改管理员密码
-4. 在「软件配置」中设置 `link_mode`（tun/tap/macvtap）和网络参数
+4. 在「软件配置」中设置 `link_mode`（tun/tap/macvtap/ipvtap）和网络参数
 5. 在「证书设置」中配置 TLS 证书（测试可用自签证书，生产建议申请正式证书）
 6. AnyConnect 客户端连接 `<域名>:443`
 
@@ -222,7 +222,7 @@ sudo systemctl enable --now remlink
 
 ## 网络模式
 
-`link_mode` 支持 `tun` / `tap` / `macvtap` 三种模式，可在管理后台「软件配置 → 虚拟网络」中设置，或配置 `link_mode` 参数，修改后重启服务生效。其中 `tun` 既可作为三层 NAT 隧道（默认），也可配合内核 `proxy_arp` 用作 ARP 代理桥接（即 anylink 俗称的 `arp_proxy`）。
+`link_mode` 支持 `tun` / `tap` / `macvtap` / `ipvtap` 四种模式，可在管理后台「软件配置 → 虚拟网络」中设置，或配置 `link_mode` 参数，修改后重启服务生效。其中 `tun` 既可作为三层 NAT 隧道（默认），也可配合内核 `proxy_arp` 用作 ARP 代理桥接（即 anylink 俗称的 `arp_proxy`）。
 
 ### tun 模式（推荐，三层 NAT 隧道）
 
@@ -255,11 +255,18 @@ sudo systemctl enable --now remlink
 - 适用场景：支持 `macvtap`（`macvlan`）内核模块的 Linux 宿主机（虚拟化宿主、物理机），追求更好性能的二层桥接。注意：macvlan 的 vepa / private 等模式会限制接口间或与宿主机互访，且部分容器 / 受限环境无法加载该模块；此类情况改回 tap。
 - 配置要点：主网卡开启混杂模式；关闭 NAT（`global_nat=false`）；需内核加载 `macvtap` 模块。
 
-> 桥接模式（tun + proxy_arp / tap / macvtap）在云环境通常不支持，请使用 tun 默认 NAT 隧道模式。
+### ipvtap 模式（桥接 / 三层，内核态）
+
+基于内核 `ipvtap`（`ipvlan`）模块，是 `macvtap` 的三层变体：虚拟网卡同样挂在主网卡上，但工作在三层、多个客户端共享主网卡 MAC 地址。客户端获得内网真实 IP，由内核直接路由桥接，性能与 macvtap 相当。
+
+- 适用场景：需要 macvtap 的桥接能力，但主网卡所在网络对 MAC 地址数量敏感（例如云厂商对网卡 MAC 加白、交换机端口安全限制 MAC 数）的场景；客户端数量多、不希望每个客户端占用一个独立 MAC 时尤为合适。
+- 配置要点：主网卡开启混杂模式；关闭 NAT（`global_nat=false`）；需内核加载 `ipvtap`（`ipvlan`）模块。与 macvtap 一样，在容器 / 受限环境可能无法加载该模块。
+
+> 桥接模式（tun + proxy_arp / tap / macvtap / ipvtap）在云环境通常不支持，请使用 tun 默认 NAT 隧道模式。
 
 ## IPv6 双栈
 
-RemLink 0.17.1 起支持 IPv4 / IPv6 双栈：客户端连接后可同时获得 IPv4 与 IPv6 地址，既能访问内网，也能访问公网 / 内网的 IPv6 资源。双栈叠加在任意网络模式（tun / tap / macvtap）之上，**无需改动你现有的 IPv4 配置**。
+RemLink 0.17.1 起支持 IPv4 / IPv6 双栈：客户端连接后可同时获得 IPv4 与 IPv6 地址，既能访问内网，也能访问公网 / 内网的 IPv6 资源。双栈叠加在任意网络模式（tun / tap / macvtap / ipvtap）之上，**无需改动你现有的 IPv4 配置**。
 
 ### 如何开启
 
